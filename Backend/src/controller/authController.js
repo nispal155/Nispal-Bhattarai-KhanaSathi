@@ -12,7 +12,7 @@ const generateToken = (id) => {
 // @route   POST /api/auth/register
 // @access  Public
 const registerUser = async (req, res) => {
-    const { username, email, password } = req.body;
+    const { username, role, email, password } = req.body;
 
     try {
         const userExists = await User.findOne({ email });
@@ -27,6 +27,7 @@ const registerUser = async (req, res) => {
 
         const user = await User.create({
             username,
+            role,
             email,
             password,
             otp,
@@ -84,6 +85,9 @@ const verifyOTP = async (req, res) => {
         user.isVerified = true;
         user.otp = undefined;
         user.otpExpires = undefined;
+        if (user.role === 'delivery_staff') {
+            user.isOnline = true;
+        }
         await user.save();
 
         res.json({
@@ -91,6 +95,8 @@ const verifyOTP = async (req, res) => {
             _id: user._id,
             username: user.username,
             email: user.email,
+            role: user.role,
+            isProfileComplete: user.isProfileComplete,
             token: generateToken(user._id),
         });
     } catch (error) {
@@ -154,10 +160,18 @@ const authUser = async (req, res) => {
         }
 
         if (await user.matchPassword(password)) {
+            // Update online status for delivery staff
+            if (user.role === 'delivery_staff') {
+                user.isOnline = true;
+                await user.save();
+            }
+
             res.json({
                 _id: user._id,
                 username: user.username,
+                role: user.role,
                 email: user.email,
+                isProfileComplete: user.isProfileComplete,
                 token: generateToken(user._id),
             });
         } else {
@@ -243,4 +257,21 @@ const resetPassword = async (req, res) => {
     }
 };
 
-module.exports = { registerUser, verifyOTP, resendOTP, authUser, forgotPassword, resetPassword };
+// @desc    Logout user / Set Offline
+// @route   POST /api/auth/logout
+// @access  Public (or Private)
+const logoutUser = async (req, res) => {
+    const { userId } = req.body;
+    try {
+        if (userId) {
+            await User.findByIdAndUpdate(userId, { isOnline: false });
+        }
+        res.status(200).json({ message: 'Logged out successfully' });
+    } catch (error) {
+        // Even if it fails, we want the client to proceed with local logout
+        console.error("Logout Error:", error);
+        res.status(200).json({ message: 'Logged out' });
+    }
+};
+
+module.exports = { registerUser, verifyOTP, resendOTP, authUser, forgotPassword, resetPassword, logoutUser };

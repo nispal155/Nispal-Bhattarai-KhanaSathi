@@ -7,6 +7,12 @@ const userSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    role: {
+        type: String,
+        enum: ['admin', 'restaurant', 'delivery_staff', 'customer', 'child'],
+        default: 'customer',
+        required: true
+    },
     email: {
         type: String,
         required: true,
@@ -26,6 +32,45 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    // Delivery Staff specific fields
+    isOnline: {
+        type: Boolean,
+        default: false
+    },
+    currentAssignment: {
+        type: String,
+        default: "None"
+    },
+    averageRating: {
+        type: Number,
+        default: 0
+    },
+    completedOrders: {
+        type: Number,
+        default: 0
+    },
+    averageDeliveryTime: {
+        type: String,
+        default: '0 min'
+    },
+    // Onboarding Fields
+    isProfileComplete: {
+        type: Boolean,
+        default: false
+    },
+    vehicleDetails: {
+        type: { type: String }, // e.g., 'Motorcycle', 'Scooter'
+        model: { type: String },
+        licensePlate: { type: String }
+    },
+    documents: {
+        driversLicense: { type: String },
+        vehicleInsurance: { type: String }
+    },
+    profilePicture: {
+        type: String,
+        default: ''
+    }
 }, {
     timestamps: true,
 });
