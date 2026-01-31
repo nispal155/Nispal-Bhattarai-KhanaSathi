@@ -79,6 +79,23 @@ const userSchema = new mongoose.Schema({
         businessLicense: { type: String },
         healthPermit: { type: String },
         taxId: { type: String }
+    },
+    // Additional customer fields
+    phone: {
+        type: String
+    },
+    dateOfBirth: {
+        type: Date
+    },
+    loyaltyPoints: {
+        type: Number,
+        default: 0
+    },
+    // Notification preferences
+    notifications: {
+        push: { type: Boolean, default: true },
+        email: { type: Boolean, default: true },
+        sms: { type: Boolean, default: false }
     }
 }, {
     timestamps: true,

@@ -2,24 +2,65 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, CreditCard, Wallet, Building2, Check } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, CreditCard, Wallet, Building2, Check, Loader2, MapPin } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { getCart } from "@/lib/cartService";
+import { createOrder } from "@/lib/orderService";
+
+interface CartItem {
+  _id: string;
+  menuItem: {
+    _id: string;
+    name: string;
+    price: number;
+    image?: string;
+  };
+  quantity: number;
+}
+
+interface CartData {
+  _id: string;
+  items: CartItem[];
+  subtotal: number;
+  promoDiscount: number;
+  restaurant: {
+    name: string;
+  }
+}
 
 export default function PaymentPage() {
-  const [selectedPayment, setSelectedPayment] = useState("esewa");
+  const router = useRouter();
+  const [cart, setCart] = useState<CartData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedPayment, setSelectedPayment] = useState("cod");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const orderSummary = {
-    items: [
-      { name: "Chicken Momo (10 pcs)", quantity: 2, price: 440 },
-      { name: "Veg Thali", quantity: 1, price: 180 },
-      { name: "Masala Tea", quantity: 2, price: 80 },
-    ],
-    subtotal: 700,
-    deliveryFee: 50,
-    serviceFee: 20,
-    discount: 0,
-    total: 770,
+  // Address State
+  const [address, setAddress] = useState({
+    addressLine1: "",
+    city: "Kathmandu",
+    state: "Bagmati",
+    zipCode: "44600",
+  });
+
+  useEffect(() => {
+    fetchCartData();
+  }, []);
+
+  const fetchCartData = async () => {
+    try {
+      setLoading(true);
+      const response = await getCart();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseData = response?.data as any;
+      const cartData = responseData?.data || responseData;
+      setCart(cartData);
+    } catch (err) {
+      console.error("Error fetching cart:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const paymentMethods = [
@@ -30,22 +71,10 @@ export default function PaymentPage() {
       description: "Pay with your eSewa wallet",
     },
     {
-      id: "khalti",
-      name: "Khalti",
-      icon: "💜",
-      description: "Pay with your Khalti wallet",
-    },
-    {
       id: "card",
       name: "Credit/Debit Card",
       icon: "card",
       description: "Visa, Mastercard, or other cards",
-    },
-    {
-      id: "bank",
-      name: "Bank Transfer",
-      icon: "bank",
-      description: "Direct bank transfer",
     },
     {
       id: "cod",
@@ -55,13 +84,64 @@ export default function PaymentPage() {
     },
   ];
 
-  const handlePayment = () => {
-    setIsProcessing(true);
-    // Simulate payment processing
-    setTimeout(() => {
-      window.location.href = "/success";
-    }, 2000);
+  const handlePayment = async () => {
+    if (!cart) return;
+
+    if (!address.addressLine1) {
+      alert("Please enter a street address");
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+
+      const orderData = {
+        deliveryAddress: address,
+        paymentMethod: selectedPayment,
+        specialInstructions: "", // Can add this field if needed
+      };
+
+      const response = await createOrder(orderData);
+
+      if (response && response.data && response.data.data) {
+        // Redirect to specific order tracking page
+        router.push(`/order-tracking/${response.data.data._id}`);
+      } else {
+        // Fallback to list
+        router.push("/order-tracking");
+      }
+
+    } catch (err: any) {
+      console.error("Payment error:", err);
+      alert(err.response?.data?.message || "Order creation failed");
+    } finally {
+      setIsProcessing(false);
+    }
   };
+
+  // Calculations
+  const subtotal = cart?.items.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0) || 0;
+  const deliveryFee = 50;
+  const serviceFee = 20;
+  const discount = cart?.promoDiscount || 0;
+  const total = subtotal + deliveryFee + serviceFee - discount;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+      </div>
+    );
+  }
+
+  if (!cart || cart.items.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <h2 className="text-xl font-bold mb-4">Your cart is empty</h2>
+        <Link href="/browse-restaurants" className="text-red-500 underline">Browse Restaurants</Link>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -85,7 +165,7 @@ export default function PaymentPage() {
               <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
                 <span>🛒</span> Cart
               </Link>
-              <Link href="/profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+              <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
                 <span>👤</span> Profile
               </Link>
             </div>
@@ -100,18 +180,61 @@ export default function PaymentPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Button */}
         <Link
-          href="/checkout"
+          href="/cart"
           className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
         >
           <ArrowLeft className="w-5 h-5" />
-          <span>Back to Checkout</span>
+          <span>Back to Cart</span>
         </Link>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-8">Payment</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-8">Checkout & Payment</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Payment Methods */}
+
           <div className="lg:col-span-2 space-y-6">
+
+            {/* Delivery Address Form */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <MapPin className="text-red-500" />
+                <h2 className="font-semibold text-gray-900">Delivery Address</h2>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded p-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="e.g. 123 Main St"
+                    value={address.addressLine1}
+                    onChange={(e) => setAddress({ ...address, addressLine1: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                    <input
+                      type="text"
+                      className="w-full border border-gray-300 rounded p-2"
+                      value={address.city}
+                      onChange={(e) => setAddress({ ...address, city: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Zip Code</label>
+                    <input
+                      type="text"
+                      className="w-full border border-gray-300 rounded p-2"
+                      value={address.zipCode}
+                      onChange={(e) => setAddress({ ...address, zipCode: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Methods */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <h2 className="font-semibold text-gray-900 mb-4">Select Payment Method</h2>
 
@@ -119,11 +242,10 @@ export default function PaymentPage() {
                 {paymentMethods.map((method) => (
                   <label
                     key={method.id}
-                    className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${
-                      selectedPayment === method.id
-                        ? "border-red-500 bg-red-50"
-                        : "border-gray-200 hover:bg-gray-50"
-                    }`}
+                    className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${selectedPayment === method.id
+                      ? "border-red-500 bg-red-50"
+                      : "border-gray-200 hover:bg-gray-50"
+                      }`}
                   >
                     <input
                       type="radio"
@@ -136,8 +258,6 @@ export default function PaymentPage() {
                     <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
                       {method.icon === "card" ? (
                         <CreditCard className="w-6 h-6 text-gray-600" />
-                      ) : method.icon === "bank" ? (
-                        <Building2 className="w-6 h-6 text-gray-600" />
                       ) : (
                         <span className="text-2xl">{method.icon}</span>
                       )}
@@ -156,68 +276,24 @@ export default function PaymentPage() {
               </div>
             </div>
 
-            {/* Card Details (shown only when card is selected) */}
+            {/* Card Details Placeholders */}
             {selectedPayment === "card" && (
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="font-semibold text-gray-900 mb-4">Card Details</h2>
-
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Card Number
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="1234 5678 9012 3456"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Expiry Date
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="MM/YY"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        CVV
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="123"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Cardholder Name
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="John Doe"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
+                  <p className="text-sm text-gray-500 italic">Card payment integration coming soon. Please choose COD for now.</p>
                 </div>
               </div>
             )}
 
-            {/* Wallet Login (shown for eSewa/Khalti) */}
-            {(selectedPayment === "esewa" || selectedPayment === "khalti") && (
+            {/* Wallet Login (shown for eSewa) */}
+            {selectedPayment === "esewa" && (
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="font-semibold text-gray-900 mb-4">
-                  {selectedPayment === "esewa" ? "eSewa" : "Khalti"} Login
+                  eSewa Login
                 </h2>
                 <p className="text-gray-600 mb-4">
-                  You will be redirected to {selectedPayment === "esewa" ? "eSewa" : "Khalti"} to complete your payment.
+                  You will be redirected to eSewa to complete your payment.
                 </p>
                 <div className="flex items-center gap-2 p-4 bg-green-50 rounded-lg">
                   <Wallet className="w-5 h-5 text-green-600" />
@@ -232,13 +308,17 @@ export default function PaymentPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-6 sticky top-24">
               <h2 className="font-semibold text-gray-900 mb-4">Order Summary</h2>
 
-              <div className="space-y-3 text-sm mb-4">
-                {orderSummary.items.map((item, index) => (
-                  <div key={index} className="flex justify-between">
+              <div className="mb-4 text-sm text-gray-500">
+                Restaurant: <span className="font-medium text-gray-900">{cart.restaurant?.name}</span>
+              </div>
+
+              <div className="space-y-3 text-sm mb-4 max-h-60 overflow-y-auto">
+                {cart.items.map((item) => (
+                  <div key={item._id} className="flex justify-between">
                     <span className="text-gray-600">
-                      {item.name} x{item.quantity}
+                      {item.menuItem.name} <span className="text-xs">x{item.quantity}</span>
                     </span>
-                    <span className="text-gray-900">Rs. {item.price}</span>
+                    <span className="text-gray-900">Rs. {item.menuItem.price * item.quantity}</span>
                   </div>
                 ))}
               </div>
@@ -246,22 +326,28 @@ export default function PaymentPage() {
               <div className="border-t border-gray-200 pt-3 space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Subtotal</span>
-                  <span className="text-gray-900">Rs. {orderSummary.subtotal}</span>
+                  <span className="text-gray-900">Rs. {subtotal}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Delivery Fee</span>
-                  <span className="text-gray-900">Rs. {orderSummary.deliveryFee}</span>
+                  <span className="text-gray-900">Rs. {deliveryFee}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Service Fee</span>
-                  <span className="text-gray-900">Rs. {orderSummary.serviceFee}</span>
+                  <span className="text-gray-900">Rs. {serviceFee}</span>
                 </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Discount</span>
+                    <span>-Rs. {discount}</span>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-gray-200 pt-3 mt-3">
                 <div className="flex justify-between font-semibold text-lg">
                   <span>Total</span>
-                  <span>Rs. {orderSummary.total}</span>
+                  <span>Rs. {total}</span>
                 </div>
               </div>
 
@@ -272,14 +358,11 @@ export default function PaymentPage() {
               >
                 {isProcessing ? (
                   <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
                     Processing...
                   </>
                 ) : (
-                  `Pay Rs. ${orderSummary.total}`
+                  `Place Order - Rs. ${total}`
                 )}
               </button>
 
@@ -293,11 +376,7 @@ export default function PaymentPage() {
       </div>
 
       {/* Footer */}
-      <footer className="bg-red-500 mt-16 py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-white">
-          <p>© 2025 KhanaSathi. All rights reserved.</p>
-        </div>
-      </footer>
+
     </div>
   );
 }

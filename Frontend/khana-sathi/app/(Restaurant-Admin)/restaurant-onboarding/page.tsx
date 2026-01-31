@@ -4,9 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import toast from 'react-hot-toast';
-import axios from 'axios';
-
-const API_URL = "http://localhost:5003/api/restaurants";
+import { onboardRestaurant as onboardRestaurantApi } from '@/lib/restaurantService';
 
 export default function RestaurantOnboardingPage() {
     const router = useRouter();
@@ -63,7 +61,7 @@ export default function RestaurantOnboardingPage() {
                     state: formData.state,
                     zipCode: formData.zipCode
                 },
-                cuisineType: formData.cuisineType,
+                cuisineType: formData.cuisineType, // Service handles array conversion if needed? No, controller does.
                 openingHour: formData.openingHour,
                 closingHour: formData.closingHour,
                 contactPhone: formData.contactPhone,
@@ -76,18 +74,17 @@ export default function RestaurantOnboardingPage() {
                 }
             };
 
-            const token = localStorage.getItem('token');
-            await axios.put(`${API_URL}/onboard`, onboardData, {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            });
+            const response = await onboardRestaurantApi(onboardData);
 
-            toast.success("Onboarding details submitted successfully!");
-            router.push('/waiting-approval');
+            if (response.error) {
+                toast.error(response.error);
+            } else {
+                toast.success("Onboarding details submitted successfully!");
+                router.push('/waiting-approval');
+            }
         } catch (error: any) {
             console.error(error);
-            toast.error(error.response?.data?.message || "Failed to submit onboarding details");
+            toast.error("Failed to submit onboarding details");
         } finally {
             setIsLoading(false);
         }

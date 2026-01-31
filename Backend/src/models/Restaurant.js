@@ -58,6 +58,31 @@ const restaurantSchema = new mongoose.Schema(
       default: true
     },
 
+    averageRating: {
+      type: Number,
+      default: 0
+    },
+
+    reviewCount: {
+      type: Number,
+      default: 0
+    },
+
+    deliveryTime: {
+      min: { type: Number, default: 30 },
+      max: { type: Number, default: 45 }
+    },
+
+    priceRange: {
+      type: String,
+      enum: ['$', '$$', '$$$', '$$$$'],
+      default: '$$'
+    },
+
+    tags: [{
+      type: String
+    }],
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

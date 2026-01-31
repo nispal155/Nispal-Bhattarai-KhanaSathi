@@ -37,6 +37,14 @@ export interface Restaurant {
   contactEmail: string;
   logoUrl?: string;
   isActive: boolean;
+  averageRating: number;
+  reviewCount: number;
+  deliveryTime: {
+    min: number;
+    max: number;
+  };
+  priceRange: '$' | '$$' | '$$$' | '$$$$';
+  tags: string[];
   createdAt: string;
 }
 

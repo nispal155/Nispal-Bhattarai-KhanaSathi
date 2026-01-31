@@ -1,9 +1,32 @@
+"use client";
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronDown, Star } from "lucide-react";
+import { ChevronDown, Star, Search, Menu, X } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const { user, logout } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const router = useRouter();
+
+  const handleSearch = () => {
+    if (searchQuery.trim()) {
+      router.push(`/browse-restaurants?search=${encodeURIComponent(searchQuery)}`);
+    } else {
+      router.push('/browse-restaurants');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white font-sans">
 
@@ -12,26 +35,62 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             {/* Logo */}
-            <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-3">
               <div className="relative w-12 h-12">
                 <Image src="/logo-chili.png" alt="KhanaSathi" fill className="object-contain" />
               </div>
               <span className="text-2xl md:text-3xl font-bold">KhanaSathi</span>
-            </div>
+            </Link>
 
             {/* Right side - Login/Signup + mobile menu icon */}
             <div className="flex items-center gap-6">
-              <button className="hidden md:flex items-center gap-2 px-6 py-3 bg-white text-red-700 font-semibold rounded-full hover:bg-gray-100 transition">
-                Login / Signup
-              </button>
-              <button className="lg:hidden text-white">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
+              {user ? (
+                <div className="hidden md:flex items-center gap-4">
+                  <Link href="/user-profile" className="font-semibold hover:text-yellow-200">
+                    Hi, {user.username}
+                  </Link>
+                  <button
+                    onClick={logout}
+                    className="px-6 py-2 bg-white text-red-700 font-semibold rounded-full hover:bg-gray-100 transition"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  href="/login"
+                  className="hidden md:flex items-center gap-2 px-6 py-3 bg-white text-red-700 font-semibold rounded-full hover:bg-gray-100 transition"
+                >
+                  Login / Signup
+                </Link>
+              )}
+
+              <button
+                className="lg:hidden text-white"
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+              >
+                {isMenuOpen ? <X className="w-8 h-8" /> : <Menu className="w-8 h-8" />}
               </button>
             </div>
           </div>
         </div>
+
+        {/* Mobile Menu */}
+        {isMenuOpen && (
+          <div className="lg:hidden bg-red-600 p-4 absolute w-full shadow-xl">
+            <div className="flex flex-col gap-4">
+              <Link href="/browse-restaurants" className="text-white font-semibold">Browse Restaurants</Link>
+              {user ? (
+                <>
+                  <Link href="/user-profile" className="text-white font-semibold">Profile</Link>
+                  <button onClick={logout} className="text-left text-white font-semibold">Logout</button>
+                </>
+              ) : (
+                <Link href="/login" className="text-white font-semibold">Login / Signup</Link>
+              )}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* Hero Section */}
@@ -44,19 +103,27 @@ export default function Home() {
               <span className="text-red-600">Best Restaurants</span>
             </h1>
 
-            
+
 
             {/* Search bar */}
             <div className="relative max-w-5xl mx-auto">
               <div className="relative z-20 max-w-3xl mx-auto">
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="relative flex-1">
-                    <select className="w-full px-8 py-6 bg-white border-2 border-gray-300 rounded-full text-gray-700 text-lg focus:outline-none focus:border-red-500 shadow-xl appearance-none">
-                      <option>Our Restaurants</option>
-                    </select>
-                    <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 w-7 h-7 text-gray-500 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search for restaurants..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      className="w-full px-8 py-6 bg-white border-2 border-gray-300 rounded-full text-gray-700 text-lg focus:outline-none focus:border-red-500 shadow-xl"
+                    />
+                    <Search className="absolute right-8 top-1/2 -translate-y-1/2 w-7 h-7 text-gray-400" />
                   </div>
-                  <button className="bg-red-600 hover:bg-red-700 text-white font-bold text-xl px-12 py-6 rounded-full shadow-2xl transition transform hover:scale-105">
+                  <button
+                    onClick={handleSearch}
+                    className="bg-red-600 hover:bg-red-700 text-white font-bold text-xl px-12 py-6 rounded-full shadow-2xl transition transform hover:scale-105"
+                  >
                     Explore menu
                   </button>
                 </div>
@@ -194,117 +261,7 @@ export default function Home() {
       </section>
 
       {/* Footer - exact match to your screenshot */}
-      <footer className="relative bg-white pt-16 pb-12 overflow-hidden">
-        {/* Background doodles */}
-        <div className="absolute inset-0 pointer-events-none opacity-10">
-          <div className="absolute -bottom-20 left-0 w-96 h-96">
-            <Image src="/doodle-pizza-slice.png" alt="" fill className="object-contain" />
-          </div>
-          <div className="absolute top-10 right-10 w-80 h-80">
-            <Image src="/doodle-mushroom.png" alt="" fill className="object-contain" />
-          </div>
-          <div className="absolute bottom-32 right-40 w-64 h-64">
-            <Image src="/doodle-leaves.png" alt="" fill className="object-contain" />
-          </div>
-          <div className="absolute top-40 left-32 w-72 h-72">
-            <Image src="/doodle-burger.png" alt="" fill className="object-contain" />
-          </div>
-        </div>
 
-        <div className="relative max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16">
-            {/* Red Box */}
-            <div className="md:col-span-1">
-              <div className="bg-red-600 text-white rounded-3xl p-10 shadow-2xl max-w-md mx-auto md:mx-0">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="relative w-16 h-16">
-                    <Image src="/logo-bowl-noodles.png" alt="KhanaSathi" fill className="object-contain" />
-                  </div>
-                  <h3 className="text-3xl font-bold">KhanaSathi</h3>
-                </div>
-
-                <p className="text-lg mb-3">
-                  Tuesday – Saturday: 12:00pm – 23:00pm
-                </p>
-                <p className="text-lg font-semibold">
-                  Closed on Sunday
-                </p>
-
-                <div className="mt-6 flex items-center gap-2 text-yellow-300 text-lg">
-                  <Star className="w-6 h-6 fill-current" />
-                  <span>5 star rated on TripAdvisor</span>
-                </div>
-              </div>
-            </div>
-
-            {/* About */}
-            <div>
-              <h4 className="text-2xl font-bold text-gray-900 mb-6 pb-2 border-b-4 border-yellow-400 inline-block">
-                About
-              </h4>
-              <ul className="space-y-3 text-gray-700 text-lg">
-                <li className="hover:text-red-600 transition cursor-pointer">Fredoka One</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Steaks</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Special Dish</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Reservation</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Contact</li>
-              </ul>
-            </div>
-
-            {/* Menu */}
-            <div>
-              <h4 className="text-2xl font-bold text-gray-900 mb-6 pb-2 border-b-4 border-yellow-400 inline-block">
-                Menu
-              </h4>
-              <ul className="space-y-3 text-gray-700 text-lg">
-                <li className="hover:text-red-600 transition cursor-pointer">Steaks</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Special Dish</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Burgers</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Cocails</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Bar B Q</li>
-                <li className="hover:text-red-600 transition cursor-pointer">Desserts</li>
-              </ul>
-            </div>
-
-            {/* Newsletter */}
-            <div>
-              <h4 className="text-2xl font-bold text-gray-900 mb-6 pb-2 border-b-4 border-yellow-400 inline-block">
-                Newsletter
-              </h4>
-              <p className="text-gray-600 mb-5 text-lg">
-                Get recent news and updates.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="email"
-                  placeholder="Email Address"
-                  className="flex-1 px-6 py-4 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none focus:border-red-500 text-gray-700 text-lg"
-                />
-                <button className="bg-red-600 hover:bg-red-700 text-white px-10 py-4 rounded-xl font-semibold text-lg transition">
-                  Subscribe
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Yellow Line + Copyright + Social */}
-          <div className="mt-20 pt-10">
-            <div className="h-2 bg-yellow-400 w-full mb-8"></div>
-
-            <div className="max-w-7xl mx-auto px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center text-gray-600 text-base">
-              <p>
-                © 2025 TesteNest | All shawonetc3 Themes
-              </p>
-
-              <div className="flex gap-10 mt-6 md:mt-0">
-                <a href="#" className="hover:text-red-600 transition font-medium">Facebook</a>
-                <a href="#" className="hover:text-red-600 transition font-medium">Instagram</a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

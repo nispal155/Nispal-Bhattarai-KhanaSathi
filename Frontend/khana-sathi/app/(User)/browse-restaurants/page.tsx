@@ -2,77 +2,116 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Search, Clock, Star, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { Search, Clock, Star, ChevronDown, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { getAllRestaurants, Restaurant } from "@/lib/restaurantService";
+
+interface RestaurantDisplay {
+  _id: string;
+  slug: string;
+  image: string;
+  name: string;
+  rating: number;
+  cuisine: string;
+  priceRange: string;
+  deliveryTime: string;
+  tags: string[];
+}
 
 export default function BrowseRestaurants() {
+  const { user } = useAuth();
   const [cuisineFilters, setCuisineFilters] = useState<string[]>([]);
   const [ratingFilter, setRatingFilter] = useState("any");
   const [deliveryFilter, setDeliveryFilter] = useState("any");
   const [allergyFilters, setAllergyFilters] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("recommended");
+  const [restaurants, setRestaurants] = useState<RestaurantDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const restaurants = [
-    {
-      slug: "the-spice-route",
-      image: "/restaurant-1.jpg",
-      name: "The Spice Route",
-      rating: 4.5,
-      cuisine: "Indian",
-      priceRange: "$$",
-      deliveryTime: "30-45 min",
-      tags: ["Healthy", "Family-Friendly"],
-    },
-    {
-      slug: "mama-mias-pizzeria",
-      image: "/restaurant-2.jpg",
-      name: "Mama Mia's Pizzeria",
-      rating: 4.8,
-      cuisine: "Italian",
-      priceRange: "$$",
-      deliveryTime: "20-30 min",
-      tags: ["Family-Friendly"],
-    },
-    {
-      slug: "sushi-central",
-      image: "/restaurant-3.jpg",
-      name: "Sushi Central",
-      rating: 4.2,
-      cuisine: "Japanese",
-      priceRange: "$$$",
-      deliveryTime: "35-50 min",
-      tags: ["Healthy"],
-    },
-    {
-      slug: "burger-haven",
-      image: "/restaurant-4.jpg",
-      name: "Burger Haven",
-      rating: 4.3,
-      cuisine: "American",
-      priceRange: "$",
-      deliveryTime: "25-40 min",
-      tags: [],
-    },
-    {
-      slug: "nepali-kitchen",
-      image: "/restaurant-5.jpg",
-      name: "Nepali Kitchen",
-      rating: 4.7,
-      cuisine: "Nepali",
-      priceRange: "$$",
-      deliveryTime: "40-55 min",
-      tags: ["Vegetarian-Friendly"],
-    },
-    {
-      slug: "healthy-bowl-co",
-      image: "/restaurant-6.jpg",
-      name: "Healthy Bowl Co.",
-      rating: 4.6,
-      cuisine: "Healthy",
-      priceRange: "$$",
-      deliveryTime: "20-35 min",
-      tags: ["Healthy", "Vegan Options"],
-    },
-  ];
+  useEffect(() => {
+    fetchRestaurants();
+  }, []);
+
+  const fetchRestaurants = async () => {
+    try {
+      setLoading(true);
+      const response = await getAllRestaurants();
+      // Handle the nested API response structure
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseData = response?.data as any;
+      const restaurantsData: Restaurant[] = responseData?.data || responseData || [];
+
+      const formattedRestaurants: RestaurantDisplay[] = (Array.isArray(restaurantsData) ? restaurantsData : []).map((r: Restaurant) => ({
+        _id: r._id,
+        slug: r._id,
+        image: r.logoUrl || "/restaurant-placeholder.jpg",
+        name: r.name,
+        rating: r.averageRating || 0,
+        cuisine: r.cuisineType?.join(", ") || "Various",
+        priceRange: r.priceRange || "$$",
+        deliveryTime: r.deliveryTime ? `${r.deliveryTime.min}-${r.deliveryTime.max} min` : "30-45 min",
+        tags: r.tags || [],
+      }));
+      setRestaurants(formattedRestaurants);
+    } catch (err) {
+      console.error("Error fetching restaurants:", err);
+      setError("Failed to load restaurants");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Filter restaurants based on current filters
+  const filteredRestaurants = restaurants.filter((restaurant) => {
+    // Search filter
+    if (searchQuery && !restaurant.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !restaurant.cuisine.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false;
+    }
+
+    // Cuisine filter
+    if (cuisineFilters.length > 0 && !cuisineFilters.some(c => restaurant.cuisine.includes(c))) {
+      return false;
+    }
+
+    // Rating filter
+    if (ratingFilter === "4+" && restaurant.rating < 4) return false;
+    if (ratingFilter === "3+" && restaurant.rating < 3) return false;
+
+    // Delivery time filter
+    if (deliveryFilter === "30") {
+      const minTime = parseInt(restaurant.deliveryTime.split("-")[0]);
+      if (minTime >= 30) return false;
+    }
+    if (deliveryFilter === "60") {
+      const minTime = parseInt(restaurant.deliveryTime.split("-")[0]);
+      if (minTime < 30 || minTime > 60) return false;
+    }
+
+    // Allergy filter
+    if (allergyFilters.length > 0 && !allergyFilters.some(a => restaurant.tags.includes(a))) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // Sort restaurants
+  const sortedRestaurants = [...filteredRestaurants].sort((a, b) => {
+    switch (sortBy) {
+      case "rating":
+        return b.rating - a.rating;
+      case "deliveryTime":
+        return parseInt(a.deliveryTime) - parseInt(b.deliveryTime);
+      case "priceAsc":
+        return a.priceRange.length - b.priceRange.length;
+      default:
+        return 0;
+    }
+  });
 
   const cuisines = ["Indian", "Italian", "Japanese", "American", "Nepali", "Chinese"];
   const allergyOptions = ["Gluten-Free", "Vegetarian", "Dairy-Free", "Nut-Free"];
@@ -89,7 +128,6 @@ export default function BrowseRestaurants() {
               </div>
               <div>
                 <span className="text-red-500 font-bold text-lg">Khana Sathi</span>
-                <span className="block text-xs text-red-400">Admin</span>
               </div>
             </Link>
 
@@ -100,7 +138,7 @@ export default function BrowseRestaurants() {
               <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
                 <span>🛒</span> Cart
               </Link>
-              <Link href="/profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+              <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
                 <span>👤</span> Profile
               </Link>
               <Link href="/support" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
@@ -108,8 +146,11 @@ export default function BrowseRestaurants() {
               </Link>
             </div>
 
-            <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-              <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
+            <div className="flex items-center gap-3">
+              {user && <span className="text-gray-700 font-medium">Hi, {user.username}</span>}
+              <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
+                <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
+              </div>
             </div>
           </div>
         </div>
@@ -265,6 +306,8 @@ export default function BrowseRestaurants() {
                 <input
                   type="text"
                   placeholder="Search for restaurants or dishes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
@@ -284,75 +327,105 @@ export default function BrowseRestaurants() {
               <h1 className="text-2xl font-bold text-gray-900">Restaurants Near You</h1>
               <div className="flex items-center gap-2">
                 <span className="text-gray-600">Sort by:</span>
-                <select className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500">
-                  <option>Recommended</option>
-                  <option>Rating</option>
-                  <option>Delivery Time</option>
-                  <option>Price: Low to High</option>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="recommended">Recommended</option>
+                  <option value="rating">Rating</option>
+                  <option value="deliveryTime">Delivery Time</option>
+                  <option value="priceAsc">Price: Low to High</option>
                 </select>
               </div>
             </div>
 
-            {/* Restaurant Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {restaurants.map((restaurant) => (
-                <Link
-                  key={restaurant.slug}
-                  href={`/view-restaurant/${restaurant.slug}`}
-                  className="bg-white rounded-xl overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow"
+            {/* Loading State */}
+            {loading && (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+                <span className="ml-2 text-gray-600">Loading restaurants...</span>
+              </div>
+            )}
+
+            {/* Error State */}
+            {error && (
+              <div className="text-center py-12">
+                <p className="text-red-500 mb-4">{error}</p>
+                <button
+                  onClick={fetchRestaurants}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
                 >
-                  <div className="relative h-40 bg-gray-200">
-                    <Image
-                      src={restaurant.image}
-                      alt={restaurant.name}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                  <div className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-semibold text-gray-900">{restaurant.name}</h3>
-                      <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                        <span className="text-sm font-medium">{restaurant.rating}</span>
-                      </div>
+                  Try Again
+                </button>
+              </div>
+            )}
+
+            {/* No Results */}
+            {!loading && !error && sortedRestaurants.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-gray-600">No restaurants found matching your criteria.</p>
+              </div>
+            )}
+
+            {/* Restaurant Grid */}
+            {!loading && !error && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {sortedRestaurants.map((restaurant) => (
+                  <Link
+                    key={restaurant._id}
+                    href={`/view-restaurant/${restaurant._id}`}
+                    className="bg-white rounded-xl overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow"
+                  >
+                    <div className="relative h-40 bg-gray-200">
+                      <Image
+                        src={restaurant.image}
+                        alt={restaurant.name}
+                        fill
+                        className="object-cover"
+                      />
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">
-                      {restaurant.cuisine} • {restaurant.priceRange}
-                    </p>
-                    <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
-                      <Clock className="w-4 h-4" />
-                      <span>{restaurant.deliveryTime}</span>
-                    </div>
-                    {restaurant.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {restaurant.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full"
-                          >
-                            {tag}
-                          </span>
-                        ))}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="font-semibold text-gray-900">{restaurant.name}</h3>
+                        <div className="flex items-center gap-1">
+                          <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                          <span className="text-sm font-medium">{restaurant.rating}</span>
+                        </div>
                       </div>
-                    )}
-                    <button className="w-full mt-4 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg font-medium transition-colors">
-                      View Restaurants
-                    </button>
-                  </div>
-                </Link>
-              ))}
-            </div>
+                      <p className="text-sm text-gray-600 mb-2">
+                        {restaurant.cuisine} • {restaurant.priceRange}
+                      </p>
+                      <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
+                        <Clock className="w-4 h-4" />
+                        <span>{restaurant.deliveryTime}</span>
+                      </div>
+                      {restaurant.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {restaurant.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <button className="w-full mt-4 bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg font-medium transition-colors">
+                        View Menu
+                      </button>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </main>
         </div>
       </div>
 
       {/* Footer */}
-      <footer className="bg-red-500 mt-16 py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-white">
-          <p>© 2025 KhanaSathi. All rights reserved.</p>
-        </div>
-      </footer>
+
     </div>
   );
 }

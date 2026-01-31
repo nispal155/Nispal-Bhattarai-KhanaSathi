@@ -2,40 +2,69 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Phone, MessageSquare, MapPin, Clock } from "lucide-react";
+import { Clock, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { getMyOrders } from "@/lib/orderService";
 
-export default function OrderTrackingPage() {
-  const orderStatus = {
-    currentStep: 3, // 1: Confirmed, 2: Preparing, 3: On the way, 4: Delivered
-    orderId: "KS-2025-0142",
-    estimatedTime: "15-20 min",
-    restaurant: {
-      name: "Nepali Kitchen",
-      address: "Thamel, Kathmandu",
-    },
-    deliveryAddress: "123 Durbar Marg, Kathmandu",
-    rider: {
-      name: "Ram Sharma",
-      phone: "+977 9812345678",
-      image: "/rider.jpg",
-      rating: 4.8,
-      vehicle: "Honda Dio",
-      vehicleNumber: "BA 12 PA 1234",
-    },
-    items: [
-      { name: "Chicken Momo (10 pcs)", quantity: 2, price: 440 },
-      { name: "Veg Thali", quantity: 1, price: 180 },
-      { name: "Masala Tea", quantity: 2, price: 80 },
-    ],
-    total: 770,
+interface Order {
+  _id: string;
+  orderNumber: string;
+  restaurant: {
+    name: string;
+  };
+  status: string;
+  pricing: {
+    total: number;
+  };
+  createdAt: string;
+}
+
+export default function OrdersListPage() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  const fetchOrders = async () => {
+    try {
+      setLoading(true);
+      const response = await getMyOrders();
+      const ordersData = response?.data?.data || response?.data || [];
+      setOrders(Array.isArray(ordersData) ? ordersData : []);
+    } catch (err) {
+      console.error("Error fetching orders:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const steps = [
-    { id: 1, title: "Order Confirmed", description: "Your order has been received" },
-    { id: 2, title: "Preparing", description: "Restaurant is preparing your food" },
-    { id: 3, title: "On the Way", description: "Your rider is heading to you" },
-    { id: 4, title: "Delivered", description: "Enjoy your meal!" },
-  ];
+  const filteredOrders = orders.filter(order => {
+    if (filter === "all") return true;
+    if (filter === "active") return !["delivered", "cancelled"].includes(order.status);
+    if (filter === "completed") return order.status === "delivered";
+    if (filter === "cancelled") return order.status === "cancelled";
+    return true;
+  });
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "delivered": return "bg-green-100 text-green-700";
+      case "cancelled": return "bg-red-100 text-red-700";
+      case "pending": return "bg-yellow-100 text-yellow-700";
+      default: return "bg-blue-100 text-blue-700";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -59,11 +88,8 @@ export default function OrderTrackingPage() {
               <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
                 <span>🛒</span> Cart
               </Link>
-              <Link href="/profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+              <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
                 <span>👤</span> Profile
-              </Link>
-              <Link href="/support" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>💬</span> Support
               </Link>
             </div>
 
@@ -75,173 +101,65 @@ export default function OrderTrackingPage() {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Order Header */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Order #{orderStatus.orderId}</h1>
-              <p className="text-gray-600 text-sm">From {orderStatus.restaurant.name}</p>
-            </div>
-            <div className="flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
-              <Clock className="w-4 h-4" />
-              <span className="font-medium">{orderStatus.estimatedTime}</span>
-            </div>
-          </div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">My Orders</h1>
 
-          {/* Progress Steps */}
-          <div className="relative">
-            <div className="flex justify-between mb-2">
-              {steps.map((step, index) => (
-                <div key={step.id} className="flex flex-col items-center flex-1">
-                  <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${
-                      step.id <= orderStatus.currentStep
-                        ? "bg-red-500 text-white"
-                        : "bg-gray-200 text-gray-500"
-                    }`}
-                  >
-                    {step.id < orderStatus.currentStep ? (
-                      <span>✓</span>
-                    ) : (
-                      <span>{step.id}</span>
-                    )}
-                  </div>
-                  <span
-                    className={`text-xs mt-2 text-center ${
-                      step.id <= orderStatus.currentStep
-                        ? "text-red-500 font-medium"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    {step.title}
-                  </span>
-                </div>
-              ))}
-            </div>
-            {/* Progress Line */}
-            <div className="absolute top-5 left-0 right-0 h-1 bg-gray-200 z-0" style={{ marginLeft: '5%', marginRight: '5%' }}>
-              <div
-                className="h-full bg-red-500 transition-all duration-500"
-                style={{
-                  width: `${((orderStatus.currentStep - 1) / (steps.length - 1)) * 100}%`,
-                }}
-              />
-            </div>
-          </div>
+        {/* Filters */}
+        <div className="flex gap-3 mb-6">
+          {["all", "active", "completed", "cancelled"].map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-2 rounded-full text-sm font-medium capitalize transition-colors ${filter === f
+                  ? "bg-red-500 text-white"
+                  : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+                }`}
+            >
+              {f}
+            </button>
+          ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Rider Info */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Delivery Partner</h2>
-
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden">
-                <Image
-                  src={orderStatus.rider.image}
-                  alt={orderStatus.rider.name}
-                  width={64}
-                  height={64}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-medium text-gray-900">{orderStatus.rider.name}</h3>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <span className="text-yellow-500">★</span>
-                  <span>{orderStatus.rider.rating} Rating</span>
-                </div>
-                <p className="text-sm text-gray-500">
-                  {orderStatus.rider.vehicle} • {orderStatus.rider.vehicleNumber}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <a
-                href={`tel:${orderStatus.rider.phone}`}
-                className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-medium transition-colors"
+        {/* Orders List */}
+        {filteredOrders.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500 mb-4">No orders found</p>
+            <Link
+              href="/browse-restaurants"
+              className="inline-block bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              Browse Restaurants
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filteredOrders.map((order) => (
+              <Link
+                key={order._id}
+                href={`/order-tracking/${order._id}`}
+                className="block bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow"
               >
-                <Phone className="w-5 h-5" />
-                Call
-              </a>
-              <button className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white py-3 rounded-lg font-medium transition-colors">
-                <MessageSquare className="w-5 h-5" />
-                Message
-              </button>
-            </div>
-          </div>
-
-          {/* Delivery Address */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Delivery Address</h2>
-
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                <MapPin className="w-5 h-5 text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900">Home</h3>
-                <p className="text-gray-600">{orderStatus.deliveryAddress}</p>
-              </div>
-            </div>
-
-            {/* Map Placeholder */}
-            <div className="h-40 bg-gray-200 rounded-lg flex items-center justify-center">
-              <span className="text-gray-500">Live Map Tracking</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Order Items */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Order Items</h2>
-
-          <div className="space-y-3">
-            {orderStatus.items.map((item, index) => (
-              <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                <div className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-sm font-medium">
-                    {item.quantity}
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-medium text-gray-900">Order #{order.orderNumber}</h3>
+                  <span className={`text-xs px-3 py-1 rounded-full capitalize ${getStatusColor(order.status)}`}>
+                    {order.status.replace("_", " ")}
                   </span>
-                  <span className="text-gray-900">{item.name}</span>
                 </div>
-                <span className="font-medium text-gray-900">Rs. {item.price}</span>
-              </div>
+                <p className="text-sm text-gray-600 mb-2">{order.restaurant?.name || "Restaurant"}</p>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Clock className="w-4 h-4" />
+                    <span>{new Date(order.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <span className="font-medium">Rs. {order.pricing?.total || 0}</span>
+                </div>
+              </Link>
             ))}
           </div>
-
-          <div className="border-t border-gray-200 mt-4 pt-4">
-            <div className="flex justify-between font-semibold text-lg">
-              <span>Total</span>
-              <span>Rs. {orderStatus.total}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Help Section */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Need Help?</h2>
-          <div className="flex flex-wrap gap-3">
-            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-              Report an Issue
-            </button>
-            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-              Cancel Order
-            </button>
-            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-              Contact Support
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Footer */}
-      <footer className="bg-red-500 mt-16 py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-white">
-          <p>© 2025 KhanaSathi. All rights reserved.</p>
-        </div>
-      </footer>
+
     </div>
   );
 }

@@ -2,9 +2,17 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./src/config/db');
+
+// Route imports
 const authRoutes = require('./src/routes/authRoutes');
 const restaurantRoutes = require('./src/routes/restaurantRoutes');
 const staffRoutes = require('./src/routes/staffRoutes');
+const menuRoutes = require('./src/routes/menuRoutes');
+const orderRoutes = require('./src/routes/orderRoutes');
+const cartRoutes = require('./src/routes/cartRoutes');
+const userRoutes = require('./src/routes/userRoutes');
+const reviewRoutes = require('./src/routes/reviewRoutes');
+const promoRoutes = require('./src/routes/promoRoutes');
 
 dotenv.config();
 
@@ -15,12 +23,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/restaurant', restaurantRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/menu', menuRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/promo', promoRoutes);
 
 app.get('/', (req, res) => {
-    res.send('API is running...');
+    res.send('KhanaSathi API is running...');
 });
 
 const PORT = process.env.PORT || 5000;

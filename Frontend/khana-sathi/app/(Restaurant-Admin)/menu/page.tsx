@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import Link from "next/link";
+import { useState, useEffect } from "react";
 import {
   Home,
   UtensilsCrossed,
@@ -16,25 +17,97 @@ import {
   LogOut,
   Edit2,
   Trash2,
+  Loader2,
+  Plus,
 } from "lucide-react";
+import { getMyMenu, updateMenuItem, deleteMenuItem } from "@/lib/menuService";
+
+interface MenuItem {
+  _id: string;
+  name: string;
+  description?: string;
+  price: number;
+  category: string;
+  imageUrl?: string;
+  isAvailable: boolean;
+  isVegetarian?: boolean;
+  isVegan?: boolean;
+  preparationTime?: number;
+}
 
 export default function MenuManagement() {
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showInStockOnly, setShowInStockOnly] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  const menuItems = [
-    { name: "Classic Margherita Pizza", category: "Pizza", price: "NPR 250", inStock: true },
-    { name: "Spicy Arrabbiata Pasta", category: "Pasta", price: "NPR 140", inStock: false },
-    { name: "Grilled Chicken Salad", category: "Salads", price: "NPR 190", inStock: true },
-    { name: "Cheeseburger Deluxe", category: "Burgers", price: "NPR 190", inStock: true },
-    { name: "Vegetable Lasagna", category: "Pasta", price: "NPR 300", inStock: true },
-    { name: "Chocolate Lava Cake", category: "Desserts", price: "NPR 350", inStock: false },
-    { name: "Creamy Mushroom Risotto", category: "Italian", price: "NPR 220", inStock: true },
-    { name: "Fish and Chips", category: "Seafood", price: "NPR 330", inStock: true },
-  ];
+  useEffect(() => {
+    fetchMenu();
+  }, []);
 
-  const filteredItems = showInStockOnly
-    ? menuItems.filter((item) => item.inStock)
-    : menuItems;
+  const fetchMenu = async () => {
+    try {
+      setLoading(true);
+      const response = await getMyMenu();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseData = response?.data as any;
+      const menuData = responseData?.data || responseData || [];
+      // Handle both flat array and categorized object
+      if (Array.isArray(menuData)) {
+        setMenuItems(menuData);
+      } else if (typeof menuData === 'object') {
+        const flatMenu: MenuItem[] = [];
+        Object.values(menuData).forEach((items) => {
+          if (Array.isArray(items)) {
+            flatMenu.push(...(items as MenuItem[]));
+          }
+        });
+        setMenuItems(flatMenu);
+      }
+    } catch (err) {
+      console.error("Error fetching menu:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleAvailability = async (item: MenuItem) => {
+    try {
+      setUpdating(item._id);
+      await updateMenuItem(item._id, { isAvailable: !item.isAvailable });
+      setMenuItems(prev => prev.map(m => 
+        m._id === item._id ? { ...m, isAvailable: !m.isAvailable } : m
+      ));
+    } catch (err) {
+      console.error("Error updating item:", err);
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const handleDelete = async (itemId: string) => {
+    if (!confirm("Are you sure you want to delete this menu item?")) return;
+    try {
+      setDeleting(itemId);
+      await deleteMenuItem(itemId);
+      setMenuItems(prev => prev.filter(m => m._id !== itemId));
+    } catch (err) {
+      console.error("Error deleting item:", err);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // Get unique categories
+  const categories = ["all", ...Array.from(new Set(menuItems.map(item => item.category)))];
+
+  const filteredItems = menuItems.filter(item => {
+    if (showInStockOnly && !item.isAvailable) return false;
+    if (selectedCategory !== "all" && item.category !== selectedCategory) return false;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -110,16 +183,28 @@ export default function MenuManagement() {
             <h1 className="text-4xl font-bold text-gray-900">Menu Management</h1>
             <p className="text-gray-600 mt-2">Manage all your delicious menu items, their prices, and availability.</p>
           </div>
-          <button className="bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-full font-bold shadow-lg transition">
-            + Add Menu Item
-          </button>
+          <Link href="/add-menu" className="bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-full font-bold shadow-lg transition flex items-center gap-2">
+            <Plus className="w-5 h-5" /> Add Menu Item
+          </Link>
         </header>
 
         <div className="p-8">
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+            </div>
+          ) : (
+          <>
           {/* Filters */}
           <div className="flex flex-col md:flex-row gap-6 mb-10 items-center">
-            <select className="px-6 py-4 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 text-gray-700">
-              <option>All Categories</option>
+            <select 
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="px-6 py-4 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 text-gray-700"
+            >
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat === "all" ? "All Categories" : cat}</option>
+              ))}
             </select>
 
             <div className="flex items-center gap-4">
@@ -139,56 +224,84 @@ export default function MenuManagement() {
             </div>
 
             <div className="ml-auto">
-              <button className="px-8 py-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition">
-                Bulk Price Update
-              </button>
+              <span className="text-gray-600">{filteredItems.length} items</span>
             </div>
           </div>
 
           {/* Menu Grid */}
+          {filteredItems.length === 0 ? (
+            <div className="text-center py-20">
+              <p className="text-gray-500 mb-4">No menu items found</p>
+              <Link href="/add-menu" className="inline-block bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition">
+                Add Your First Menu Item
+              </Link>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-            {filteredItems.map((item, index) => (
-              <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Image Placeholder - No Dashed Border */}
-                <div className="h-56 bg-gray-300">
-                  {/* Solid gray placeholder - no lines */}
+            {filteredItems.map((item) => (
+              <div key={item._id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                {/* Image */}
+                <div className="h-56 bg-gray-200 relative">
+                  {item.imageUrl ? (
+                    <Image src={item.imageUrl} alt={item.name} fill className="object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <UtensilsCrossed className="w-12 h-12 text-gray-400" />
+                    </div>
+                  )}
+                  {item.isVegetarian && (
+                    <span className="absolute top-2 left-2 px-2 py-1 bg-green-500 text-white text-xs rounded">Veg</span>
+                  )}
                 </div>
 
                 {/* Content */}
                 <div className="p-6">
-                  <h3 className="text-xl font-bold text-gray-900 mb-3">{item.name}</h3>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">{item.name}</h3>
+                  {item.description && (
+                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">{item.description}</p>
+                  )}
                   <div className="flex items-center justify-between mb-6">
                     <span className="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm font-medium">
                       {item.category}
                     </span>
-                    <span className="text-xl font-bold text-gray-900">{item.price}</span>
+                    <span className="text-xl font-bold text-gray-900">Rs. {item.price}</span>
                   </div>
 
                   {/* Stock Toggle & Actions */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <button
+                        onClick={() => handleToggleAvailability(item)}
+                        disabled={updating === item._id}
                         className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${
-                          item.inStock ? "bg-red-500" : "bg-gray-300"
-                        }`}
+                          item.isAvailable ? "bg-red-500" : "bg-gray-300"
+                        } ${updating === item._id ? "opacity-50" : ""}`}
                       >
                         <span
                           className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${
-                            item.inStock ? "translate-x-7" : "translate-x-1"
+                            item.isAvailable ? "translate-x-7" : "translate-x-1"
                           }`}
                         />
                       </button>
-                      <span className={`text-sm font-medium ${item.inStock ? "text-green-700" : "text-gray-500"}`}>
-                        {item.inStock ? "In Stock" : "Out of Stock"}
+                      <span className={`text-sm font-medium ${item.isAvailable ? "text-green-700" : "text-gray-500"}`}>
+                        {item.isAvailable ? "In Stock" : "Out of Stock"}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <button className="text-gray-600 hover:text-blue-600 transition">
+                      <Link href={`/edit-menu?id=${item._id}`} className="text-gray-600 hover:text-blue-600 transition">
                         <Edit2 className="w-5 h-5" />
-                      </button>
-                      <button className="text-gray-600 hover:text-red-600 transition">
-                        <Trash2 className="w-5 h-5" />
+                      </Link>
+                      <button 
+                        onClick={() => handleDelete(item._id)}
+                        disabled={deleting === item._id}
+                        className="text-gray-600 hover:text-red-600 transition disabled:opacity-50"
+                      >
+                        {deleting === item._id ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-5 h-5" />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -196,6 +309,9 @@ export default function MenuManagement() {
               </div>
             ))}
           </div>
+          )}
+          </>
+          )}
         </div>
 
         {/* Footer */}

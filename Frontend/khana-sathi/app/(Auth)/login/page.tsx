@@ -77,7 +77,8 @@ export default function LoginPage() {
           router.push('/RM-Dashboard');
         }
       } else {
-        router.push('/');
+        // Default for customers - Redirect to Home (Browse Restaurants)
+        router.push('/browse-restaurants');
       }
     }
   };
