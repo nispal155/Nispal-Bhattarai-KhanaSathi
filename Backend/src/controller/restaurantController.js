@@ -1,7 +1,9 @@
 const Restaurant = require("../models/Restaurant");
+const User = require("../models/User");
+const { sendWelcomeEmail } = require("../services/emailService");
 
 /**
- * @desc    Create a new restaurant
+ * @desc    Create a new restaurant (Admin sets name and manager credentials)
  * @route   POST /api/restaurants
  * @access  Private (Admin)
  */
@@ -9,46 +11,71 @@ exports.createRestaurant = async (req, res) => {
   try {
     const {
       name,
-      addressLine1,
-      addressLine2,
-      city,
-      state,
-      zipCode,
-      cuisineType,
-      openingHour,
-      closingHour,
-      contactPhone,
-      contactEmail,
-      logoUrl
+      username,
+      email,
+      password
     } = req.body;
 
-    // Convert comma-separated cuisines to array
-    const cuisineArray = cuisineType
-      .split(",")
-      .map(c => c.trim());
+    if (!name || !username || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide restaurant name and manager credentials"
+      });
+    }
 
+    // Check if user exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: "User with this email already exists"
+      });
+    }
+
+    // Create Manager User
+    // Note: We set isVerified to true for admin-created accounts (or send OTP if required)
+    // For consistency with staffController, we could use the OTP flow, 
+    // but usually admin-added managers might be pre-verified. 
+    // Let's stick to the user's staff flow for consistency.
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    const user = await User.create({
+      username,
+      email,
+      password,
+      role: 'restaurant',
+      isVerified: false,
+      otp,
+      otpExpires
+    });
+
+    // Create Restaurant Skeleton
     const restaurant = await Restaurant.create({
       name,
-      address: {
-        addressLine1,
-        addressLine2,
-        city,
-        state,
-        zipCode
-      },
-      cuisineType: cuisineArray,
-      openingHour,
-      closingHour,
-      contactPhone,
-      contactEmail,
-      logoUrl,
-      createdBy: req.user._id // from auth middleware
+      createdBy: user._id,
+      isActive: true // Active but manager still needs to onboard
     });
+
+    // Send Welcome Email
+    try {
+      await sendWelcomeEmail(email, username, password, 'Restaurant Manager', otp);
+    } catch (emailError) {
+      console.error("Failed to send welcome email to restaurant manager:", emailError);
+      // We don't fail the whole request if email fails, but it's good to log
+    }
 
     res.status(201).json({
       success: true,
-      message: "Restaurant created successfully",
-      data: restaurant
+      message: "Restaurant and manager account created. Manager must now verify and onboard.",
+      data: {
+        restaurant,
+        user: {
+          _id: user._id,
+          username: user.username,
+          email: user.email
+        }
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -183,6 +210,144 @@ exports.deleteRestaurant = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete restaurant",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Onboard a restaurant (first-time details and documents)
+ * @route   PUT /api/restaurants/onboard
+ * @access  Private (Restaurant Manager)
+ */
+exports.onboardRestaurant = async (req, res) => {
+  try {
+    const {
+      name,
+      address,
+      cuisineType,
+      openingHour,
+      closingHour,
+      contactPhone,
+      contactEmail,
+      logoUrl,
+      documents
+    } = req.body;
+
+    const userId = req.user._id;
+
+    // Create or update restaurant record
+    let restaurant = await Restaurant.findOne({ createdBy: userId });
+
+    const cuisineArray = Array.isArray(cuisineType)
+      ? cuisineType
+      : cuisineType.split(",").map(c => c.trim());
+
+    if (restaurant) {
+      restaurant.name = name;
+      restaurant.address = address;
+      restaurant.cuisineType = cuisineArray;
+      restaurant.openingHour = openingHour;
+      restaurant.closingHour = closingHour;
+      restaurant.contactPhone = contactPhone;
+      restaurant.contactEmail = contactEmail;
+      restaurant.logoUrl = logoUrl;
+    } else {
+      restaurant = new Restaurant({
+        name,
+        address,
+        cuisineType: cuisineArray,
+        openingHour,
+        closingHour,
+        contactPhone,
+        contactEmail,
+        logoUrl,
+        createdBy: userId
+      });
+    }
+
+    await restaurant.save();
+
+    // Update user's documents and mark profile as complete
+    const user = await User.findById(userId);
+    user.restaurantDocuments = documents;
+    user.isProfileComplete = true;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Onboarding details submitted. Waiting for admin approval.",
+      data: restaurant
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed during onboarding",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Approve a restaurant manager
+ * @route   PUT /api/restaurants/approve/:userId
+ * @access  Private (Admin)
+ */
+exports.approveRestaurant = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    user.isApproved = true;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Restaurant manager approved successfully"
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to approve restaurant manager",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get onboarding details for a restaurant manager
+ * @route   GET /api/restaurants/onboarding-details/:userId
+ * @access  Private (Admin)
+ */
+exports.getOnboardingDetails = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select('restaurantDocuments username email isApproved');
+    const restaurant = await Restaurant.findOne({ createdBy: req.params.userId });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user,
+        restaurant
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch onboarding details",
       error: error.message
     });
   }

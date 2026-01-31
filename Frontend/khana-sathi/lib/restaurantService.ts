@@ -4,12 +4,15 @@ import { post, get, put, del } from './api';
 
 export interface RestaurantPayload {
   name?: string;
+  username?: string;
+  email?: string;
+  password?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
   state?: string;
   zipCode?: string;
-  cuisineType?: string; 
+  cuisineType?: string;
   openingHour?: string;
   closingHour?: string;
   contactPhone?: string;
@@ -90,4 +93,28 @@ export async function updateRestaurant(
  */
 export async function deleteRestaurant(id: string) {
   return del<ApiResponse<null>>(`/restaurant/${id}`);
+}
+
+/**
+ * ONBOARD RESTAURANT
+ * PUT /api/restaurants/onboard
+ */
+export async function onboardRestaurant(payload: any) {
+  return put<ApiResponse<Restaurant>>('/restaurant/onboard', payload);
+}
+
+/**
+ * APPROVE RESTAURANT
+ * PUT /api/restaurants/approve/:userId
+ */
+export async function approveRestaurant(userId: string) {
+  return put<ApiResponse<null>>(`/restaurant/approve/${userId}`, {});
+}
+
+/**
+ * GET ONBOARDING DETAILS
+ * GET /api/restaurants/onboarding-details/:userId
+ */
+export async function getOnboardingDetails(userId: string) {
+  return get<ApiResponse<any>>(`/restaurant/onboarding-details/${userId}`);
 }

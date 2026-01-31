@@ -70,6 +70,15 @@ const userSchema = new mongoose.Schema({
     profilePicture: {
         type: String,
         default: ''
+    },
+    isApproved: {
+        type: Boolean,
+        default: false
+    },
+    restaurantDocuments: {
+        businessLicense: { type: String },
+        healthPermit: { type: String },
+        taxId: { type: String }
     }
 }, {
     timestamps: true,

@@ -1,7 +1,5 @@
-"use client";
-
-import Image from "next/image";
-import { Home, Store, FileText, Users, Shield, Settings, LogOut, Search } from "lucide-react";
+import AdminSidebar from "@/components/admin/AdminSidebar";
+import { Search } from "lucide-react";
 
 export default function ParentalControl() {
   const requests = [
@@ -44,53 +42,6 @@ export default function ParentalControl() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-lg relative">
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-10">
-            <Image src="/logo.png" alt="KhanaSathi" width={40} height={40} className="object-contain" />
-            <div>
-              <h1 className="text-xl font-bold text-red-600">KhanaSathi</h1>
-              <p className="text-sm text-gray-600">Admin</p>
-            </div>
-          </div>
-
-          <nav className="space-y-2">
-            <a href="/admin-dashboard" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Home className="w-5 h-5" />
-              Home
-            </a>
-            <a href="/Restaurants" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Store className="w-5 h-5" />
-              Restaurants
-            </a>
-            <a href="/Reports" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <FileText className="w-5 h-5" />
-              Reports
-            </a>
-            <a href="/delivery-staff" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Users className="w-5 h-5" />
-              Delivery Staff
-            </a>
-            <a href="/parental-control" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
-              <Shield className="w-5 h-5" />
-              Parental Control
-            </a>
-          </nav>
-        </div>
-
-        {/* Bottom Links */}
-        <div className="absolute bottom-6 left-6 right-6 space-y-3">
-          <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-            <Settings className="w-5 h-5" />
-            Settings
-          </a>
-          <a href="#" className="flex items-center gap-4 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition">
-            <LogOut className="w-5 h-5" />
-            Logout
-          </a>
-        </div>
-      </aside>
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
@@ -141,7 +92,7 @@ export default function ParentalControl() {
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="text-left px-6 py-4">
-                      
+
                     </th>
                     <th className="text-left px-6 py-4 text-sm font-medium text-gray-600">Parent Name</th>
                     <th className="text-left px-6 py-4 text-sm font-medium text-gray-600">Child Name</th>
@@ -161,13 +112,12 @@ export default function ParentalControl() {
                       <td className="px-6 py-5 text-gray-900">{req.child}</td>
                       <td className="px-6 py-5 text-gray-700">{req.date}</td>
                       <td className="px-6 py-5">
-                        <span className={`px-4 py-2 rounded-full text-sm font-medium ${
-                          req.status === "pending"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : req.status === "approved"
+                        <span className={`px-4 py-2 rounded-full text-sm font-medium ${req.status === "pending"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : req.status === "approved"
                             ? "bg-green-100 text-green-700"
                             : "bg-red-100 text-red-700"
-                        }`}>
+                          }`}>
                           {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
                         </span>
                       </td>

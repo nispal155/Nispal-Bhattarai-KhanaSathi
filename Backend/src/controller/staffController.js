@@ -16,9 +16,14 @@ const addStaff = async (req, res) => {
         }
 
         const userExists = await User.findOne({ email });
+        const usernameExists = await User.findOne({ username });
 
         if (userExists) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ message: 'User with this email already exists' });
+        }
+
+        if (usernameExists) {
+            return res.status(400).json({ message: 'Username already taken' });
         }
 
         // Generate OTP for initial verification
@@ -39,10 +44,16 @@ const addStaff = async (req, res) => {
         if (user) {
             console.log("Staff User Created:", user._id);
 
-            
-            sendWelcomeEmail(email, username, password, 'Delivery Staff', otp)
-                .then(result => console.log("Email Result:", result))
-                .catch(err => console.error("Email Sending Failed:", err));
+            try {
+                const emailResult = await sendWelcomeEmail(email, username, password, 'Delivery Staff', otp);
+                if (emailResult.success) {
+                    console.log("Welcome Email Sent Successfully:", emailResult.messageId);
+                } else {
+                    console.error("Welcome Email Sending Failed:", emailResult.error);
+                }
+            } catch (emailError) {
+                console.error("Critical Error during Welcome Email process:", emailError);
+            }
 
             res.status(201).json({
                 _id: user._id,

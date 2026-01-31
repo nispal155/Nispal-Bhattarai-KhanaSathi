@@ -4,11 +4,18 @@ const {
   getAllRestaurants,
   getRestaurantById,
   updateRestaurant,
-  deleteRestaurant
+  deleteRestaurant,
+  onboardRestaurant,
+  approveRestaurant,
+  getOnboardingDetails
 } = require("../controller/restaurantController");
 const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+router.put("/onboard", protect, onboardRestaurant);
+router.put("/approve/:userId", protect, approveRestaurant);
+router.get("/onboarding-details/:userId", protect, getOnboardingDetails);
 
 router.post("/", protect, createRestaurant);
 router.get("/", getAllRestaurants);

@@ -97,6 +97,7 @@ const verifyOTP = async (req, res) => {
             email: user.email,
             role: user.role,
             isProfileComplete: user.isProfileComplete,
+            isApproved: user.isApproved,
             token: generateToken(user._id),
         });
     } catch (error) {
@@ -172,6 +173,7 @@ const authUser = async (req, res) => {
                 role: user.role,
                 email: user.email,
                 isProfileComplete: user.isProfileComplete,
+                isApproved: user.isApproved,
                 token: generateToken(user._id),
             });
         } else {

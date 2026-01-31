@@ -25,6 +25,15 @@ const transporter = nodemailer.createTransport({
   logger: true,
 });
 
+// Verify connection configuration
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('SMTP Connection Error:', error);
+  } else {
+    console.log('Server is ready to take our messages');
+  }
+});
+
 // Generate 6-digit OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();

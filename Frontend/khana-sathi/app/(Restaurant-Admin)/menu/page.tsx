@@ -2,68 +2,34 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { Home, UtensilsCrossed, ClipboardList, Star, Tag, FileText, Users, DollarSign, MessageCircle, Package, Settings, LogOut, Edit2, Trash2 } from "lucide-react";
+import {
+  Home,
+  UtensilsCrossed,
+  ClipboardList,
+  Star,
+  Tag,
+  FileText,
+  Users,
+  MessageCircle,
+  Package,
+  Settings,
+  LogOut,
+  Edit2,
+  Trash2,
+} from "lucide-react";
 
 export default function MenuManagement() {
   const [showInStockOnly, setShowInStockOnly] = useState(false);
 
   const menuItems = [
-    {
-      name: "Classic Margherita Pizza",
-      category: "Pizza",
-      price: "NPR 250",
-      inStock: true,
-      image: "/pizza.jpg",
-    },
-    {
-      name: "Spicy Arrabbiata Pasta",
-      category: "Pasta",
-      price: "NPR 140",
-      inStock: false,
-      image: "/pasta.jpg",
-    },
-    {
-      name: "Grilled Chicken Salad",
-      category: "Salads",
-      price: "NPR 190",
-      inStock: true,
-      image: "/salad.jpg",
-    },
-    {
-      name: "Cheeseburger Deluxe",
-      category: "Burgers",
-      price: "NPR 190",
-      inStock: true,
-      image: "/burger.jpg",
-    },
-    {
-      name: "Vegetable Lasagna",
-      category: "Pasta",
-      price: "NPR 300",
-      inStock: true,
-      image: "/lasagna.jpg",
-    },
-    {
-      name: "Chocolate Lava Cake",
-      category: "Desserts",
-      price: "NPR 350",
-      inStock: false,
-      image: "/cake.jpg",
-    },
-    {
-      name: "Creamy Mushroom Risotto",
-      category: "Italian",
-      price: "NPR 220",
-      inStock: true,
-      image: "/risotto.jpg",
-    },
-    {
-      name: "Fish and Chips",
-      category: "Seafood",
-      price: "NPR 330",
-      inStock: true,
-      image: "/fish.jpg",
-    },
+    { name: "Classic Margherita Pizza", category: "Pizza", price: "NPR 250", inStock: true },
+    { name: "Spicy Arrabbiata Pasta", category: "Pasta", price: "NPR 140", inStock: false },
+    { name: "Grilled Chicken Salad", category: "Salads", price: "NPR 190", inStock: true },
+    { name: "Cheeseburger Deluxe", category: "Burgers", price: "NPR 190", inStock: true },
+    { name: "Vegetable Lasagna", category: "Pasta", price: "NPR 300", inStock: true },
+    { name: "Chocolate Lava Cake", category: "Desserts", price: "NPR 350", inStock: false },
+    { name: "Creamy Mushroom Risotto", category: "Italian", price: "NPR 220", inStock: true },
+    { name: "Fish and Chips", category: "Seafood", price: "NPR 330", inStock: true },
   ];
 
   const filteredItems = showInStockOnly
@@ -85,11 +51,11 @@ export default function MenuManagement() {
               <Home className="w-5 h-5" />
               Dashboard
             </a>
-            <a href="/RM-Dashboard/menu" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
+            <a href="/menu" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
               <UtensilsCrossed className="w-5 h-5" />
               Menu
             </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+            <a href="/orders-board" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
               <ClipboardList className="w-5 h-5" />
               Orders Board
             </a>
@@ -110,7 +76,7 @@ export default function MenuManagement() {
               Staff
             </a>
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <DollarSign className="w-5 h-5" />
+              <span className="text-2xl font-bold">रु</span>
               Payments
             </a>
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
@@ -183,10 +149,9 @@ export default function MenuManagement() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {filteredItems.map((item, index) => (
               <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Image */}
-                <div className="h-56 bg-gray-200 relative">
-                  <div className="absolute inset-0 bg-gray-300 border-2 border-dashed rounded-t-2xl" />
-                  {/* Placeholder - replace with real image if available */}
+                {/* Image Placeholder - No Dashed Border */}
+                <div className="h-56 bg-gray-300">
+                  {/* Solid gray placeholder - no lines */}
                 </div>
 
                 {/* Content */}

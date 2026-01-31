@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Home, UtensilsCrossed, ClipboardList, Star, Tag, Users, DollarSign, MessageCircle, Package, Settings, LogOut , FileText} from "lucide-react";
+import { Home, UtensilsCrossed, ClipboardList, Star, Tag, Users, DollarSign, MessageCircle, Package, Settings, LogOut, FileText, User } from "lucide-react";
 
 export default function OwnerDashboard() {
   const stats = [
@@ -36,15 +36,15 @@ export default function OwnerDashboard() {
           </div>
 
           <nav className="space-y-2">
-            <a href="#" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
+            <a href="/RM-Dashboard" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
               <Home className="w-5 h-5" />
               Dashboard
             </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+            <a href="/menu" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
               <UtensilsCrossed className="w-5 h-5" />
               Menu
             </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+            <a href="/orders-board" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
               <ClipboardList className="w-5 h-5" />
               Orders Board
             </a>
@@ -65,7 +65,7 @@ export default function OwnerDashboard() {
               Staff
             </a>
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <DollarSign className="w-5 h-5" />
+              <span className="text-2xl font-bold">रु</span>
               Payments
             </a>
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
@@ -75,6 +75,10 @@ export default function OwnerDashboard() {
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
               <Package className="w-5 h-5" />
               Group Orders
+            </a>
+            <a href="/rm-profile" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+              <User className="w-5 h-5 text-yellow-600" />
+              Profile
             </a>
           </nav>
         </div>
@@ -107,7 +111,7 @@ export default function OwnerDashboard() {
             {stats.map((stat, i) => (
               <div key={i} className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200">
                 <p className="text-gray-600 mb-3 flex items-center gap-2">
-                  
+
                   {stat.title}
                 </p>
                 <p className="text-4xl font-bold text-gray-900 mb-2">{stat.value}</p>
@@ -159,16 +163,15 @@ export default function OwnerDashboard() {
                   <div key={order.id} className="p-4 bg-gray-50 rounded-xl">
                     <div className="flex items-center justify-between mb-2">
                       <p className="font-medium text-gray-900">{order.id} - {order.customer}</p>
-                      <span className={`px-4 py-1 rounded-full text-sm font-medium ${
-                        order.status === "ready" ? "bg-green-100 text-green-700" :
+                      <span className={`px-4 py-1 rounded-full text-sm font-medium ${order.status === "ready" ? "bg-green-100 text-green-700" :
                         order.status === "new" ? "bg-blue-100 text-blue-700" :
-                        order.status === "preparing" ? "bg-yellow-100 text-yellow-700" :
-                        "bg-purple-100 text-purple-700"
-                      }`}>
+                          order.status === "preparing" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-purple-100 text-purple-700"
+                        }`}>
                         {order.status === "ready" ? "Ready for Pickup" :
-                         order.status === "new" ? "New Order" :
-                         order.status === "preparing" ? "Preparing" :
-                         "Out for Delivery"}
+                          order.status === "new" ? "New Order" :
+                            order.status === "preparing" ? "Preparing" :
+                              "Out for Delivery"}
                       </span>
                     </div>
                     <p className="text-gray-600">{order.items} items • {order.amount}</p>

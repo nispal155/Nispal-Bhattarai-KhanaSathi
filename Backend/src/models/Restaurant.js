@@ -13,53 +13,44 @@ const restaurantSchema = new mongoose.Schema(
     address: {
       addressLine1: {
         type: String,
-        required: true
       },
       addressLine2: {
         type: String
       },
       city: {
         type: String,
-        required: true
       },
       state: {
         type: String,
-        required: true
       },
       zipCode: {
         type: String,
-        required: true
       }
     },
 
     cuisineType: {
-      type: [String], 
-      required: true
+      type: [String],
     },
 
     openingHour: {
-      type: String, 
-      required: true
+      type: String,
     },
 
     closingHour: {
-      type: String, 
-      required: true
+      type: String,
     },
 
     contactPhone: {
       type: String,
-      required: true
     },
 
     contactEmail: {
       type: String,
-      required: true,
       lowercase: true
     },
 
     logoUrl: {
-      type: String 
+      type: String
     },
 
     isActive: {
@@ -74,9 +65,9 @@ const restaurantSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true 
+    timestamps: true
   }
 );
 
-const Restaurant= mongoose.model("Restaurant", restaurantSchema);
+const Restaurant = mongoose.model("Restaurant", restaurantSchema);
 module.exports = Restaurant;

@@ -68,6 +68,14 @@ export default function LoginPage() {
         } else {
           router.push('/rider-dashboard');
         }
+      } else if (result.data.role === 'restaurant') {
+        if (!result.data.isProfileComplete) {
+          router.push('/restaurant-onboarding');
+        } else if (!result.data.isApproved) {
+          router.push('/waiting-approval');
+        } else {
+          router.push('/RM-Dashboard');
+        }
       } else {
         router.push('/');
       }

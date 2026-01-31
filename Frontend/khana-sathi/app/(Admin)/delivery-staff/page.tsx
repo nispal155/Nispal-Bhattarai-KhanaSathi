@@ -3,13 +3,7 @@
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import {
-  Home,
-  Store,
-  FileText,
   Users,
-  Shield,
-  Settings,
-  LogOut,
   Search,
   Bike,
   Clock,
@@ -19,9 +13,8 @@ import {
   Loader2,
 } from "lucide-react";
 import StaffModal from "@/components/admin/StaffModal";
-import axios from "axios";
-
-const API_URL = "http://localhost:5000/api/staff";
+import { get, post, put, del } from "@/lib/api";
+import AdminSidebar from "@/components/admin/AdminSidebar";
 
 export default function DeliveryStaffManagement() {
   const [staffData, setStaffData] = useState<any[]>([]);
@@ -32,8 +25,12 @@ export default function DeliveryStaffManagement() {
 
   const fetchStaff = async () => {
     try {
-      const response = await axios.get(`${API_URL}/all`);
-      setStaffData(response.data);
+      const { data, error } = await get<any[]>("/staff/all");
+      if (data) {
+        setStaffData(data);
+      } else if (error) {
+        console.error("Error fetching staff:", error);
+      }
     } catch (error) {
       console.error("Error fetching staff:", error);
     } finally {
@@ -60,8 +57,12 @@ export default function DeliveryStaffManagement() {
   const handleDeleteClick = async (id: string) => {
     if (confirm("Are you sure you want to delete this staff member?")) {
       try {
-        await axios.delete(`${API_URL}/delete/${id}`);
-        fetchStaff();
+        const { error } = await del(`/staff/delete/${id}`);
+        if (error) {
+          alert(error);
+        } else {
+          fetchStaff();
+        }
       } catch (error) {
         console.error("Error deleting staff:", error);
         alert("Failed to delete staff");
@@ -71,16 +72,22 @@ export default function DeliveryStaffManagement() {
 
   const handleModalSubmit = async (data: any) => {
     try {
+      let result;
       if (currentStaff) {
-        await axios.put(`${API_URL}/update/${currentStaff._id}`, data);
+        result = await put<any>(`/staff/update/${currentStaff._id}`, data);
       } else {
-        await axios.post(`${API_URL}/add`, data);
+        result = await post<any>("/staff/add", data);
       }
-      fetchStaff();
-      setIsModalOpen(false);
+
+      if (result.error) {
+        alert(result.error);
+      } else {
+        fetchStaff();
+        setIsModalOpen(false);
+      }
     } catch (error: any) {
       console.error("Error submitting:", error);
-      alert(error.response?.data?.message || "Operation failed");
+      alert("Operation failed");
     }
   };
 
@@ -91,13 +98,14 @@ export default function DeliveryStaffManagement() {
   const avgRating =
     totalDrivers > 0
       ? (
-          staffData.reduce((acc, curr) => acc + (curr.averageRating || 0), 0) /
-          totalDrivers
-        ).toFixed(1)
+        staffData.reduce((acc, curr) => acc + (curr.averageRating || 0), 0) /
+        totalDrivers
+      ).toFixed(1)
       : "0.0";
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      <AdminSidebar />
       {/* Staff Modal */}
       <StaffModal
         isOpen={isModalOpen}
@@ -107,83 +115,6 @@ export default function DeliveryStaffManagement() {
         title={modalTitle}
       />
 
-      {/* Sidebar - PROPER & FIXED */}
-      <aside className="w-64 bg-white shadow-lg flex flex-col h-screen sticky top-0">
-        {/* Top Section */}
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-3 mb-10">
-            <Image
-              src="/logo.png"
-              alt="KhanaSathi"
-              width={40}
-              height={40}
-              className="object-contain"
-            />
-            <div>
-              <h1 className="text-xl font-bold text-red-600">KhanaSathi</h1>
-              <p className="text-sm text-gray-600">Admin</p>
-            </div>
-          </div>
-
-          <nav className="space-y-2">
-            <a
-              href="/admin-dashboard"
-              className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              <Home className="w-5 h-5" />
-              Home
-            </a>
-            <a
-              href="/Restaurants"
-              className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              <Store className="w-5 h-5" />
-              Restaurants
-            </a>
-            <a
-              href="/Reports"
-              className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FileText className="w-5 h-5" />
-              Reports
-            </a>
-            <a
-              href="/delivery-staff"
-              className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium shadow-sm"
-            >
-              <Users className="w-5 h-5" />
-              Delivery Staff
-            </a>
-            <a
-              href="/parental-control"
-              className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              <Shield className="w-5 h-5" />
-              Parental Control
-            </a>
-          </nav>
-        </div>
-
-        {/* Bottom Links - Pushed to Bottom */}
-        <div className="mt-auto p-6 border-t border-gray-200">
-          <div className="space-y-3">
-            <a
-              href="#"
-              className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              <Settings className="w-5 h-5" />
-              Settings
-            </a>
-            <a
-              href="#"
-              className="flex items-center gap-4 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition"
-            >
-              <LogOut className="w-5 h-5" />
-              Logout
-            </a>
-          </div>
-        </div>
-      </aside>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
@@ -296,11 +227,10 @@ export default function DeliveryStaffManagement() {
                           <td className="px-6 py-5 text-gray-700">{staff.email}</td>
                           <td className="px-6 py-5">
                             <span
-                              className={`px-4 py-2 rounded-full text-sm font-medium ${
-                                staff.isOnline
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-gray-100 text-gray-600"
-                              }`}
+                              className={`px-4 py-2 rounded-full text-sm font-medium ${staff.isOnline
+                                ? "bg-green-100 text-green-700"
+                                : "bg-gray-100 text-gray-600"
+                                }`}
                             >
                               {staff.isOnline ? "Online" : "Offline"}
                             </span>

@@ -7,6 +7,7 @@ interface AuthResponse {
     email: string;
     token: string;
     isProfileComplete?: boolean;
+    isApproved?: boolean;
     message?: string;
 }
 
@@ -38,4 +39,12 @@ export async function forgotPassword(email: string) {
 
 export async function resetPassword(email: string, otp: string, newPassword: string) {
     return post<MessageResponse>('/auth/reset-password', { email, otp, newPassword });
+}
+
+export function logout() {
+    if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+    }
 }
