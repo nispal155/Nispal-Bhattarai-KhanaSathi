@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Home, UtensilsCrossed, ClipboardList, Star, Tag, Users, DollarSign, MessageCircle, Package, Settings, LogOut, FileText, User } from "lucide-react";
+import { Home, UtensilsCrossed, ClipboardList, Star, Tag, Users, Banknote, MessageCircle, Package, Settings, LogOut, FileText, User } from "lucide-react";
 
 export default function OwnerDashboard() {
   const stats = [

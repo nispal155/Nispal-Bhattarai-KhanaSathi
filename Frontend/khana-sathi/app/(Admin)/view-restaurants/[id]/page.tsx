@@ -3,13 +3,16 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { Home, Store, FileText, Users, Shield, Settings, LogOut, Phone, MapPin, Clock, Star, FileText as FileIcon, CheckCircle } from "lucide-react";
+import { Phone, MapPin, Clock, Shield, FileText as FileIcon, CheckCircle } from "lucide-react";
+import AdminSidebar from "@/components/admin/AdminSidebar";
 import toast from 'react-hot-toast';
+import { useAuth } from "@/context/AuthContext";
 import { getRestaurantById, approveRestaurant, getOnboardingDetails } from '@/lib/restaurantService';
 
 export default function RestaurantDetailsPage() {
     const { id } = useParams();
     const router = useRouter();
+    const { user: admin } = useAuth();
     const [restaurant, setRestaurant] = useState<any>(null);
     const [onboardingData, setOnboardingData] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -25,11 +28,17 @@ export default function RestaurantDetailsPage() {
         try {
             setIsLoading(true);
             const res = await getRestaurantById(id as string);
-            setRestaurant(res.data.data);
+            if (res?.data?.data) {
+                setRestaurant(res.data.data);
 
-            // Fetch onboarding details (including documents) using createdBy ID
-            const onboardingRes = await getOnboardingDetails(res.data.data.createdBy);
-            setOnboardingData(onboardingRes.data.data);
+                // Fetch onboarding details (including documents) using createdBy ID
+                if (res.data.data.createdBy) {
+                    const onboardingRes = await getOnboardingDetails(res.data.data.createdBy);
+                    if (onboardingRes?.data?.data) {
+                        setOnboardingData(onboardingRes.data.data);
+                    }
+                }
+            }
         } catch (error: any) {
             toast.error("Failed to fetch restaurant details");
             console.error(error);
@@ -74,32 +83,8 @@ export default function RestaurantDetailsPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 flex">
-            {/* Sidebar (Same as original but with link to RM-Dashboard) */}
-            <aside className="w-64 bg-white shadow-lg relative h-screen sticky top-0">
-                <div className="p-6">
-                    <div className="flex items-center gap-3 mb-10">
-                        <Image src="/logo.png" alt="KhanaSathi" width={40} height={40} className="object-contain" />
-                        <div>
-                            <h1 className="text-xl font-bold text-red-600">KhanaSathi</h1>
-                            <p className="text-sm text-gray-600">Admin</p>
-                        </div>
-                    </div>
+            <AdminSidebar />
 
-                    <nav className="space-y-2">
-                        <a href="/admin-dashboard" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-                            <Home className="w-5 h-5" />
-                            Home
-                        </a>
-                        <a href="/Restaurants" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium shadow-md">
-                            <Store className="w-5 h-5" />
-                            Restaurants
-                        </a>
-                        {/* More links... */}
-                    </nav>
-                </div>
-            </aside>
-
-            {/* Main Content */}
             <div className="flex-1 overflow-auto">
                 <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-6 flex items-center justify-between">
                     <div className="flex items-center gap-6">
@@ -112,11 +97,24 @@ export default function RestaurantDetailsPage() {
                         <button
                             onClick={handleApprove}
                             disabled={isApproving}
-                            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition transform hover:scale-105 active:scale-95 disabled:bg-gray-300"
+                            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition transform hover:scale-105 active:scale-95 disabled:bg-gray-300 mr-4"
                         >
                             {isApproving ? "Approving..." : "Approve Manager"}
                         </button>
                     )}
+                    <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100 flex items-center justify-center bg-gray-100">
+                        <Image
+                            src={admin?.profilePicture || `https://ui-avatars.com/api/?name=${admin?.username || 'Admin'}&background=random`}
+                            alt="Admin"
+                            width={48}
+                            height={48}
+                            className="object-cover w-full h-full"
+                            onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = `https://ui-avatars.com/api/?name=${admin?.username || 'Admin'}&background=random`;
+                            }}
+                        />
+                    </div>
                 </header>
 
                 <div className="p-8 max-w-7xl mx-auto">

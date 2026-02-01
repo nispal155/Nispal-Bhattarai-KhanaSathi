@@ -15,8 +15,10 @@ import {
 import StaffModal from "@/components/admin/StaffModal";
 import { get, post, put, del } from "@/lib/api";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import { useAuth } from "@/context/AuthContext";
 
 export default function DeliveryStaffManagement() {
+  const { user } = useAuth();
   const [staffData, setStaffData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -121,13 +123,17 @@ export default function DeliveryStaffManagement() {
         {/* Header */}
         <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-6 flex items-center justify-between sticky top-0 z-10">
           <h2 className="text-3xl font-bold text-gray-900">Delivery Staff Management</h2>
-          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100">
+          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100 flex items-center justify-center bg-gray-100">
             <Image
-              src="/admin-avatar.jpg"
+              src={user?.profilePicture || `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`}
               alt="Admin"
               width={48}
               height={48}
-              className="object-cover"
+              className="object-cover w-full h-full"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`;
+              }}
             />
           </div>
         </header>

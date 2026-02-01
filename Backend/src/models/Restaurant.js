@@ -75,8 +75,8 @@ const restaurantSchema = new mongoose.Schema(
 
     priceRange: {
       type: String,
-      enum: ['$', '$$', '$$$', '$$$$'],
-      default: '$$'
+      enum: ['Rs.', 'Rs.Rs.', 'Rs.Rs.Rs.', 'Rs.Rs.Rs.Rs.'],
+      default: 'Rs.Rs.'
     },
 
     tags: [{

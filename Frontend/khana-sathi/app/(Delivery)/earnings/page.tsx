@@ -7,7 +7,7 @@ import {
     ArrowLeft,
     Wallet,
     TrendingUp,
-    DollarSign,
+    Banknote,
     Calendar,
     Download,
     Loader2
@@ -68,7 +68,7 @@ export default function EarningsPage() {
                     <div className="bg-white p-6 rounded-xl shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-gray-500 text-sm">Today</p>
-                            <DollarSign className="w-5 h-5 text-green-500" />
+                            <Banknote className="w-5 h-5 text-green-500" />
                         </div>
                         <p className="text-2xl font-bold text-gray-800">Rs. 0</p>
                     </div>

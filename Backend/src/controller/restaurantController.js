@@ -146,20 +146,7 @@ exports.getRestaurantById = async (req, res) => {
  */
 exports.updateRestaurant = async (req, res) => {
   try {
-    const updates = req.body;
-
-    // Convert cuisineType if updated
-    if (updates.cuisineType) {
-      updates.cuisineType = updates.cuisineType
-        .split(",")
-        .map(c => c.trim());
-    }
-
-    const restaurant = await Restaurant.findByIdAndUpdate(
-      req.params.id,
-      updates,
-      { new: true, runValidators: true }
-    );
+    const restaurant = await Restaurant.findById(req.params.id);
 
     if (!restaurant) {
       return res.status(404).json({
@@ -167,6 +154,73 @@ exports.updateRestaurant = async (req, res) => {
         message: "Restaurant not found"
       });
     }
+
+    const {
+      name,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      zipCode,
+      cuisineType,
+      openingHour,
+      closingHour,
+      contactPhone,
+      contactEmail,
+      logoUrl,
+      isActive,
+      deliveryTimeMin,
+      deliveryTimeMax,
+      priceRange,
+      tags
+    } = req.body;
+
+    // Update basic fields if provided
+    if (name !== undefined) restaurant.name = name;
+    if (openingHour !== undefined) restaurant.openingHour = openingHour;
+    if (closingHour !== undefined) restaurant.closingHour = closingHour;
+    if (contactPhone !== undefined) restaurant.contactPhone = contactPhone;
+    if (contactEmail !== undefined) restaurant.contactEmail = contactEmail;
+    if (logoUrl !== undefined) restaurant.logoUrl = logoUrl;
+    if (isActive !== undefined) restaurant.isActive = isActive;
+    if (priceRange !== undefined) restaurant.priceRange = priceRange;
+
+    // Handle nested address
+    if (addressLine1 !== undefined || addressLine2 !== undefined || city !== undefined || state !== undefined || zipCode !== undefined) {
+      if (!restaurant.address) restaurant.address = {};
+      if (addressLine1 !== undefined) restaurant.address.addressLine1 = addressLine1;
+      if (addressLine2 !== undefined) restaurant.address.addressLine2 = addressLine2;
+      if (city !== undefined) restaurant.address.city = city;
+      if (state !== undefined) restaurant.address.state = state;
+      if (zipCode !== undefined) restaurant.address.zipCode = zipCode;
+    }
+
+    // Handle nested deliveryTime
+    if (deliveryTimeMin !== undefined || deliveryTimeMax !== undefined) {
+      if (!restaurant.deliveryTime) restaurant.deliveryTime = { min: 30, max: 45 };
+      if (deliveryTimeMin !== undefined) restaurant.deliveryTime.min = Number(deliveryTimeMin);
+      if (deliveryTimeMax !== undefined) restaurant.deliveryTime.max = Number(deliveryTimeMax);
+    }
+
+    // Handle cuisineType (string or array)
+    if (cuisineType !== undefined) {
+      if (Array.isArray(cuisineType)) {
+        restaurant.cuisineType = cuisineType;
+      } else if (typeof cuisineType === "string") {
+        restaurant.cuisineType = cuisineType.split(",").map(c => c.trim());
+      }
+    }
+
+    // Handle tags
+    if (tags !== undefined) {
+      if (Array.isArray(tags)) {
+        restaurant.tags = tags;
+      } else if (typeof tags === "string") {
+        restaurant.tags = tags.split(",").map(t => t.trim());
+      }
+    }
+
+    await restaurant.save();
 
     res.status(200).json({
       success: true,

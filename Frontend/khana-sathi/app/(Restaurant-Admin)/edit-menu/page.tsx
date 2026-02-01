@@ -10,7 +10,7 @@ import {
   Tag,
   FileText,
   Users,
-  DollarSign,
+  Banknote,
   MessageCircle,
   Package,
   Settings,
@@ -79,7 +79,7 @@ export default function EditMenuItem() {
               Staff
             </a>
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <DollarSign className="w-5 h-5" />
+              <Banknote className="w-5 h-5" />
               Payments
             </a>
             <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
@@ -212,14 +212,12 @@ export default function EditMenuItem() {
                     <label className="text-sm font-medium text-gray-700">Available Now</label>
                     <button
                       onClick={() => setAvailableNow(!availableNow)}
-                      className={`relative inline-flex h-8 w-16 items-center rounded-full transition ${
-                        availableNow ? "bg-red-500" : "bg-gray-300"
-                      }`}
+                      className={`relative inline-flex h-8 w-16 items-center rounded-full transition ${availableNow ? "bg-red-500" : "bg-gray-300"
+                        }`}
                     >
                       <span
-                        className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${
-                          availableNow ? "translate-x-9" : "translate-x-1"
-                        }`}
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${availableNow ? "translate-x-9" : "translate-x-1"
+                          }`}
                       />
                     </button>
                   </div>

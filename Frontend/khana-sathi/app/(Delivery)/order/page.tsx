@@ -1,10 +1,10 @@
 "use client";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { MapPin, Clock, Package, Euro, MessageCircle, Navigation, CheckCircle } from "lucide-react";
+import { MapPin, Clock, Package, Banknote, MessageCircle, Navigation, CheckCircle } from "lucide-react";
 
 export default function ActiveDeliveries() {
-    const router = useRouter();
+  const router = useRouter();
   const deliveries = [
     {
       id: "SR98765",
@@ -135,7 +135,7 @@ export default function ActiveDeliveries() {
                       </div>
                     </div>
                     <div className="flex items-start gap-4">
-                      <Euro className="w-6 h-6 text-gray-500 mt-1" />
+                      <Banknote className="w-6 h-6 text-gray-500 mt-1" />
                       <div>
                         <p className="text-sm text-gray-600">Payment :</p>
                         <p className="font-medium text-green-600">Paid</p>
@@ -160,7 +160,7 @@ export default function ActiveDeliveries() {
                       </div>
                     </div>
                     <div className="flex items-start gap-4">
-                      <Euro className="w-6 h-6 text-green-500 mt-1" />
+                      <Banknote className="w-6 h-6 text-green-500 mt-1" />
                       <div>
                         <p className="text-sm text-gray-600">Tip :</p>
                         <p className="font-medium text-green-600">{delivery.tip}</p>

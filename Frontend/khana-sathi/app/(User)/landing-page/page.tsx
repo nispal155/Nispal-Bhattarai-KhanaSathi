@@ -205,9 +205,9 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
             {[
               { title: "PASTA", price: "NPR 280", discount: "22%", rating: "★★★★★", image: "/pasta-offer.jpg" },
-              { title: "BBQ Chicken & Pork", price: "$15", discount: "25%", rating: "★★★★★", image: "/bbq-offer.jpg" },
-              { title: "Nuggets Recipe", price: "$18", discount: "30%", rating: "★★★★★", image: "/nuggets-offer.jpg" },
-              { title: "Burgers", price: "$20", discount: "15%", rating: "★★★★★", image: "/burger-offer.jpg" },
+              { title: "BBQ Chicken & Pork", price: "NPR 1500", discount: "25%", rating: "★★★★★", image: "/bbq-offer.jpg" },
+              { title: "Nuggets Recipe", price: "NPR 1800", discount: "30%", rating: "★★★★★", image: "/nuggets-offer.jpg" },
+              { title: "Burgers", price: "NPR 2000", discount: "15%", rating: "★★★★★", image: "/burger-offer.jpg" },
             ].map((item, i) => (
               <div key={i} className="bg-white rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition group">
                 <div className="relative h-64">

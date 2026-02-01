@@ -12,12 +12,17 @@ export interface RestaurantPayload {
   city?: string;
   state?: string;
   zipCode?: string;
-  cuisineType?: string;
+  cuisineType?: string | string[];
   openingHour?: string;
   closingHour?: string;
   contactPhone?: string;
   contactEmail?: string;
   logoUrl?: string;
+  isActive?: boolean;
+  deliveryTimeMin?: number;
+  deliveryTimeMax?: number;
+  priceRange?: string;
+  tags?: string[];
 }
 
 export interface Restaurant {
@@ -43,8 +48,9 @@ export interface Restaurant {
     min: number;
     max: number;
   };
-  priceRange: '$' | '$$' | '$$$' | '$$$$';
+  priceRange: 'Rs.' | 'Rs.Rs.' | 'Rs.Rs.Rs.' | 'Rs.Rs.Rs.Rs.';
   tags: string[];
+  createdBy: string;
   createdAt: string;
 }
 

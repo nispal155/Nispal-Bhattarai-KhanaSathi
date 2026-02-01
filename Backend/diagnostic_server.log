@@ -1,0 +1,44 @@
+[dotenv@17.2.3] injecting env (6) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+Email Config: {
+  host: 'smtp.gmail.com',
+  port: '587',
+  user: 'np05cp4a230059@iic.edu.np',
+  hasPassword: true
+}
+[2026-02-01 13:14:17] DEBUG Creating transport: nodemailer (7.0.11; +https://nodemailer.com/; SMTP/7.0.11[client:7.0.11])
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+Server running on port 5004
+[2026-02-01 13:14:17] DEBUG [UEztnpLjJAA] Resolved smtp.gmail.com as 192.178.211.108 [cache miss]
+[2026-02-01 13:14:17] INFO  [UEztnpLjJAA] Connection established to 192.178.211.108:587
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 220 smtp.gmail.com ESMTP d2e1a72fcca58-82379bfc72asm16897888b3a.42 - gsmtp
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] C: EHLO Nispals-MacBook-Pro.local
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-smtp.gmail.com at your service, [49.244.109.30]
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-SIZE 35882577
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-8BITMIME
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-STARTTLS
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-ENHANCEDSTATUSCODES
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-PIPELINING
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250-CHUNKING
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 250 SMTPUTF8
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] C: STARTTLS
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] S: 220 2.0.0 Ready to start TLS
+MongoDB Connected: ac-tewsmax-shard-00-00.bhwlq4g.mongodb.net
+[2026-02-01 13:14:18] INFO  [UEztnpLjJAA] Connection upgraded with STARTTLS
+[2026-02-01 13:14:18] DEBUG [UEztnpLjJAA] C: EHLO Nispals-MacBook-Pro.local
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-smtp.gmail.com at your service, [49.244.109.30]
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-SIZE 35882577
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-8BITMIME
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-AUTH LOGIN PLAIN XOAUTH2 PLAIN-CLIENTTOKEN OAUTHBEARER XOAUTH
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-ENHANCEDSTATUSCODES
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-PIPELINING
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250-CHUNKING
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 250 SMTPUTF8
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] SMTP handshake finished
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] C: AUTH PLAIN AG5wMDVjcDRhMjMwMDU5QGlpYy5lZHUubnAALyogc2VjcmV0ICov
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] S: 235 2.7.0 Accepted
+[2026-02-01 13:14:19] INFO  [UEztnpLjJAA] User "np05cp4a230059@iic.edu.np" authenticated
+[2026-02-01 13:14:19] DEBUG [UEztnpLjJAA] C: QUIT
+Server is ready to take our messages
+[2026-02-01 13:14:20] DEBUG [UEztnpLjJAA] S: 221 2.0.0 closing connection d2e1a72fcca58-82379bfc72asm16897888b3a.42 - gsmtp
+[2026-02-01 13:14:20] DEBUG [UEztnpLjJAA] Closing connection to the server using "end"
+[2026-02-01 13:14:20] INFO  [UEztnpLjJAA] Connection closed

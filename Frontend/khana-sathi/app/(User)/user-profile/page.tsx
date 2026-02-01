@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Camera, MapPin, CreditCard, Bell, Shield, HelpCircle, LogOut, ChevronRight, Edit2, Loader2, Plus, Trash2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getProfile, updateProfile, getAddresses, addAddress, deleteAddress, setDefaultAddress } from "@/lib/userService";
 import { getMyOrders } from "@/lib/orderService";
+import toast from "react-hot-toast";
 
 interface Address {
   _id: string;
@@ -38,12 +39,14 @@ interface UserProfile {
   email: string;
   phone?: string;
   dateOfBirth?: string;
+  profilePicture?: string;
   loyaltyPoints: number;
   createdAt: string;
 }
 
 export default function ProfilePage() {
-  const { logout } = useAuth();
+  const { logout, updateUser: updateAuthUser } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("personal");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -94,6 +97,7 @@ export default function ProfilePage() {
           email: profileData.email || '',
           phone: profileData.phone || '',
           dateOfBirth: profileData.dateOfBirth || '',
+          profilePicture: profileData.profilePicture || '',
           loyaltyPoints: profileData.loyaltyPoints || 0,
           createdAt: profileData.createdAt || '',
         });
@@ -113,17 +117,60 @@ export default function ProfilePage() {
     }
   };
 
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error("Please upload an image file");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image size should be less than 2MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result as string;
+      setSaving(true);
+      try {
+        const response = await updateProfile({ profilePicture: base64String });
+        if (response.data && response.data.data) {
+          const updatedData = response.data.data;
+          setProfile(p => p ? { ...p, profilePicture: updatedData.profilePicture } : null);
+          updateAuthUser(updatedData);
+          toast.success("Profile picture updated!");
+        } else {
+          console.error("User profile update failed:", response.error);
+          toast.error(response.error || "Failed to update profile picture");
+        }
+      } catch (error) {
+        console.error("User upload error caught:", error);
+        toast.error("Failed to update profile picture");
+      } finally {
+        setSaving(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
 
     try {
       setSaving(true);
-      await updateProfile({
+      const response = await updateProfile({
         username: profile.name,
         phone: profile.phone,
         dateOfBirth: profile.dateOfBirth,
       });
+      if (response.data && response.data.data) {
+        updateAuthUser(response.data.data);
+        toast.success("Profile updated successfully");
+      }
       setEditMode(false);
     } catch (err) {
       console.error("Error updating profile:", err);
@@ -256,7 +303,7 @@ export default function ProfilePage() {
             </div>
 
             <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-              <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
+              <Image src={profile?.profilePicture || "/avatar.jpg"} alt="Profile" width={40} height={40} className="object-cover w-full h-full" />
             </div>
           </div>
         </div>
@@ -267,16 +314,32 @@ export default function ProfilePage() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="relative">
-              <div className="w-24 h-24 rounded-full bg-pink-200 overflow-hidden">
+              <div className="w-24 h-24 rounded-full bg-pink-200 overflow-hidden relative group">
                 <Image
-                  src="/avatar.jpg"
+                  src={profile?.profilePicture || "/avatar.jpg"}
                   alt={profile?.name || "User"}
                   width={96}
                   height={96}
                   className="w-full h-full object-cover"
                 />
+                {saving && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  </div>
+                )}
               </div>
-              <button className="absolute bottom-0 right-0 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageChange}
+                accept="image/*"
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={saving}
+                className="absolute bottom-0 right-0 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:bg-gray-400"
+              >
                 <Camera className="w-4 h-4" />
               </button>
             </div>

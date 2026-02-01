@@ -8,8 +8,9 @@ const Order = require('../models/Order');
  * @access  Private
  */
 exports.getProfile = async (req, res) => {
+  console.log('getProfile requested for user:', req.user?._id);
   try {
-    const user = await User.findById(req.user._id).select('-password -otp -otpExpires');
+    const user = await User.findById(req.user._id).select('-password');
 
     if (!user) {
       return res.status(404).json({
@@ -18,29 +19,12 @@ exports.getProfile = async (req, res) => {
       });
     }
 
-    // Get order stats
-    const orderStats = await Order.aggregate([
-      { $match: { customer: user._id } },
-      { 
-        $group: { 
-          _id: null,
-          totalOrders: { $sum: 1 },
-          totalSpent: { $sum: '$pricing.total' }
-        }
-      }
-    ]);
-
     res.status(200).json({
       success: true,
-      data: {
-        ...user.toObject(),
-        stats: {
-          totalOrders: orderStats[0]?.totalOrders || 0,
-          totalSpent: orderStats[0]?.totalSpent || 0
-        }
-      }
+      data: user
     });
   } catch (error) {
+    console.error('Get profile ERROR:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch profile',
@@ -57,8 +41,27 @@ exports.getProfile = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const { username, phone, dateOfBirth, profilePicture } = req.body;
+    console.log('Update profile request received:', {
+      username,
+      phone,
+      dateOfBirth,
+      hasProfilePicture: !!profilePicture,
+      pictureSize: profilePicture ? profilePicture.length : 0
+    });
 
-    const user = await User.findById(req.user._id);
+    console.log('Current authenticated user ID:', req.user?._id);
+
+    const updateData = {};
+    if (username) updateData.username = username;
+    if (phone) updateData.phone = phone;
+    if (dateOfBirth) updateData.dateOfBirth = dateOfBirth;
+    if (profilePicture) updateData.profilePicture = profilePicture;
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select('-password');
 
     if (!user) {
       return res.status(404).json({
@@ -67,19 +70,13 @@ exports.updateProfile = async (req, res) => {
       });
     }
 
-    if (username) user.username = username;
-    if (phone) user.phone = phone;
-    if (dateOfBirth) user.dateOfBirth = dateOfBirth;
-    if (profilePicture) user.profilePicture = profilePicture;
-
-    await user.save();
-
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
       data: user
     });
   } catch (error) {
+    console.error('Update profile ERROR:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update profile',
@@ -168,9 +165,9 @@ exports.addAddress = async (req, res) => {
  */
 exports.updateAddress = async (req, res) => {
   try {
-    const address = await Address.findOne({ 
-      _id: req.params.id, 
-      user: req.user._id 
+    const address = await Address.findOne({
+      _id: req.params.id,
+      user: req.user._id
     });
 
     if (!address) {
@@ -207,9 +204,9 @@ exports.updateAddress = async (req, res) => {
  */
 exports.deleteAddress = async (req, res) => {
   try {
-    const address = await Address.findOne({ 
-      _id: req.params.id, 
-      user: req.user._id 
+    const address = await Address.findOne({
+      _id: req.params.id,
+      user: req.user._id
     });
 
     if (!address) {
@@ -285,7 +282,7 @@ exports.getAllUsers = async (req, res) => {
     const { role, search, limit = 20, page = 1 } = req.query;
 
     let query = {};
-    
+
     if (role) query.role = role;
     if (search) {
       query.$or = [

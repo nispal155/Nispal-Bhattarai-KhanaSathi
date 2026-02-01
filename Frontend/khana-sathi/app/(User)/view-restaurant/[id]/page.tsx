@@ -7,6 +7,7 @@ import { useState, useEffect, use } from "react";
 import { getRestaurantById } from "@/lib/restaurantService";
 import { getRestaurantMenu, MenuItem } from "@/lib/menuService";
 import { addToCart } from "@/lib/cartService";
+import { formatPriceRange } from "@/lib/formatters";
 
 interface Restaurant {
   _id: string;
@@ -219,7 +220,7 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                   <Clock className="w-4 h-4" />
                   <span>{restaurant.deliveryTime?.min || 30}-{restaurant.deliveryTime?.max || 45} min</span>
                 </div>
-                <span className="font-medium">{restaurant.priceRange || "$$"}</span>
+                <span className="font-medium">{formatPriceRange(restaurant.priceRange || "Rs.Rs.")}</span>
               </div>
 
               <p className="text-gray-600 mb-2">
@@ -262,8 +263,8 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                   key={category}
                   onClick={() => setSelectedCategory(category)}
                   className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${selectedCategory === category
-                      ? "bg-red-500 text-white"
-                      : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+                    ? "bg-red-500 text-white"
+                    : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
                     }`}
                 >
                   {category}

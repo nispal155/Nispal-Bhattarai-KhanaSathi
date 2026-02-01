@@ -126,9 +126,9 @@ export default function Home() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
-              { name: "Rogan Josh", price: "$13.00", discount: "13%", timeLeft: "04 Days 56 Hrs 28 Mins", image: "/rogan-josh.jpg" },
-              { name: "BBQ Chicken & Pork", price: "$15.00", discount: "25%", timeLeft: "02 Days 04 Hrs 56 Mins", image: "/bbq-chicken-pork.jpg" },
-              { name: "Paneer Tikka", price: "$11.50", discount: "12%", timeLeft: "06 Days 04 Hrs 28 Mins", image: "/paneer-tikka.jpg" },
+              { name: "Rogan Josh", price: "NPR 1300", discount: "13%", timeLeft: "04 Days 56 Hrs 28 Mins", image: "/rogan-josh.jpg" },
+              { name: "BBQ Chicken & Pork", price: "NPR 1500", discount: "25%", timeLeft: "02 Days 04 Hrs 56 Mins", image: "/bbq-chicken-pork.jpg" },
+              { name: "Paneer Tikka", price: "NPR 1150", discount: "12%", timeLeft: "06 Days 04 Hrs 28 Mins", image: "/paneer-tikka.jpg" },
             ].map((item, i) => (
               <div key={i} className="bg-white rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition group">
                 <div className="relative h-80">

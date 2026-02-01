@@ -4,8 +4,10 @@ import { useState } from "react";
 import Image from "next/image";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { Eye, Calendar, Download } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Reports() {
+  const { user } = useAuth();
   const topPerformingRestaurants = [
     { id: 1, restaurant: "The Green Plate", totalSales: "NPR 52,000", orders: 320 },
     { id: 2, restaurant: "Sushi Delight", totalSales: "NPR 48,300", orders: 295 },
@@ -26,8 +28,18 @@ export default function Reports() {
         {/* Header */}
         <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-5 flex items-center justify-between">
           <h2 className="text-3xl font-bold text-gray-900">Report</h2>
-          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100">
-            <Image src="/admin-avatar.jpg" alt="Admin" width={48} height={48} className="object-cover" />
+          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100 flex items-center justify-center bg-gray-100">
+            <Image
+              src={user?.profilePicture || `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`}
+              alt="Admin"
+              width={48}
+              height={48}
+              className="object-cover w-full h-full"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`;
+              }}
+            />
           </div>
         </header>
         {/* Page Content */}
@@ -60,7 +72,7 @@ export default function Reports() {
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
-                <p className="text-gray-600 mb-2">Total Revenue</p>
+                <p className="text-sm text-gray-500 font-medium tracking-wide">Total Sales Amount</p>
                 <p className="text-4xl font-bold text-gray-900">NPR 52,100</p>
                 <p className="text-red-600 text-sm mt-2 flex items-center gap-1">
                   <span>↑</span> +8.2% ↑ from previous Month

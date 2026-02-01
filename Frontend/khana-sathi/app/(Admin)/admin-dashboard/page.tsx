@@ -3,20 +3,21 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Eye, Edit, Trash2 } from "lucide-react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import { useAuth } from "@/context/AuthContext";
 
 export default function AdminDashboard() {
+  const { user } = useAuth();
   const recentOrders = [
     { id: "FF1005", customer: "Eve Davis", restaurant: "The Green Plate", amount: "NPR 320", status: "pending" },
     { id: "FF1004", customer: "Diana Miller", restaurant: "Sushi Delight", amount: "NPR 332", status: "canceled" },
     { id: "FF1003", customer: "Charlie Brown", restaurant: "Burger Haven", amount: "NPR 223", status: "delivered" },
     { id: "FF1002", customer: "Bob Johnson", restaurant: "Spice Route", amount: "NPR 290", status: "pending" },
     { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-    { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-    { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-    { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-    { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-    { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-
+    { id: "FF1000", customer: "John Doe", restaurant: "Pasta Place", amount: "NPR 250", status: "delivered" },
+    { id: "FF0999", customer: "Jane Doe", restaurant: "Salad Stop", amount: "NPR 180", status: "pending" },
+    { id: "FF0998", customer: "Mike Ross", restaurant: "Taco Bell", amount: "NPR 450", status: "delivered" },
+    { id: "FF0997", customer: "Rachel Zane", restaurant: "Subway", amount: "NPR 210", status: "delivered" },
+    { id: "FF0996", customer: "Harvey Specter", restaurant: "Steak House", amount: "NPR 1200", status: "delivered" },
   ];
   const router = useRouter();
   return (
@@ -32,8 +33,18 @@ export default function AdminDashboard() {
         {/* Header */}
         <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-5 flex items-center justify-between">
           <h2 className="text-3xl font-bold text-gray-900">Dashboard Overview</h2>
-          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100">
-            <Image src="/admin-avatar.jpg" alt="Admin" width={48} height={48} className="object-cover" />
+          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100 flex items-center justify-center bg-gray-100">
+            <Image
+              src={user?.profilePicture || `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`}
+              alt="Admin"
+              width={48}
+              height={48}
+              className="object-cover w-full h-full"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`;
+              }}
+            />
           </div>
         </header>
         <div className="p-8">
@@ -50,7 +61,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
-                <p className="text-gray-600 mb-2">Total Revenue</p>
+                <p className="text-sm text-gray-500 font-medium">Total Revenue</p>
                 <p className="text-4xl font-bold text-gray-900">NPR 52,100</p>
                 <p className="text-green-600 text-sm mt-2 flex items-center gap-1">
                   <span>↑</span> +8.2% ↑ from previous period

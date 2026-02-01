@@ -5,8 +5,10 @@ import { useState } from "react";
 import { createRestaurant } from "@/lib/restaurantService";
 import toast from "react-hot-toast";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import { useAuth } from "@/context/AuthContext";
 
 export default function AddRestaurant() {
+  const { user } = useAuth();
 
   // form data store
   const [formData, setFormData] = useState({
@@ -63,8 +65,18 @@ export default function AddRestaurant() {
         {/* Header */}
         <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-6 flex items-center justify-between">
           <h2 className="text-3xl font-bold text-gray-900">Add New Restaurant</h2>
-          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100">
-            <Image src="/admin-avatar.jpg" alt="Admin" width={48} height={48} className="object-cover" />
+          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100 flex items-center justify-center bg-gray-100">
+            <Image
+              src={user?.profilePicture || `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`}
+              alt="Admin"
+              width={48}
+              height={48}
+              className="object-cover w-full h-full"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = `https://ui-avatars.com/api/?name=${user?.username || 'Admin'}&background=random`;
+              }}
+            />
           </div>
         </header>
 

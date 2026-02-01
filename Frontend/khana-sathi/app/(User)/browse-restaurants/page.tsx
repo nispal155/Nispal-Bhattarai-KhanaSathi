@@ -6,6 +6,7 @@ import { Search, Clock, Star, ChevronDown, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getAllRestaurants, Restaurant } from "@/lib/restaurantService";
+import { formatPriceRange } from "@/lib/formatters";
 
 interface RestaurantDisplay {
   _id: string;
@@ -51,7 +52,7 @@ export default function BrowseRestaurants() {
         name: r.name,
         rating: r.averageRating || 0,
         cuisine: r.cuisineType?.join(", ") || "Various",
-        priceRange: r.priceRange || "$$",
+        priceRange: formatPriceRange(r.priceRange || "Rs.Rs."),
         deliveryTime: r.deliveryTime ? `${r.deliveryTime.min}-${r.deliveryTime.max} min` : "30-45 min",
         tags: r.tags || [],
       }));
