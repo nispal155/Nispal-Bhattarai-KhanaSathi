@@ -13,6 +13,7 @@ const cartRoutes = require('./src/routes/cartRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const reviewRoutes = require('./src/routes/reviewRoutes');
 const promoRoutes = require('./src/routes/promoRoutes');
+const analyticsRoutes = require('./src/routes/analyticsRoutes');
 
 dotenv.config();
 
@@ -34,6 +35,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/promo', promoRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.get('/', (req, res) => {
     res.send('KhanaSathi API is running...');
