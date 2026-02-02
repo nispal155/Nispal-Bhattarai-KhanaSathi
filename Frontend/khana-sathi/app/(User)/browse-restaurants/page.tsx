@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Search, Clock, Star, ChevronDown, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { getAllRestaurants, Restaurant } from "@/lib/restaurantService";
+import { getAllRestaurants, getNearbyRestaurants, Restaurant } from "@/lib/restaurantService";
 import { formatPriceRange } from "@/lib/formatters";
 
 interface RestaurantDisplay {
@@ -33,13 +33,17 @@ export default function BrowseRestaurants() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchRestaurants();
-  }, []);
+    // Try to fetch based on user's city if available
+    const userCity = (user as any)?.address?.city || (user as any)?.city;
+    fetchRestaurants(userCity);
+  }, [user]);
 
-  const fetchRestaurants = async () => {
+  const fetchRestaurants = async (city?: string) => {
     try {
       setLoading(true);
-      const response = await getAllRestaurants();
+      const response = city
+        ? await getNearbyRestaurants(city)
+        : await getAllRestaurants();
       // Handle the nested API response structure
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const responseData = response?.data as any;
@@ -354,7 +358,7 @@ export default function BrowseRestaurants() {
               <div className="text-center py-12">
                 <p className="text-red-500 mb-4">{error}</p>
                 <button
-                  onClick={fetchRestaurants}
+                  onClick={() => fetchRestaurants()}
                   className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
                 >
                   Try Again

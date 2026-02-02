@@ -17,8 +17,10 @@ import {
   MapPin,
   Bell,
   ChevronRight,
-  User
+  User,
+  Loader2
 } from 'lucide-react';
+import { getRiderStats, RiderStats } from '@/lib/riderService';
 
 const API_URL = "http://localhost:5003/api/auth";
 
@@ -27,14 +29,35 @@ export default function RiderDashboardPage() {
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [stats, setStats] = useState<RiderStats | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (authLoading) return;
 
     if (!user) {
       router.push('/login');
+      return;
     }
+
+    fetchStats();
   }, [user, router, authLoading]);
+
+  const fetchStats = async () => {
+    if (!user?._id) return;
+    try {
+      setLoading(true);
+      const response = await getRiderStats(user._id);
+      if (response.data?.data) {
+        setStats(response.data.data);
+        setIsOnline(response.data.data.isOnline);
+      }
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -180,93 +203,146 @@ export default function RiderDashboardPage() {
           </button>
         </header>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Today's Deliveries</p>
-                <p className="text-3xl font-bold text-gray-800 mt-1">0</p>
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Today's Deliveries</p>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{stats?.todayDeliveries || 0}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <Package className="w-6 h-6 text-blue-600" />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-3">Total: {stats?.totalDeliveries || 0} deliveries</p>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                <Package className="w-6 h-6 text-blue-600" />
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Today's Earnings</p>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">Rs. {stats?.todayEarnings || 0}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <Wallet className="w-6 h-6 text-green-600" />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-3">Total: Rs. {stats?.totalEarnings || 0}</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Avg. Delivery Time</p>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">25 min</p>
+                  </div>
+                  <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                    <Clock className="w-6 h-6 text-orange-600" />
+                  </div>
+                </div>
+                <p className="text-xs text-green-500 mt-3">Excellent!</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-500 text-sm">Your Rating</p>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{stats?.avgRating || 5.0}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                    <Star className="w-6 h-6 text-yellow-600" />
+                  </div>
+                </div>
+                <div className="flex text-yellow-400 text-sm mt-3">{'★'.repeat(Math.round(stats?.avgRating || 5))}{'☆'.repeat(5 - Math.round(stats?.avgRating || 5))} ({stats?.reviewCount || 0} reviews)</div>
               </div>
             </div>
-            <p className="text-xs text-green-500 mt-3">+0% from yesterday</p>
-          </div>
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Today's Earnings</p>
-                <p className="text-3xl font-bold text-gray-800 mt-1">Rs. 0</p>
+            {/* Current Assignment Section */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-800">Current Assignment</h3>
+                <span className={`px-3 py-1 rounded-full text-sm ${stats?.currentOrder ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {stats?.currentOrder ? 'Active Order' : 'No Active Order'}
+                </span>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                <Wallet className="w-6 h-6 text-green-600" />
+
+              {stats?.currentOrder ? (
+                <div className="p-4 bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl border border-orange-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="font-bold text-gray-800">Order #{stats.currentOrder.orderNumber}</p>
+                      <p className="text-sm text-gray-600">{stats.currentOrder.restaurant.name}</p>
+                    </div>
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm capitalize">
+                      {stats.currentOrder.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    <strong>Customer:</strong> {stats.currentOrder.customer.username}
+                  </p>
+                  <button
+                    onClick={() => router.push('/my-deliveries')}
+                    className="w-full px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition transform hover:scale-105"
+                  >
+                    View Delivery Details
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                    <MapPin className="w-10 h-10 text-gray-300" />
+                  </div>
+                  <p className="text-gray-400 text-lg mb-2">No active delivery</p>
+                  <p className="text-gray-300 text-sm mb-6">New orders will appear here when assigned</p>
+                  <button
+                    onClick={() => router.push('/my-deliveries')}
+                    className="px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition transform hover:scale-105"
+                  >
+                    Check for Orders
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Links */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-800">Quick Actions</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <a href="/earnings" className="p-4 bg-green-50 rounded-xl hover:bg-green-100 transition flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Wallet className="w-6 h-6 text-green-600" />
+                    <span className="font-medium text-gray-800">View Earnings</span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400" />
+                </a>
+                <a href="/history" className="p-4 bg-blue-50 rounded-xl hover:bg-blue-100 transition flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-6 h-6 text-blue-600" />
+                    <span className="font-medium text-gray-800">Delivery History</span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400" />
+                </a>
+                <a href="/reviews" className="p-4 bg-yellow-50 rounded-xl hover:bg-yellow-100 transition flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Star className="w-6 h-6 text-yellow-600" />
+                    <span className="font-medium text-gray-800">My Reviews</span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400" />
+                </a>
               </div>
             </div>
-            <p className="text-xs text-gray-400 mt-3">Weekly payout</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Avg. Delivery Time</p>
-                <p className="text-3xl font-bold text-gray-800 mt-1">0 min</p>
-              </div>
-              <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
-                <Clock className="w-6 h-6 text-orange-600" />
-              </div>
-            </div>
-            <p className="text-xs text-green-500 mt-3">Excellent!</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Your Rating</p>
-                <p className="text-3xl font-bold text-gray-800 mt-1">5.0</p>
-              </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
-                <Star className="w-6 h-6 text-yellow-600" />
-              </div>
-            </div>
-            <div className="flex text-yellow-400 text-sm mt-3">★★★★★</div>
-          </div>
-        </div>
-
-        {/* Current Assignment Section */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-gray-800">Current Assignment</h3>
-            <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm">No Active Order</span>
-          </div>
-
-          <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <MapPin className="w-10 h-10 text-gray-300" />
-            </div>
-            <p className="text-gray-400 text-lg mb-2">No active delivery</p>
-            <p className="text-gray-300 text-sm mb-6">New orders will appear here when assigned</p>
-            <button className="px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition transform hover:scale-105">
-              Check for Orders
-            </button>
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-gray-800">Recent Activity</h3>
-            <a href="#" className="text-orange-500 text-sm font-medium flex items-center gap-1 hover:underline">
-              View All <ChevronRight className="w-4 h-4" />
-            </a>
-          </div>
-
-          <div className="text-center py-8 text-gray-400">
-            <p>No recent activity</p>
-          </div>
-        </div>
+          </>
+        )}
       </main>
     </div>
   );

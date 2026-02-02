@@ -28,6 +28,15 @@ const cartItemSchema = new mongoose.Schema({
   }
 });
 
+const restaurantGroupSchema = new mongoose.Schema({
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Restaurant',
+    required: true
+  },
+  items: [cartItemSchema]
+});
+
 const cartSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -35,11 +44,7 @@ const cartSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-  restaurant: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Restaurant'
-  },
-  items: [cartItemSchema],
+  restaurantGroups: [restaurantGroupSchema],
   promoCode: {
     type: String
   },
@@ -51,14 +56,18 @@ const cartSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Virtual for subtotal
-cartSchema.virtual('subtotal').get(function() {
-  return this.items.reduce((total, item) => total + (item.price * item.quantity), 0);
+// Virtual for subtotal (across all restaurants)
+cartSchema.virtual('subtotal').get(function () {
+  return this.restaurantGroups.reduce((total, group) => {
+    return total + group.items.reduce((groupTotal, item) => groupTotal + (item.price * item.quantity), 0);
+  }, 0);
 });
 
 // Virtual for total items count
-cartSchema.virtual('itemCount').get(function() {
-  return this.items.reduce((count, item) => count + item.quantity, 0);
+cartSchema.virtual('itemCount').get(function () {
+  return this.restaurantGroups.reduce((count, group) => {
+    return count + group.items.reduce((groupCount, item) => groupCount + item.quantity, 0);
+  }, 0);
 });
 
 // Enable virtuals in JSON

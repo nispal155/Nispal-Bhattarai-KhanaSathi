@@ -6,47 +6,11 @@ import Link from "next/link";
 import { Phone, Mail, ChevronDown, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getCart, getCartSummary } from "@/lib/cartService";
-import { getProfile, getAddresses } from "@/lib/userService";
-import { createOrder } from "@/lib/orderService";
+import { getProfile, getAddresses, UserProfile, Address } from "@/lib/userService";
+import { createOrder, DeliveryAddress } from "@/lib/orderService";
+import { Cart, RestaurantGroup } from "@/lib/cartService";
 
-interface CartItem {
-  _id: string;
-  menuItem: {
-    _id: string;
-    name: string;
-    price: number;
-    image?: string;
-  };
-  quantity: number;
-}
-
-interface CartData {
-  _id: string;
-  restaurant: {
-    _id: string;
-    name: string;
-  };
-  items: CartItem[];
-  promoCode?: string;
-  promoDiscount?: number;
-}
-
-interface Address {
-  _id: string;
-  label: string;
-  addressLine1: string;
-  city: string;
-  state: string;
-  zipCode: string;
-  isDefault: boolean;
-}
-
-interface UserProfile {
-  _id: string;
-  name: string;
-  email: string;
-  phone?: string;
-}
+type CartData = Cart;
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -57,12 +21,11 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
-  
-  // Form fields
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [useLoyaltyPoints, setUseLoyaltyPoints] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState("");
 
   useEffect(() => {
@@ -77,29 +40,29 @@ export default function CheckoutPage() {
         getProfile(),
         getAddresses(),
       ]);
-      
+
       // Handle nested response structure
       const cartData = cartRes?.data?.data || cartRes?.data;
       const profileData = profileRes?.data?.data || profileRes?.data;
       const addressesData = addressesRes?.data?.data || addressesRes?.data || [];
-      
-      setCart(cartData as CartData);
+
+      setCart(cartData as Cart);
       setProfile(profileData as UserProfile);
       setAddresses(Array.isArray(addressesData) ? addressesData : []);
-      
+
       // Pre-fill form with profile data
-      if (profileData) {
-        const name = profileData.name || profileData.username || "";
+      if (profileData && 'username' in profileData) {
+        const name = profileData.username || "";
         const nameParts = name.split(" ");
         setFirstName(nameParts[0] || "");
         setLastName(nameParts.slice(1).join(" ") || "");
         setPhone(profileData.phone || "");
         setEmail(profileData.email || "");
       }
-      
+
       // Select default address
       const addrList = Array.isArray(addressesData) ? addressesData : [];
-      const defaultAddr = addrList.find((a: Address) => a.isDefault);
+      const defaultAddr = addrList.find((a) => a.isDefault);
       if (defaultAddr) {
         setSelectedAddressId(defaultAddr._id);
       } else if (addrList.length > 0) {
@@ -126,30 +89,32 @@ export default function CheckoutPage() {
 
     try {
       setSubmitting(true);
-      
+
       const orderData = {
-        restaurant: cart.restaurant._id,
-        items: cart.items.map(item => ({
-          menuItem: item.menuItem._id,
-          quantity: item.quantity,
-          price: item.menuItem.price * item.quantity,
-          specialInstructions: "",
-        })),
         deliveryAddress: {
           addressLine1: selectedAddress.addressLine1,
           city: selectedAddress.city,
-          state: selectedAddress.state,
-          zipCode: selectedAddress.zipCode,
+          state: selectedAddress.state || "",
+          zipCode: selectedAddress.zipCode || "",
         },
         paymentMethod,
         specialInstructions,
+        useLoyaltyPoints,
+        promoCode: cart.promoCode
       };
 
-      const response = await createOrder(orderData);
-      
-      // Redirect based on payment method
+      const response: any = await createOrder(orderData);
+
+      const responseData = response?.data?.data || response?.data;
+      const orders = Array.isArray(responseData) ? responseData : [responseData];
+
+      // Redirect based on payment method and order count
       if (paymentMethod === "cash_on_delivery") {
-        router.push(`/order-tracking/${response.data._id}`);
+        if (orders.length === 1 && orders[0]?._id) {
+          router.push(`/order-tracking/${orders[0]._id}`);
+        } else {
+          router.push("/user-profile?tab=orders");
+        }
       } else {
         router.push("/payment");
       }
@@ -161,14 +126,14 @@ export default function CheckoutPage() {
     }
   };
 
-  const subtotal = cart?.items.reduce(
-    (sum, item) => sum + item.menuItem.price * item.quantity,
-    0
-  ) || 0;
-  const deliveryFee = 50;
+  const subtotal = cart?.restaurantGroups.reduce((acc, group) => {
+    return acc + group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  }, 0) || 0;
+
+  const deliveryFee = (cart?.restaurantGroups.length || 0) * 50;
   const serviceFee = 20;
-  const discount = cart?.promoDiscount || 0;
-  const total = subtotal + deliveryFee + serviceFee - discount;
+  const discount = (cart?.promoDiscount || 0) + (useLoyaltyPoints ? Math.min(profile?.loyaltyPoints || 0, subtotal + deliveryFee + serviceFee - (cart?.promoDiscount || 0)) : 0);
+  const total = Math.max(0, subtotal + deliveryFee + serviceFee - discount);
 
   if (loading) {
     return (
@@ -178,7 +143,7 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!cart || cart.items.length === 0) {
+  if (!cart || cart.restaurantGroups.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
         <p className="text-gray-600 mb-4">Your cart is empty</p>
@@ -205,7 +170,7 @@ export default function CheckoutPage() {
           </div>
 
           <div className="flex items-center gap-6">
-            
+
 
             <button className="bg-yellow-500 hover:bg-yellow-600 text-white px-8 py-3 rounded-full font-semibold flex items-center gap-2 shadow-md transition">
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -329,11 +294,10 @@ export default function CheckoutPage() {
                   {addresses.map((address) => (
                     <label
                       key={address._id}
-                      className={`flex items-start gap-4 p-4 border rounded-2xl cursor-pointer transition ${
-                        selectedAddressId === address._id
-                          ? "border-yellow-500 bg-yellow-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
+                      className={`flex items-start gap-4 p-4 border rounded-2xl cursor-pointer transition ${selectedAddressId === address._id
+                        ? "border-yellow-500 bg-yellow-50"
+                        : "border-gray-200 hover:border-gray-300"
+                        }`}
                     >
                       <input
                         type="radio"
@@ -364,11 +328,10 @@ export default function CheckoutPage() {
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment Method</h2>
               <div className="space-y-4">
                 <label
-                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${
-                    paymentMethod === "cash_on_delivery"
-                      ? "border-yellow-500 bg-yellow-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
+                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "cash_on_delivery"
+                    ? "border-yellow-500 bg-yellow-50"
+                    : "border-gray-200 hover:border-gray-300"
+                    }`}
                 >
                   <input
                     type="radio"
@@ -383,11 +346,10 @@ export default function CheckoutPage() {
                   </div>
                 </label>
                 <label
-                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${
-                    paymentMethod === "esewa"
-                      ? "border-yellow-500 bg-yellow-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
+                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "esewa"
+                    ? "border-yellow-500 bg-yellow-50"
+                    : "border-gray-200 hover:border-gray-300"
+                    }`}
                 >
                   <input
                     type="radio"
@@ -402,11 +364,10 @@ export default function CheckoutPage() {
                   </div>
                 </label>
                 <label
-                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${
-                    paymentMethod === "card"
-                      ? "border-yellow-500 bg-yellow-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
+                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "card"
+                    ? "border-yellow-500 bg-yellow-50"
+                    : "border-gray-200 hover:border-gray-300"
+                    }`}
                 >
                   <input
                     type="radio"
@@ -423,13 +384,31 @@ export default function CheckoutPage() {
               </div>
             </section>
 
+            {/* Loyalty Points */}
+            {profile && profile.loyaltyPoints > 0 && (
+              <section className="bg-orange-50 border border-orange-200 rounded-2xl p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-orange-900">Loyalty Points</h2>
+                    <p className="text-orange-700 text-sm">You have {profile.loyaltyPoints} points available (Rs. {profile.loyaltyPoints})</p>
+                  </div>
+                  <button
+                    onClick={() => setUseLoyaltyPoints(!useLoyaltyPoints)}
+                    className={`px-6 py-2 rounded-full font-semibold transition ${useLoyaltyPoints ? 'bg-orange-600 text-white' : 'bg-white text-orange-600 border border-orange-600 hover:bg-orange-100'}`}
+                  >
+                    {useLoyaltyPoints ? 'Applied' : 'Apply Points'}
+                  </button>
+                </div>
+              </section>
+            )}
+
             {/* Special Instructions */}
             <section>
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Special Instructions</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Order Instructions</h2>
               <textarea
                 value={specialInstructions}
                 onChange={(e) => setSpecialInstructions(e.target.value)}
-                placeholder="Any special requests or delivery instructions..."
+                placeholder="Any special requests or delivery instructions for this order..."
                 className="w-full px-5 py-4 text-black bg-white border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 transition resize-none"
                 rows={3}
               />
@@ -458,25 +437,33 @@ export default function CheckoutPage() {
           <div className="lg:col-span-1">
             <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100 sticky top-24">
               <h3 className="text-xl text-black font-bold mb-6">Order Summary</h3>
-              <p className="text-sm text-gray-500 mb-4">From: {cart.restaurant?.name}</p>
-
-              <div className="space-y-4 max-h-64 overflow-y-auto">
-                {cart.items.map((item) => (
-                  <div key={item._id} className="flex gap-4">
-                    <Image
-                      src={item.menuItem.image || "/food-placeholder.jpg"}
-                      alt={item.menuItem.name}
-                      width={60}
-                      height={60}
-                      className="rounded-xl object-cover shadow-md"
-                    />
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 text-sm">{item.menuItem.name}</h4>
-                      <p className="text-gray-500 text-sm">Qty: {item.quantity}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-black">Rs. {item.menuItem.price * item.quantity}</p>
-                    </div>
+              <div className="space-y-6 max-h-96 overflow-y-auto">
+                {cart.restaurantGroups.map((group) => (
+                  <div key={group.restaurant._id} className="space-y-3">
+                    <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider">{group.restaurant.name}</h4>
+                    {group.items.map((item) => (
+                      <div key={item.menuItem} className="flex gap-4">
+                        <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0">
+                          <Image
+                            src={item.image || "/food-placeholder.jpg"}
+                            alt={item.name}
+                            width={48}
+                            height={48}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900 text-xs">{item.name}</h4>
+                          <p className="text-gray-500 text-xs">Qty: {item.quantity}</p>
+                          {item.specialInstructions && (
+                            <p className="text-[10px] text-orange-600 italic">"{item.specialInstructions}"</p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-black text-sm">Rs. {item.price * item.quantity}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>

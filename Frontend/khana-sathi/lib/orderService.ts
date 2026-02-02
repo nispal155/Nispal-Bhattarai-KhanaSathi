@@ -76,7 +76,7 @@ export interface Order {
 
 export interface OrderResponse {
   success: boolean;
-  data: Order;
+  data: Order | Order[];
   message?: string;
 }
 
@@ -108,7 +108,7 @@ export async function getMyOrders(options?: {
   if (options?.status) params.append('status', options.status);
   if (options?.limit) params.append('limit', options.limit.toString());
   if (options?.page) params.append('page', options.page.toString());
-  
+
   const query = params.toString() ? `?${params.toString()}` : '';
   return get<OrdersResponse>(`/orders/my-orders${query}`);
 }
@@ -131,7 +131,7 @@ export async function getRestaurantOrders(options?: {
   const params = new URLSearchParams();
   if (options?.status) params.append('status', options.status);
   if (options?.date) params.append('date', options.date);
-  
+
   const query = params.toString() ? `?${params.toString()}` : '';
   return get<OrdersResponse>(`/orders/restaurant${query}`);
 }

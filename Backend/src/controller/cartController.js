@@ -11,11 +11,11 @@ const PromoCode = require('../models/PromoCode');
 exports.getCart = async (req, res) => {
   try {
     let cart = await Cart.findOne({ user: req.user._id })
-      .populate('restaurant', 'name logoUrl')
-      .populate('items.menuItem', 'name price image isAvailable');
+      .populate('restaurantGroups.restaurant', 'name logoUrl')
+      .populate('restaurantGroups.items.menuItem', 'name price image isAvailable');
 
     if (!cart) {
-      cart = { items: [], subtotal: 0, itemCount: 0 };
+      cart = { restaurantGroups: [], subtotal: 0, itemCount: 0 };
     }
 
     res.status(200).json({
@@ -63,50 +63,59 @@ exports.addToCart = async (req, res) => {
     if (!cart) {
       cart = new Cart({
         user: req.user._id,
+        restaurantGroups: []
+      });
+    }
+
+    // Find if restaurant group already exists
+    let groupIndex = cart.restaurantGroups.findIndex(
+      group => group.restaurant.toString() === menuItem.restaurant.toString()
+    );
+
+    if (groupIndex === -1) {
+      // Create new restaurant group
+      cart.restaurantGroups.push({
         restaurant: menuItem.restaurant,
-        items: []
+        items: [{
+          menuItem: menuItemId,
+          name: menuItem.name,
+          price: menuItem.price,
+          image: menuItem.image,
+          quantity,
+          specialInstructions
+        }]
       });
     } else {
-      // Check if adding from different restaurant
-      if (cart.restaurant && cart.restaurant.toString() !== menuItem.restaurant.toString()) {
-        return res.status(400).json({
-          success: false,
-          message: 'You can only order from one restaurant at a time. Clear your cart first.',
-          requiresClear: true
+      // Check if item already exists in that group
+      const existingItemIndex = cart.restaurantGroups[groupIndex].items.findIndex(
+        item => item.menuItem.toString() === menuItemId
+      );
+
+      if (existingItemIndex > -1) {
+        // Update quantity
+        cart.restaurantGroups[groupIndex].items[existingItemIndex].quantity += quantity;
+        if (specialInstructions !== undefined) {
+          cart.restaurantGroups[groupIndex].items[existingItemIndex].specialInstructions = specialInstructions;
+        }
+      } else {
+        // Add new item to group
+        cart.restaurantGroups[groupIndex].items.push({
+          menuItem: menuItemId,
+          name: menuItem.name,
+          price: menuItem.price,
+          image: menuItem.image,
+          quantity,
+          specialInstructions
         });
       }
     }
 
-    // Check if item already exists in cart
-    const existingItemIndex = cart.items.findIndex(
-      item => item.menuItem.toString() === menuItemId
-    );
-
-    if (existingItemIndex > -1) {
-      // Update quantity
-      cart.items[existingItemIndex].quantity += quantity;
-      if (specialInstructions) {
-        cart.items[existingItemIndex].specialInstructions = specialInstructions;
-      }
-    } else {
-      // Add new item
-      cart.items.push({
-        menuItem: menuItemId,
-        name: menuItem.name,
-        price: menuItem.price,
-        image: menuItem.image,
-        quantity,
-        specialInstructions
-      });
-    }
-
-    cart.restaurant = menuItem.restaurant;
     await cart.save();
 
     // Populate and return
     const populatedCart = await Cart.findById(cart._id)
-      .populate('restaurant', 'name logoUrl')
-      .populate('items.menuItem', 'name price image');
+      .populate('restaurantGroups.restaurant', 'name logoUrl')
+      .populate('restaurantGroups.items.menuItem', 'name price image');
 
     res.status(200).json({
       success: true,
@@ -140,39 +149,43 @@ exports.updateCartItem = async (req, res) => {
       });
     }
 
-    const itemIndex = cart.items.findIndex(
-      item => item.menuItem.toString() === menuItemId
-    );
+    let itemFound = false;
 
-    if (itemIndex === -1) {
+    for (let i = 0; i < cart.restaurantGroups.length; i++) {
+      const itemIndex = cart.restaurantGroups[i].items.findIndex(
+        item => item.menuItem.toString() === menuItemId
+      );
+
+      if (itemIndex > -1) {
+        if (quantity <= 0) {
+          cart.restaurantGroups[i].items.splice(itemIndex, 1);
+          // If group is now empty, remove it
+          if (cart.restaurantGroups[i].items.length === 0) {
+            cart.restaurantGroups.splice(i, 1);
+          }
+        } else {
+          cart.restaurantGroups[i].items[itemIndex].quantity = quantity;
+          if (specialInstructions !== undefined) {
+            cart.restaurantGroups[i].items[itemIndex].specialInstructions = specialInstructions;
+          }
+        }
+        itemFound = true;
+        break;
+      }
+    }
+
+    if (!itemFound) {
       return res.status(404).json({
         success: false,
         message: 'Item not found in cart'
       });
     }
 
-    if (quantity <= 0) {
-      // Remove item
-      cart.items.splice(itemIndex, 1);
-    } else {
-      cart.items[itemIndex].quantity = quantity;
-      if (specialInstructions !== undefined) {
-        cart.items[itemIndex].specialInstructions = specialInstructions;
-      }
-    }
-
-    // Clear restaurant if cart is empty
-    if (cart.items.length === 0) {
-      cart.restaurant = null;
-      cart.promoCode = null;
-      cart.promoDiscount = 0;
-    }
-
     await cart.save();
 
     const populatedCart = await Cart.findById(cart._id)
-      .populate('restaurant', 'name logoUrl')
-      .populate('items.menuItem', 'name price image');
+      .populate('restaurantGroups.restaurant', 'name logoUrl')
+      .populate('restaurantGroups.items.menuItem', 'name price image');
 
     res.status(200).json({
       success: true,
@@ -206,22 +219,27 @@ exports.removeFromCart = async (req, res) => {
       });
     }
 
-    cart.items = cart.items.filter(
-      item => item.menuItem.toString() !== menuItemId
-    );
+    let itemRemoved = false;
+    for (let i = 0; i < cart.restaurantGroups.length; i++) {
+      const initialLength = cart.restaurantGroups[i].items.length;
+      cart.restaurantGroups[i].items = cart.restaurantGroups[i].items.filter(
+        item => item.menuItem.toString() !== menuItemId
+      );
 
-    // Clear restaurant if cart is empty
-    if (cart.items.length === 0) {
-      cart.restaurant = null;
-      cart.promoCode = null;
-      cart.promoDiscount = 0;
+      if (cart.restaurantGroups[i].items.length < initialLength) {
+        itemRemoved = true;
+        if (cart.restaurantGroups[i].items.length === 0) {
+          cart.restaurantGroups.splice(i, 1);
+        }
+        break;
+      }
     }
 
     await cart.save();
 
     const populatedCart = await Cart.findById(cart._id)
-      .populate('restaurant', 'name logoUrl')
-      .populate('items.menuItem', 'name price image');
+      .populate('restaurantGroups.restaurant', 'name logoUrl')
+      .populate('restaurantGroups.items.menuItem', 'name price image');
 
     res.status(200).json({
       success: true,
@@ -270,7 +288,7 @@ exports.applyPromoCode = async (req, res) => {
 
     const cart = await Cart.findOne({ user: req.user._id });
 
-    if (!cart || cart.items.length === 0) {
+    if (!cart || cart.restaurantGroups.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Cart is empty'
@@ -287,10 +305,17 @@ exports.applyPromoCode = async (req, res) => {
     }
 
     // Calculate subtotal
-    const subtotal = cart.items.reduce((total, item) => total + (item.price * item.quantity), 0);
+    let subtotal = 0;
+    cart.restaurantGroups.forEach(group => {
+      group.items.forEach(item => {
+        subtotal += item.price * item.quantity;
+      });
+    });
 
     // Validate promo code
-    const validation = promoCode.isValid(subtotal, cart.restaurant);
+    // Note: If multi-restaurant, promo code might apply to specific restaurant or entire cart.
+    // For now, we allow it if it matches criteria and restaurant index check.
+    const validation = promoCode.isValid(subtotal, cart.restaurantGroups[0].restaurant); // Check against first restaurant for now
 
     if (!validation.valid) {
       return res.status(400).json({
@@ -299,7 +324,6 @@ exports.applyPromoCode = async (req, res) => {
       });
     }
 
-    // Calculate discount
     const discount = promoCode.calculateDiscount(subtotal);
 
     cart.promoCode = code.toUpperCase();
@@ -364,17 +388,27 @@ exports.removePromoCode = async (req, res) => {
 exports.getCartSummary = async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user._id })
-      .populate('restaurant', 'name logoUrl address');
+      .populate('restaurantGroups.restaurant', 'name logoUrl address');
 
-    if (!cart || cart.items.length === 0) {
+    if (!cart || cart.restaurantGroups.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Cart is empty'
       });
     }
 
-    const subtotal = cart.items.reduce((total, item) => total + (item.price * item.quantity), 0);
-    const deliveryFee = 50;
+    let subtotal = 0;
+    let itemCount = 0;
+
+    cart.restaurantGroups.forEach(group => {
+      group.items.forEach(item => {
+        subtotal += item.price * item.quantity;
+        itemCount += item.quantity;
+      });
+    });
+
+    // Multi-restaurant delivery fee: Rs. 50 per restaurant
+    const deliveryFee = cart.restaurantGroups.length * 50;
     const serviceFee = 20;
     const discount = cart.promoDiscount || 0;
     const total = subtotal + deliveryFee + serviceFee - discount;
@@ -382,9 +416,8 @@ exports.getCartSummary = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        restaurant: cart.restaurant,
-        items: cart.items,
-        itemCount: cart.items.reduce((count, item) => count + item.quantity, 0),
+        restaurantGroups: cart.restaurantGroups,
+        itemCount,
         pricing: {
           subtotal,
           deliveryFee,

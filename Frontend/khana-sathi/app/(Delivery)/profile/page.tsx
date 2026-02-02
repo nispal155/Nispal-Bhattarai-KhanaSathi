@@ -87,19 +87,17 @@ export default function RiderProfilePage() {
   };
 
   const handleSaveProfile = async () => {
-    if (!selectedFile) {
+    if (!selectedFile || !previewImage) {
       toast.error("No new image selected");
       return;
     }
 
     setSaving(true);
     try {
-      const formData = new FormData();
-      formData.append('profilePicture', selectedFile);
-      formData.append('userId', user?._id || '');
-
-      await axios.put(`${API_URL}/update-profile-picture`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      // Send base64 image directly as the backend expects
+      await axios.put(`${API_URL}/update-profile-picture`, {
+        userId: user?._id,
+        profilePicture: previewImage // previewImage is already base64 from FileReader
       });
 
       toast.success("Profile picture updated!");

@@ -7,7 +7,8 @@ const {
   deleteRestaurant,
   onboardRestaurant,
   approveRestaurant,
-  getOnboardingDetails
+  getOnboardingDetails,
+  getNearbyRestaurants
 } = require("../controller/restaurantController");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -16,6 +17,8 @@ const router = express.Router();
 router.put("/onboard", protect, onboardRestaurant);
 router.put("/approve/:userId", protect, approveRestaurant);
 router.get("/onboarding-details/:userId", protect, getOnboardingDetails);
+
+router.get("/nearby", getNearbyRestaurants);
 
 router.post("/", protect, createRestaurant);
 router.get("/", getAllRestaurants);

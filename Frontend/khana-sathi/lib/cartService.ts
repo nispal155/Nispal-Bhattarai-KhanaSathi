@@ -10,15 +10,19 @@ export interface CartItem {
   specialInstructions?: string;
 }
 
-export interface Cart {
-  _id: string;
-  user: string;
+export interface RestaurantGroup {
   restaurant: {
     _id: string;
     name: string;
     logoUrl?: string;
   };
   items: CartItem[];
+}
+
+export interface Cart {
+  _id: string;
+  user: string;
+  restaurantGroups: RestaurantGroup[];
   promoCode?: string;
   promoDiscount: number;
   subtotal: number;
@@ -26,13 +30,7 @@ export interface Cart {
 }
 
 export interface CartSummary {
-  restaurant: {
-    _id: string;
-    name: string;
-    logoUrl?: string;
-    address: object;
-  };
-  items: CartItem[];
+  restaurantGroups: RestaurantGroup[];
   itemCount: number;
   pricing: {
     subtotal: number;

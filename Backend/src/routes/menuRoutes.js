@@ -15,13 +15,16 @@ const { protect } = require('../middleware/authMiddleware');
 // Public routes
 router.get('/search', searchMenuItems);
 router.get('/restaurant/:restaurantId', getMenuByRestaurant);
-router.get('/:id', getMenuItemById);
 
-// Protected routes (Restaurant Manager)
+// Protected routes (Restaurant Manager) - MUST come before /:id
 router.get('/my-menu', protect, getMyMenu);
 router.post('/', protect, createMenuItem);
-router.put('/:id', protect, updateMenuItem);
 router.put('/:id/toggle-availability', protect, toggleAvailability);
+router.put('/:id', protect, updateMenuItem);
 router.delete('/:id', protect, deleteMenuItem);
 
+// This must be LAST - catches any id parameter
+router.get('/:id', getMenuItemById);
+
 module.exports = router;
+

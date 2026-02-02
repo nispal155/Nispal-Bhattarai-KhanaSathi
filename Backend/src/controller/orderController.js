@@ -3,84 +3,115 @@ const Cart = require('../models/Cart');
 const Menu = require('../models/Menu');
 const User = require('../models/User');
 const Restaurant = require('../models/Restaurant');
+const socketService = require('../services/socket');
 
 /**
- * @desc    Create a new order from cart
+ * @desc    Create new orders from cart
  * @route   POST /api/orders
  * @access  Private (Customer)
  */
 exports.createOrder = async (req, res) => {
   try {
-    const { 
-      deliveryAddress, 
-      paymentMethod, 
-      specialInstructions,
-      promoCode 
+    const {
+      deliveryAddress,
+      paymentMethod,
+      specialInstructions: globalSpecialInstructions,
+      promoCode,
+      useLoyaltyPoints
     } = req.body;
 
     // Get user's cart
-    const cart = await Cart.findOne({ user: req.user._id }).populate('items.menuItem');
+    const cart = await Cart.findOne({ user: req.user._id }).populate('restaurantGroups.items.menuItem');
 
-    if (!cart || cart.items.length === 0) {
+    if (!cart || cart.restaurantGroups.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Cart is empty'
       });
     }
 
-    // Calculate pricing
-    const subtotal = cart.items.reduce((total, item) => total + (item.price * item.quantity), 0);
-    const deliveryFee = 50;
-    const serviceFee = 20;
-    const discount = cart.promoDiscount || 0;
-    const total = subtotal + deliveryFee + serviceFee - discount;
+    // Get user for loyalty points
+    const user = await User.findById(req.user._id);
 
-    // Create order
-    const order = await Order.create({
-      customer: req.user._id,
-      restaurant: cart.restaurant,
-      items: cart.items.map(item => ({
-        menuItem: item.menuItem,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        specialInstructions: item.specialInstructions
-      })),
-      status: 'pending',
-      deliveryAddress,
-      pricing: {
-        subtotal,
-        deliveryFee,
-        serviceFee,
-        discount,
-        total
-      },
-      paymentMethod,
-      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending',
-      specialInstructions,
-      promoCode,
-      estimatedDeliveryTime: new Date(Date.now() + 45 * 60 * 1000) // 45 min from now
+    const createdOrders = [];
+    let totalOrderValue = 0;
+    let pointsToDeduct = 0;
+
+    if (useLoyaltyPoints && user.loyaltyPoints > 0) {
+      pointsToDeduct = user.loyaltyPoints;
+    }
+
+    // For each restaurant group, create a separate order
+    for (const group of cart.restaurantGroups) {
+      const subtotal = group.items.reduce((total, item) => total + (item.price * item.quantity), 0);
+      const deliveryFee = 50;
+      const serviceFee = 20;
+
+      const discount = (createdOrders.length === 0) ? (cart.promoDiscount || 0) : 0;
+
+      let pointsDiscount = 0;
+      if (pointsToDeduct > 0) {
+        const remainingGroupTotal = subtotal + deliveryFee + serviceFee - discount;
+        pointsDiscount = Math.min(pointsToDeduct, remainingGroupTotal);
+        pointsToDeduct -= pointsDiscount;
+      }
+
+      const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
+      totalOrderValue += total;
+
+      const order = await Order.create({
+        customer: req.user._id,
+        restaurant: group.restaurant,
+        items: group.items.map(item => ({
+          menuItem: item.menuItem._id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          specialInstructions: item.specialInstructions
+        })),
+        status: 'pending',
+        deliveryAddress,
+        pricing: {
+          subtotal,
+          deliveryFee,
+          serviceFee,
+          discount: discount + pointsDiscount,
+          total
+        },
+        paymentMethod,
+        paymentStatus: 'pending',
+        specialInstructions: globalSpecialInstructions,
+        promoCode: (createdOrders.length === 0) ? cart.promoCode : undefined,
+        estimatedDeliveryTime: new Date(Date.now() + 45 * 60 * 1000)
+      });
+
+      // Update menu item order counts
+      for (const item of group.items) {
+        await Menu.findByIdAndUpdate(item.menuItem._id, {
+          $inc: { orderCount: item.quantity }
+        });
+      }
+
+      createdOrders.push(order);
+    }
+
+    // Calculate loyalty points: 1 point per Rs. 100
+    const pointsEarned = Math.floor(totalOrderValue / 100);
+    const netPointsChange = pointsEarned - (useLoyaltyPoints ? user.loyaltyPoints - pointsToDeduct : 0);
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { loyaltyPoints: netPointsChange }
     });
 
     // Clear the cart
     await Cart.findByIdAndDelete(cart._id);
 
-    // Update menu item order counts
-    for (const item of cart.items) {
-      await Menu.findByIdAndUpdate(item.menuItem, {
-        $inc: { orderCount: item.quantity }
-      });
-    }
-
-    // Populate order details for response
-    const populatedOrder = await Order.findById(order._id)
-      .populate('restaurant', 'name address contactPhone')
-      .populate('customer', 'username email');
-
     res.status(201).json({
       success: true,
-      message: 'Order placed successfully',
-      data: populatedOrder
+      message: `${createdOrders.length} order(s) placed successfully`,
+      data: createdOrders,
+      pointsEarned,
+      pointsUsed: useLoyaltyPoints ? user.loyaltyPoints - pointsToDeduct : 0
     });
   } catch (error) {
     res.status(500).json({
@@ -99,7 +130,7 @@ exports.createOrder = async (req, res) => {
 exports.getMyOrders = async (req, res) => {
   try {
     const { status, limit = 10, page = 1 } = req.query;
-    
+
     let query = { customer: req.user._id };
     if (status) query.status = status;
 
@@ -136,6 +167,7 @@ exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate('restaurant', 'name address contactPhone logoUrl')
+      .populate('items.menuItem', 'name price image') // Added image population
       .populate('customer', 'username email')
       .populate('deliveryRider', 'username profilePicture averageRating vehicleDetails');
 
@@ -149,9 +181,9 @@ exports.getOrderById = async (req, res) => {
     // Check authorization
     const isCustomer = order.customer._id.toString() === req.user._id.toString();
     const isRider = order.deliveryRider && order.deliveryRider._id.toString() === req.user._id.toString();
-    const isRestaurant = await Restaurant.findOne({ 
-      _id: order.restaurant._id, 
-      createdBy: req.user._id 
+    const isRestaurant = await Restaurant.findOne({
+      _id: order.restaurant._id,
+      createdBy: req.user._id
     });
     const isAdmin = req.user.role === 'admin';
 
@@ -185,7 +217,7 @@ exports.getRestaurantOrders = async (req, res) => {
     const { status, date } = req.query;
 
     const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
-    
+
     if (!restaurant) {
       return res.status(404).json({
         success: false,
@@ -194,7 +226,7 @@ exports.getRestaurantOrders = async (req, res) => {
     }
 
     let query = { restaurant: restaurant._id };
-    
+
     if (status) {
       if (status === 'active') {
         query.status = { $in: ['pending', 'confirmed', 'preparing', 'ready'] };
@@ -249,9 +281,9 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     // Verify restaurant ownership
-    const restaurant = await Restaurant.findOne({ 
-      _id: order.restaurant, 
-      createdBy: req.user._id 
+    const restaurant = await Restaurant.findOne({
+      _id: order.restaurant,
+      createdBy: req.user._id
     });
 
     if (!restaurant && req.user.role !== 'admin') {
@@ -273,7 +305,7 @@ exports.updateOrderStatus = async (req, res) => {
       'cancelled': []
     };
 
-    if (!validTransitions[order.status].includes(status)) {
+    if (!validTransitions[order.status]?.includes(status)) {
       return res.status(400).json({
         success: false,
         message: `Cannot change status from ${order.status} to ${status}`
@@ -287,9 +319,13 @@ exports.updateOrderStatus = async (req, res) => {
 
     if (status === 'delivered') {
       order.actualDeliveryTime = new Date();
+      order.paymentStatus = 'paid';
     }
 
     await order.save();
+
+    // Emit live update via Socket.io
+    socketService.emitOrderUpdate(order._id.toString(), status, { order });
 
     res.status(200).json({
       success: true,
@@ -339,6 +375,16 @@ exports.assignRider = async (req, res) => {
     rider.currentAssignment = order.orderNumber;
     await rider.save();
 
+    // Emit live update
+    socketService.emitOrderUpdate(order._id.toString(), order.status, {
+      rider: {
+        _id: rider._id,
+        username: rider.username,
+        profilePicture: rider.profilePicture,
+        vehicleDetails: rider.vehicleDetails
+      }
+    });
+
     res.status(200).json({
       success: true,
       message: 'Rider assigned successfully',
@@ -363,7 +409,7 @@ exports.getRiderOrders = async (req, res) => {
     const { status } = req.query;
 
     let query = { deliveryRider: req.user._id };
-    
+
     if (status === 'active') {
       query.status = { $in: ['picked_up', 'on_the_way'] };
     } else if (status === 'completed') {
@@ -398,7 +444,7 @@ exports.getRiderOrders = async (req, res) => {
  */
 exports.getAvailableOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ 
+    const orders = await Order.find({
       status: 'ready',
       deliveryRider: null
     })
@@ -458,6 +504,9 @@ exports.acceptOrder = async (req, res) => {
       currentAssignment: order.orderNumber
     });
 
+    // Emit live update
+    socketService.emitOrderUpdate(order._id.toString(), 'picked_up', { order });
+
     res.status(200).json({
       success: true,
       message: 'Order accepted successfully',
@@ -481,9 +530,9 @@ exports.updateDeliveryStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
-    const order = await Order.findOne({ 
-      _id: req.params.id, 
-      deliveryRider: req.user._id 
+    const order = await Order.findOne({
+      _id: req.params.id,
+      deliveryRider: req.user._id
     });
 
     if (!order) {
@@ -509,8 +558,8 @@ exports.updateDeliveryStatus = async (req, res) => {
 
     if (status === 'delivered') {
       order.actualDeliveryTime = new Date();
-      order.paymentStatus = order.paymentMethod === 'cod' ? 'paid' : order.paymentStatus;
-      
+      order.paymentStatus = 'paid';
+
       // Update rider stats
       await User.findByIdAndUpdate(req.user._id, {
         $inc: { completedOrders: 1 },
@@ -519,6 +568,9 @@ exports.updateDeliveryStatus = async (req, res) => {
     }
 
     await order.save();
+
+    // Emit live update
+    socketService.emitOrderUpdate(order._id.toString(), status, { order });
 
     res.status(200).json({
       success: true,
@@ -563,6 +615,18 @@ exports.cancelOrder = async (req, res) => {
       });
     }
 
+    // Order modification window check (2 minutes)
+    const orderTime = new Date(order.createdAt).getTime();
+    const currentTime = new Date().getTime();
+    const diffInMinutes = (currentTime - orderTime) / (1000 * 60);
+
+    if (isCustomer && diffInMinutes > 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order modification window (2 mins) has passed. Cannot cancel now.'
+      });
+    }
+
     // Can only cancel pending or confirmed orders
     if (!['pending', 'confirmed'].includes(order.status)) {
       return res.status(400).json({
@@ -579,6 +643,9 @@ exports.cancelOrder = async (req, res) => {
     });
 
     await order.save();
+
+    // Emit live update
+    socketService.emitOrderUpdate(order._id.toString(), 'cancelled', { order });
 
     res.status(200).json({
       success: true,

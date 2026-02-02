@@ -15,17 +15,25 @@ interface CartItem {
     price: number;
     image: string;
   };
+  name: string;
+  price: number;
+  image?: string;
   quantity: number;
   specialInstructions?: string;
 }
 
-interface CartData {
-  _id: string;
+interface RestaurantGroup {
   restaurant: {
     _id: string;
     name: string;
+    logoUrl?: string;
   };
   items: CartItem[];
+}
+
+interface CartData {
+  _id: string;
+  restaurantGroups: RestaurantGroup[];
   promoCode?: string;
   promoDiscount?: number;
 }
@@ -46,8 +54,6 @@ export default function CartPage() {
     try {
       setLoading(true);
       const response = await getCart();
-      // Handle nested response structure
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const responseData = response?.data as any;
       const cartData = responseData?.data || responseData;
       setCart(cartData as CartData || null);
@@ -58,11 +64,11 @@ export default function CartPage() {
     }
   };
 
-  const updateQuantity = async (itemId: string, quantity: number) => {
+  const updateQuantity = async (menuItemId: string, quantity: number) => {
     if (quantity < 1) return;
     try {
-      setUpdating(itemId);
-      await updateCartItem(itemId, quantity);
+      setUpdating(menuItemId);
+      await updateCartItem(menuItemId, quantity);
       await fetchCart();
     } catch (err) {
       console.error("Error updating quantity:", err);
@@ -71,10 +77,10 @@ export default function CartPage() {
     }
   };
 
-  const removeItem = async (itemId: string) => {
+  const removeItem = async (menuItemId: string) => {
     try {
-      setUpdating(itemId);
-      await removeFromCart(itemId);
+      setUpdating(menuItemId);
+      await removeFromCart(menuItemId);
       await fetchCart();
     } catch (err) {
       console.error("Error removing item:", err);
@@ -108,11 +114,12 @@ export default function CartPage() {
     }
   };
 
-  const subtotal = cart?.items.reduce(
-    (sum, item) => sum + item.menuItem.price * item.quantity,
-    0
-  ) || 0;
-  const deliveryFee = 50;
+  // Calculate subtotal across all groups
+  const subtotal = cart?.restaurantGroups.reduce((acc, group) => {
+    return acc + group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  }, 0) || 0;
+
+  const deliveryFee = (cart?.restaurantGroups.length || 0) * 50;
   const serviceFee = 20;
   const discount = cart?.promoDiscount || 0;
   const total = subtotal + deliveryFee + serviceFee - discount;
@@ -124,6 +131,8 @@ export default function CartPage() {
       </div>
     );
   }
+
+  const hasItems = cart && cart.restaurantGroups.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -163,7 +172,6 @@ export default function CartPage() {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Button */}
         <Link
           href="/browse-restaurants"
           className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
@@ -174,7 +182,7 @@ export default function CartPage() {
 
         <h1 className="text-2xl font-bold text-gray-900 mb-8">Your Cart</h1>
 
-        {!cart || cart.items.length === 0 ? (
+        {!hasItems ? (
           <div className="text-center py-16">
             <div className="text-6xl mb-4">🛒</div>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Your cart is empty</h2>
@@ -188,85 +196,79 @@ export default function CartPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Cart Items */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b border-gray-200">
-                  <h2 className="font-semibold text-gray-900">
-                    {cart.restaurant?.name || "Restaurant"}
-                  </h2>
-                </div>
+            <div className="lg:col-span-2 space-y-6">
+              {cart.restaurantGroups.map((group) => (
+                <div key={group.restaurant._id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                    <h2 className="font-semibold text-gray-900">
+                      {group.restaurant.name}
+                    </h2>
+                    <span className="text-xs text-gray-500">{group.items.length} items</span>
+                  </div>
 
-                <div className="divide-y divide-gray-200">
-                  {cart.items.map((item) => (
-                    <div key={item._id} className="p-4 flex gap-4">
-                      <div className="w-20 h-20 rounded-lg bg-gray-200 overflow-hidden shrink-0">
-                        <Image
-                          src={item.menuItem.image || "/food-placeholder.jpg"}
-                          alt={item.menuItem.name}
-                          width={80}
-                          height={80}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-medium text-gray-900">{item.menuItem.name}</h3>
-                            <p className="text-sm text-gray-500">{item.menuItem.description}</p>
+                  <div className="divide-y divide-gray-200">
+                    {group.items.map((item) => (
+                      <div key={item._id} className="p-4">
+                        <div className="flex gap-4">
+                          <div className="w-16 h-16 rounded-lg bg-gray-100 overflow-hidden shrink-0">
+                            <Image
+                              src={item.image || "/food-placeholder.jpg"}
+                              alt={item.name}
+                              width={64}
+                              height={64}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
-                          <button
-                            onClick={() => removeItem(item._id)}
-                            disabled={updating === item._id}
-                            className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        </div>
 
-                        <div className="flex items-center justify-between mt-3">
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => updateQuantity(item._id, item.quantity - 1)}
-                              disabled={updating === item._id || item.quantity <= 1}
-                              className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
-                            <span className="font-medium w-6 text-center">
-                              {updating === item._id ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : item.quantity}
-                            </span>
-                            <button
-                              onClick={() => updateQuantity(item._id, item.quantity + 1)}
-                              disabled={updating === item._id}
-                              className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </button>
+                          <div className="flex-1">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h3 className="font-medium text-gray-900">{item.name}</h3>
+                                {item.specialInstructions && (
+                                  <p className="text-xs text-orange-600 mt-0.5">Note: {item.specialInstructions}</p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => removeItem(item.menuItem._id)}
+                                className="text-gray-400 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-2">
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => updateQuantity(item.menuItem._id, item.quantity - 1)}
+                                  disabled={updating === item.menuItem._id || item.quantity <= 1}
+                                  className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="text-sm font-medium w-4 text-center">
+                                  {updating === item.menuItem._id ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => updateQuantity(item.menuItem._id, item.quantity + 1)}
+                                  disabled={updating === item.menuItem._id}
+                                  className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <span className="text-sm font-bold text-gray-900">
+                                Rs. {item.price * item.quantity}
+                              </span>
+                            </div>
                           </div>
-                          <span className="font-semibold text-gray-900">
-                            Rs. {item.menuItem.price * item.quantity}
-                          </span>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-
-              {/* Special Instructions */}
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="font-medium text-gray-900 mb-3">Special Instructions</h3>
-                <textarea
-                  placeholder="Add any special requests or dietary requirements..."
-                  className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-500"
-                  rows={3}
-                />
-              </div>
+              ))}
             </div>
 
-            {/* Order Summary */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-xl border border-gray-200 p-6 sticky top-24">
                 <h2 className="font-semibold text-gray-900 mb-4">Order Summary</h2>
@@ -277,7 +279,7 @@ export default function CartPage() {
                     <span className="text-gray-900">Rs. {subtotal}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Delivery Fee</span>
+                    <span className="text-gray-600">Delivery Fee ({cart.restaurantGroups.length} rest.)</span>
                     <span className="text-gray-900">Rs. {deliveryFee}</span>
                   </div>
                   <div className="flex justify-between">
@@ -294,22 +296,21 @@ export default function CartPage() {
                   <div className="border-t border-gray-200 pt-3 mt-3">
                     <div className="flex justify-between font-semibold">
                       <span className="text-gray-900">Total</span>
-                      <span className="text-gray-900">Rs. {total}</span>
+                      <span className="text-gray-900 text-lg">Rs. {total}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Promo Code */}
                 <div className="mt-6">
                   {cart.promoCode ? (
                     <div className="flex items-center justify-between bg-green-50 p-3 rounded-lg">
                       <div>
                         <span className="text-green-700 font-medium">{cart.promoCode}</span>
-                        <span className="text-green-600 text-sm ml-2">Applied!</span>
+                        <span className="text-green-600 text-xs ml-2">Applied!</span>
                       </div>
                       <button
                         onClick={handleRemovePromo}
-                        className="text-red-500 text-sm hover:text-red-600"
+                        className="text-red-500 text-xs hover:text-red-600"
                       >
                         Remove
                       </button>
@@ -322,17 +323,16 @@ export default function CartPage() {
                           placeholder="Enter promo code"
                           value={promoCode}
                           onChange={(e) => setPromoCode(e.target.value)}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-red-500"
                         />
                         <button
                           onClick={handleApplyPromo}
-                          className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                          className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 transition-colors"
                         >
                           Apply
                         </button>
                       </div>
-                      {promoError && <p className="text-red-500 text-sm mt-2">{promoError}</p>}
-                      {promoSuccess && <p className="text-green-500 text-sm mt-2">{promoSuccess}</p>}
+                      {promoError && <p className="text-red-500 text-xs mt-2">{promoError}</p>}
                     </>
                   )}
                 </div>
@@ -343,18 +343,11 @@ export default function CartPage() {
                 >
                   Proceed to Checkout
                 </Link>
-
-                <p className="text-xs text-gray-500 text-center mt-4">
-                  By placing an order, you agree to our Terms of Service and Privacy Policy
-                </p>
               </div>
             </div>
           </div>
         )}
       </div>
-
-      {/* Footer */}
-
     </div>
   );
 }

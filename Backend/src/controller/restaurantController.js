@@ -406,3 +406,38 @@ exports.getOnboardingDetails = async (req, res) => {
     });
   }
 };
+/**
+ * @desc    Get nearby restaurants based on city
+ * @route   GET /api/restaurants/nearby
+ * @params  city
+ * @access  Public
+ */
+exports.getNearbyRestaurants = async (req, res) => {
+  try {
+    const { city } = req.query;
+
+    if (!city) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a city for nearby restaurants"
+      });
+    }
+
+    const restaurants = await Restaurant.find({
+      "address.city": { $regex: new RegExp(city, "i") },
+      isActive: true
+    });
+
+    res.status(200).json({
+      success: true,
+      count: restaurants.length,
+      data: restaurants
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch nearby restaurants",
+      error: error.message
+    });
+  }
+};

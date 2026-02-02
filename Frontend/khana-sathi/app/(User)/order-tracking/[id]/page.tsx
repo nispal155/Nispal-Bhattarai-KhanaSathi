@@ -5,6 +5,9 @@ import Link from "next/link";
 import { Phone, MessageSquare, MapPin, Clock, Loader2 } from "lucide-react";
 import { useState, useEffect, use } from "react";
 import { getOrderById, cancelOrder } from "@/lib/orderService";
+import { io, Socket } from "socket.io-client";
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
 
 interface OrderItem {
   menuItem: {
@@ -71,13 +74,67 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   useEffect(() => {
     fetchOrder();
-    // Poll for updates every 30 seconds
-    const interval = setInterval(fetchOrder, 30000);
-    return () => clearInterval(interval);
+
+    // Socket initialization
+    const newSocket = io(SOCKET_URL, {
+      transports: ["websocket"],
+      auth: {
+        token: localStorage.getItem("token")
+      }
+    });
+
+    newSocket.on("connect", () => {
+      console.log("Connected to tracking socket");
+      newSocket.emit("joinOrder", id);
+    });
+
+    newSocket.on("orderStatusUpdate", (data: { orderId: string, status: string }) => {
+      if (data.orderId === id) {
+        setOrder(prev => prev ? { ...prev, status: data.status } : null);
+      }
+    });
+
+    setSocket(newSocket);
+
+    // Initial fetch and polling as fallback
+    const interval = setInterval(fetchOrder, 60000);
+
+    return () => {
+      clearInterval(interval);
+      newSocket.disconnect();
+    };
   }, [id]);
+
+  // Cancellation timer logic
+  useEffect(() => {
+    if (!order || order.status !== 'pending') {
+      setTimeLeft(null);
+      return;
+    }
+
+    const calculateTimeLeft = () => {
+      const created = new Date(order.createdAt).getTime();
+      const now = new Date().getTime();
+      const difference = (created + 120000) - now; // 2 minutes window
+
+      if (difference <= 0) {
+        setTimeLeft(0);
+        return;
+      }
+
+      setTimeLeft(Math.floor(difference / 1000));
+    };
+
+    calculateTimeLeft();
+    const timer = setInterval(calculateTimeLeft, 1000);
+
+    return () => clearInterval(timer);
+  }, [order]);
 
   const fetchOrder = async () => {
     try {
@@ -98,7 +155,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
 
   const handleCancelOrder = async () => {
     if (!confirm("Are you sure you want to cancel this order?")) return;
-    
+
     try {
       setCancelling(true);
       await cancelOrder(id, "Customer requested cancellation");
@@ -131,7 +188,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   }
 
   const currentStep = getStepNumber(order.status);
-  const canCancel = ["pending", "confirmed"].includes(order.status);
+  const isCancellable = order.status === "pending" && (timeLeft !== null && timeLeft > 0);
 
   // Calculate estimated time
   const getEstimatedTime = () => {
@@ -211,11 +268,10 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                 {statusSteps.slice(0, 5).map((step) => (
                   <div key={step.id} className="flex flex-col items-center flex-1">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${
-                        step.id <= currentStep
-                          ? "bg-red-500 text-white"
-                          : "bg-gray-200 text-gray-500"
-                      }`}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.id <= currentStep
+                        ? "bg-red-500 text-white"
+                        : "bg-gray-200 text-gray-500"
+                        }`}
                     >
                       {step.id < currentStep ? (
                         <span>✓</span>
@@ -224,11 +280,10 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                       )}
                     </div>
                     <span
-                      className={`text-xs mt-2 text-center ${
-                        step.id <= currentStep
-                          ? "text-red-500 font-medium"
-                          : "text-gray-500"
-                      }`}
+                      className={`text-xs mt-2 text-center ${step.id <= currentStep
+                        ? "text-red-500 font-medium"
+                        : "text-gray-500"
+                        }`}
                     >
                       {step.title}
                     </span>
@@ -319,7 +374,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
           <h2 className="font-semibold text-gray-900 mb-4">Order Items</h2>
 
           <div className="space-y-3">
-            {order.items.map((item, index) => (
+            {order.items.map((item: OrderItem, index: number) => (
               <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                 <div className="flex items-center gap-3">
                   <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-sm font-medium">
@@ -365,14 +420,17 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
             <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
               Report an Issue
             </button>
-            {canCancel && (
-              <button 
+            {isCancellable && (
+              <button
                 onClick={handleCancelOrder}
                 disabled={cancelling}
-                className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
-                {cancelling ? "Cancelling..." : "Cancel Order"}
+                {cancelling ? "Cancelling..." : `Cancel (${Math.floor(timeLeft! / 60)}:${(timeLeft! % 60).toString().padStart(2, '0')})`}
               </button>
+            )}
+            {!isCancellable && order.status === 'pending' && timeLeft === 0 && (
+              <span className="text-xs text-gray-400 self-center">Cancellation window closed</span>
             )}
             <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
               Contact Support

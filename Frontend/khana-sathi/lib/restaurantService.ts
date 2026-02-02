@@ -132,3 +132,10 @@ export async function approveRestaurant(userId: string) {
 export async function getOnboardingDetails(userId: string) {
   return get<ApiResponse<any>>(`/restaurant/onboarding-details/${userId}`);
 }
+/**
+ * GET NEARBY RESTAURANTS
+ * GET /api/restaurant/nearby?city=...
+ */
+export async function getNearbyRestaurants(city: string) {
+  return get<ApiResponse<Restaurant[]>>(`/restaurant/nearby?city=${encodeURIComponent(city)}`);
+}

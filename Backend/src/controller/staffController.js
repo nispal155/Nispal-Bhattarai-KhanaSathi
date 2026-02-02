@@ -256,6 +256,229 @@ const toggleStatus = async (req, res) => {
     }
 };
 
+// @desc    Get rider statistics for dashboard
+// @route   GET /api/staff/stats/:id
+// @access  Private (Delivery Staff)
+const getRiderStats = async (req, res) => {
+    try {
+        const Order = require('../models/Order');
+        const Review = require('../models/Review');
+        const riderId = req.params.id;
+
+        const user = await User.findById(riderId);
+        if (!user || user.role !== 'delivery_staff') {
+            return res.status(404).json({ message: 'Rider not found' });
+        }
+
+        // Get today's date range
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        // Get today's completed deliveries
+        const todayDeliveries = await Order.countDocuments({
+            deliveryRider: riderId,
+            status: 'delivered',
+            updatedAt: { $gte: todayStart, $lte: todayEnd }
+        });
+
+        // Get total completed deliveries
+        const totalDeliveries = await Order.countDocuments({
+            deliveryRider: riderId,
+            status: 'delivered'
+        });
+
+        // Calculate today's earnings (assume delivery fee of Rs 50 per order)
+        const DELIVERY_FEE_PER_ORDER = 50;
+        const todayEarnings = todayDeliveries * DELIVERY_FEE_PER_ORDER;
+        const totalEarnings = totalDeliveries * DELIVERY_FEE_PER_ORDER;
+
+        // Get average rating from reviews
+        const reviews = await Review.find({ rider: riderId });
+        const avgRating = reviews.length > 0
+            ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+            : 5.0;
+
+        // Get current active order
+        const currentOrder = await Order.findOne({
+            deliveryRider: riderId,
+            status: { $in: ['picked_up', 'on_the_way'] }
+        }).populate('restaurant', 'name address').populate('customer', 'username');
+
+        res.json({
+            success: true,
+            data: {
+                todayDeliveries,
+                totalDeliveries,
+                todayEarnings,
+                totalEarnings,
+                avgRating: parseFloat(avgRating),
+                reviewCount: reviews.length,
+                currentOrder,
+                isOnline: user.isOnline
+            }
+        });
+    } catch (error) {
+        console.error('getRiderStats Error:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get rider earnings breakdown (daily/weekly/monthly)
+// @route   GET /api/staff/earnings/:id
+// @access  Private (Delivery Staff)
+const getRiderEarnings = async (req, res) => {
+    try {
+        const Order = require('../models/Order');
+        const riderId = req.params.id;
+        const DELIVERY_FEE_PER_ORDER = 50;
+
+        // Date ranges
+        const now = new Date();
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+
+        const weekStart = new Date(now);
+        weekStart.setDate(weekStart.getDate() - 7);
+
+        const monthStart = new Date(now);
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+
+        // Today's deliveries
+        const todayOrders = await Order.countDocuments({
+            deliveryRider: riderId,
+            status: 'delivered',
+            updatedAt: { $gte: todayStart }
+        });
+
+        // This week's deliveries
+        const weekOrders = await Order.countDocuments({
+            deliveryRider: riderId,
+            status: 'delivered',
+            updatedAt: { $gte: weekStart }
+        });
+
+        // This month's deliveries
+        const monthOrders = await Order.countDocuments({
+            deliveryRider: riderId,
+            status: 'delivered',
+            updatedAt: { $gte: monthStart }
+        });
+
+        // Total all-time deliveries
+        const totalOrders = await Order.countDocuments({
+            deliveryRider: riderId,
+            status: 'delivered'
+        });
+
+        // Daily breakdown for last 7 days
+        const dailyBreakdown = [];
+        for (let i = 6; i >= 0; i--) {
+            const dayStart = new Date(now);
+            dayStart.setDate(dayStart.getDate() - i);
+            dayStart.setHours(0, 0, 0, 0);
+
+            const dayEnd = new Date(dayStart);
+            dayEnd.setHours(23, 59, 59, 999);
+
+            const count = await Order.countDocuments({
+                deliveryRider: riderId,
+                status: 'delivered',
+                updatedAt: { $gte: dayStart, $lte: dayEnd }
+            });
+
+            dailyBreakdown.push({
+                date: dayStart.toISOString().split('T')[0],
+                deliveries: count,
+                earnings: count * DELIVERY_FEE_PER_ORDER
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                today: { deliveries: todayOrders, earnings: todayOrders * DELIVERY_FEE_PER_ORDER },
+                week: { deliveries: weekOrders, earnings: weekOrders * DELIVERY_FEE_PER_ORDER },
+                month: { deliveries: monthOrders, earnings: monthOrders * DELIVERY_FEE_PER_ORDER },
+                total: { deliveries: totalOrders, earnings: totalOrders * DELIVERY_FEE_PER_ORDER },
+                dailyBreakdown
+            }
+        });
+    } catch (error) {
+        console.error('getRiderEarnings Error:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get rider delivery history
+// @route   GET /api/staff/history/:id
+// @access  Private (Delivery Staff)
+const getRiderHistory = async (req, res) => {
+    try {
+        const Order = require('../models/Order');
+        const riderId = req.params.id;
+        const { status, period } = req.query;
+
+        let query = { deliveryRider: riderId };
+
+        // Filter by status
+        if (status === 'completed') {
+            query.status = 'delivered';
+        } else if (status === 'cancelled') {
+            query.status = 'cancelled';
+        } else {
+            query.status = { $in: ['delivered', 'cancelled'] };
+        }
+
+        // Filter by period
+        if (period) {
+            const now = new Date();
+            let startDate;
+            if (period === 'today') {
+                startDate = new Date(now);
+                startDate.setHours(0, 0, 0, 0);
+            } else if (period === 'week') {
+                startDate = new Date(now);
+                startDate.setDate(startDate.getDate() - 7);
+            } else if (period === 'month') {
+                startDate = new Date(now);
+                startDate.setMonth(startDate.getMonth() - 1);
+            }
+            if (startDate) {
+                query.updatedAt = { $gte: startDate };
+            }
+        }
+
+        const orders = await Order.find(query)
+            .populate('restaurant', 'name')
+            .populate('customer', 'username')
+            .sort({ updatedAt: -1 })
+            .limit(50);
+
+        const DELIVERY_FEE_PER_ORDER = 50;
+        const history = orders.map(order => ({
+            _id: order._id,
+            orderNumber: order.orderNumber,
+            restaurant: order.restaurant?.name || 'Unknown',
+            customer: order.customer?.username || 'Customer',
+            status: order.status,
+            earnings: DELIVERY_FEE_PER_ORDER,
+            date: order.updatedAt
+        }));
+
+        res.json({
+            success: true,
+            count: history.length,
+            data: history
+        });
+    } catch (error) {
+        console.error('getRiderHistory Error:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     addStaff,
     getAllStaff,
@@ -264,5 +487,8 @@ module.exports = {
     completeProfile,
     getProfile,
     updateProfilePicture,
-    toggleStatus
+    toggleStatus,
+    getRiderStats,
+    getRiderEarnings,
+    getRiderHistory
 };

@@ -12,11 +12,13 @@ import {
     Download,
     Loader2
 } from 'lucide-react';
+import { getRiderEarnings, EarningsData } from '@/lib/riderService';
 
 export default function EarningsPage() {
     const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
+    const [earnings, setEarnings] = useState<EarningsData | null>(null);
 
     useEffect(() => {
         if (authLoading) return;
@@ -25,8 +27,23 @@ export default function EarningsPage() {
             router.push('/login');
             return;
         }
-        setTimeout(() => setLoading(false), 500);
+        fetchEarnings();
     }, [user, router, authLoading]);
+
+    const fetchEarnings = async () => {
+        if (!user?._id) return;
+        try {
+            setLoading(true);
+            const response = await getRiderEarnings(user._id);
+            if (response.data?.data) {
+                setEarnings(response.data.data);
+            }
+        } catch (error) {
+            console.error("Error fetching earnings:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     if (authLoading || loading) {
         return (
@@ -56,10 +73,10 @@ export default function EarningsPage() {
                 {/* Total Earnings Card */}
                 <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl shadow-lg p-8 mb-6 text-white">
                     <p className="text-green-100 mb-2">Total Earnings</p>
-                    <p className="text-5xl font-bold">Rs. 0</p>
+                    <p className="text-5xl font-bold">Rs. {earnings?.total.earnings || 0}</p>
                     <div className="flex items-center gap-2 mt-4 text-green-200">
                         <TrendingUp className="w-4 h-4" />
-                        <span className="text-sm">+0% from last week</span>
+                        <span className="text-sm">{earnings?.total.deliveries || 0} total deliveries</span>
                     </div>
                 </div>
 
@@ -70,41 +87,58 @@ export default function EarningsPage() {
                             <p className="text-gray-500 text-sm">Today</p>
                             <Banknote className="w-5 h-5 text-green-500" />
                         </div>
-                        <p className="text-2xl font-bold text-gray-800">Rs. 0</p>
+                        <p className="text-2xl font-bold text-gray-800">Rs. {earnings?.today.earnings || 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">{earnings?.today.deliveries || 0} deliveries</p>
                     </div>
                     <div className="bg-white p-6 rounded-xl shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-gray-500 text-sm">This Week</p>
                             <Calendar className="w-5 h-5 text-blue-500" />
                         </div>
-                        <p className="text-2xl font-bold text-gray-800">Rs. 0</p>
+                        <p className="text-2xl font-bold text-gray-800">Rs. {earnings?.week.earnings || 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">{earnings?.week.deliveries || 0} deliveries</p>
                     </div>
                     <div className="bg-white p-6 rounded-xl shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-gray-500 text-sm">This Month</p>
                             <Wallet className="w-5 h-5 text-orange-500" />
                         </div>
-                        <p className="text-2xl font-bold text-gray-800">Rs. 0</p>
+                        <p className="text-2xl font-bold text-gray-800">Rs. {earnings?.month.earnings || 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">{earnings?.month.deliveries || 0} deliveries</p>
                     </div>
                 </div>
 
-                {/* Payout Section */}
+                {/* Daily Breakdown */}
                 <div className="bg-white rounded-2xl shadow-sm p-6">
                     <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-bold text-gray-800">Payout History</h3>
+                        <h3 className="text-lg font-bold text-gray-800">Daily Breakdown (Last 7 Days)</h3>
                         <button className="flex items-center gap-2 text-orange-500 hover:text-orange-600 font-medium text-sm">
                             <Download className="w-4 h-4" />
                             Export
                         </button>
                     </div>
 
-                    <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Wallet className="w-8 h-8 text-gray-300" />
+                    {earnings?.dailyBreakdown && earnings.dailyBreakdown.length > 0 ? (
+                        <div className="space-y-3">
+                            {earnings.dailyBreakdown.map((day, index) => (
+                                <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                    <div>
+                                        <p className="font-medium text-gray-800">{new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                                        <p className="text-sm text-gray-500">{day.deliveries} deliveries</p>
+                                    </div>
+                                    <p className="text-lg font-bold text-green-600">Rs. {day.earnings}</p>
+                                </div>
+                            ))}
                         </div>
-                        <p className="text-gray-400 text-lg">No payouts yet</p>
-                        <p className="text-gray-300 text-sm mt-1">Payouts are processed weekly</p>
-                    </div>
+                    ) : (
+                        <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Wallet className="w-8 h-8 text-gray-300" />
+                            </div>
+                            <p className="text-gray-400 text-lg">No earnings data yet</p>
+                            <p className="text-gray-300 text-sm mt-1">Complete deliveries to see your earnings</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

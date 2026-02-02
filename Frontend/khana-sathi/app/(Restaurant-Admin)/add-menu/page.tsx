@@ -1,28 +1,50 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import axios from "axios";
+import toast from "react-hot-toast";
 import {
   Home,
   UtensilsCrossed,
   ClipboardList,
-  Star,
   Tag,
   FileText,
   Users,
-  Banknote,
-  MessageCircle,
-  Package,
   Settings,
   LogOut,
   Upload,
   X,
+  Loader2,
+  Wallet,
+  User,
+  ArrowLeft,
 } from "lucide-react";
 
+const API_URL = "http://localhost:5003/api";
+
 export default function AddMenuItem() {
+  const { user } = useAuth();
+  const router = useRouter();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [availableNow, setAvailableNow] = useState(true);
-  const [allergens, setAllergens] = useState<string[]>(["Dairy", "Gluten"]);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    category: "Main Course",
+    price: "",
+    preparationTime: "20",
+    isAvailable: true,
+    isVegetarian: false,
+    isVegan: false,
+    isGlutenFree: false,
+    spiceLevel: "None",
+    allergens: [] as string[],
+    calories: "",
+  });
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -35,290 +57,276 @@ export default function AddMenuItem() {
     }
   };
 
-  const removeAllergen = (allergen: string) => {
-    setAllergens(allergens.filter((a) => a !== allergen));
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!formData.name || !formData.price) {
+      toast.error("Please fill in name and price");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `${API_URL}/menu`,
+        {
+          name: formData.name,
+          description: formData.description,
+          category: formData.category,
+          price: Number(formData.price),
+          preparationTime: Number(formData.preparationTime),
+          image: imagePreview || "",
+          isVegetarian: formData.isVegetarian,
+          isVegan: formData.isVegan,
+          isGlutenFree: formData.isGlutenFree,
+          spiceLevel: formData.spiceLevel,
+          allergens: formData.allergens,
+          calories: formData.calories ? Number(formData.calories) : undefined,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      toast.success("Menu item added successfully!");
+      router.push("/menu");
+    } catch (error: any) {
+      console.error("Error saving menu item:", error);
+      toast.error(error.response?.data?.message || "Failed to save menu item");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-lg flex flex-col">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-3 mb-8">
-            <Image src="/logo.png" alt="KhanaSathi" width={40} height={40} className="object-contain" />
-            <h1 className="text-xl font-bold text-red-600">KhanaSathi</h1>
-          </div>
-
-          <nav className="space-y-2">
-            <a href="/RM-Dashboard" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Home className="w-5 h-5" />
-              Dashboard
-            </a>
-            <a href="/RM-Dashboard/menu" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
-              <UtensilsCrossed className="w-5 h-5" />
-              Menu
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <ClipboardList className="w-5 h-5" />
-              Orders Board
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Star className="w-5 h-5" />
-              Reviews
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Tag className="w-5 h-5" />
-              Offers
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <FileText className="w-5 h-5" />
-              Analytics
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Users className="w-5 h-5" />
-              Staff
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Banknote className="w-5 h-5" />
-              Payments
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <MessageCircle className="w-5 h-5" />
-              Chat
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Package className="w-5 h-5" />
-              Group Orders
-            </a>
-          </nav>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-6">
+        <div className="max-w-4xl mx-auto flex items-center gap-4">
+          <button onClick={() => router.push("/menu")} className="p-2 hover:bg-gray-100 rounded-full">
+            <ArrowLeft className="w-6 h-6 text-gray-600" />
+          </button>
+          <h1 className="text-2xl font-bold text-gray-900">Add Menu Item</h1>
         </div>
+      </header>
 
-        <div className="mt-auto p-6 space-y-3">
-          <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-            <Settings className="w-5 h-5" />
-            Settings
-          </a>
-          <a href="#" className="flex items-center gap-4 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition">
-            <LogOut className="w-5 h-5" />
-            Log Out
-          </a>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-6 flex items-center justify-between">
-          <h1 className="text-4xl font-bold text-gray-900">Add Menu Item</h1>
-          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100">
-            <Image src="/owner-avatar.jpg" alt="Owner" width={48} height={48} className="object-cover" />
-          </div>
-        </header>
-
-        <div className="p-8">
-          <div className="grid lg:grid-cols-2 gap-12 max-w-7xl mx-auto">
-            {/* Left - Form */}
-            <div className="space-y-10">
-              {/* Basic Information */}
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Basic Information</h3>
-
-                {/* Item Photo */}
-                <div className="mb-8">
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Item Photo</label>
-                  <label className="cursor-pointer">
-                    <div className="border-2 border-dashed border-gray-300 rounded-xl w-48 h-48 flex flex-col items-center justify-center gap-4 hover:border-red-400 transition">
-                      {imagePreview ? (
-                        <div className="relative">
-                          <Image src={imagePreview} alt="Preview" width={192} height={192} className="rounded-xl object-cover" />
-                          <button className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md hover:bg-gray-100">
-                            <X className="w-4 h-4 text-gray-600" />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <Upload className="w-12 h-12 text-gray-400" />
-                          <span className="text-blue-600 font-medium">Upload Image</span>
-                        </>
-                      )}
-                    </div>
-                    <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
-                  </label>
-                  <p className="text-sm text-gray-500 mt-3">Recommended: 16:9 aspect ratio</p>
-                </div>
-
-                {/* Item Name */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name</label>
-                  <input
-                    type="text"
-                    placeholder="Signature Dish Name"
-                    className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                  />
-                </div>
-
-                {/* Description */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                  <textarea
-                    rows={4}
-                    placeholder="A brief, appetizing description of the dish, highlighting key ingredients and flavor profile."
-                    className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition resize-none"
-                  />
-                </div>
-
-                {/* Category & Price */}
-                <div className="grid md:grid-cols-2 gap-6 mb-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                    <select className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500">
-                      <option>Main Course</option>
-                      <option>Appetizer</option>
-                      <option>Dessert</option>
-                      <option>Beverage</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Price</label>
-                    <input
-                      type="text"
-                      placeholder="1990"
-                      className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Advanced Options */}
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Advanced Options</h3>
-
-                <div className="space-y-6">
-                  {/* Modifiers */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Modifiers</label>
-                    <select className="w-full px-5 py-4 border border-gray-300 rounded-xl">
-                      <option>Size Options</option>
-                    </select>
-                  </div>
-                  <div>
-                    <select className="w-full px-5 py-4 border border-gray-300 rounded-xl">
-                      <option>Extra Toppings</option>
-                    </select>
-                  </div>
-
-                  {/* Available Now */}
-                  <div className="flex items-center gap-6">
-                    <label className="text-sm font-medium text-gray-700">Available Now</label>
-                    <button
-                      onClick={() => setAvailableNow(!availableNow)}
-                      className={`relative inline-flex h-8 w-16 items-center rounded-full transition ${availableNow ? "bg-red-500" : "bg-gray-300"
-                        }`}
-                    >
-                      <span
-                        className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${availableNow ? "translate-x-9" : "translate-x-1"
-                          }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Estimated Prep Time */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Estimated Prep Time (minutes)</label>
-                    <input
-                      type="number"
-                      defaultValue="20"
-                      className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                    />
-                  </div>
-
-                  {/* Allergens */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Allergens</label>
-                    <div className="flex flex-wrap gap-3 mb-4">
-                      {allergens.map((allergen) => (
-                        <span
-                          key={allergen}
-                          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm flex items-center gap-2"
-                        >
-                          {allergen}
-                          <X
-                            className="w-4 h-4 cursor-pointer hover:text-red-600"
-                            onClick={() => removeAllergen(allergen)}
-                          />
-                        </span>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Add new allergen (e.g., Nuts)"
-                      className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex justify-end gap-4 pt-8">
-                <button className="px-8 py-4 bg-white border border-gray-300 text-gray-700 rounded-full font-medium hover:bg-gray-50 transition">
-                  Cancel
-                </button>
-                <button className="px-8 py-4 bg-red-500 hover:bg-red-600 text-white rounded-full font-bold shadow-lg transition">
-                  Save Item
-                </button>
-              </div>
-            </div>
-
-            {/* Right - Live Preview */}
-            <div>
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sticky top-8">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Live Preview</h3>
-
-                <div className="space-y-6">
-                  <div className="bg-gray-200 rounded-xl h-64 relative overflow-hidden">
-                    {imagePreview ? (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            {/* Item Photo */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-gray-700 mb-3">Item Photo</label>
+              <label className="cursor-pointer inline-block">
+                <div className="border-2 border-dashed border-gray-300 rounded-xl w-48 h-48 flex flex-col items-center justify-center gap-4 hover:border-red-400 transition overflow-hidden">
+                  {imagePreview ? (
+                    <div className="relative w-full h-full">
                       <Image src={imagePreview} alt="Preview" fill className="object-cover" />
-                    ) : (
-                      <div className="absolute inset-0 bg-gray-300 border-2 border-dashed rounded-xl" />
-                    )}
-                  </div>
-
-                  <h2 className="text-3xl font-bold text-gray-900">Signature Dish Name</h2>
-                  <p className="text-gray-700">
-                    A brief, appetizing description of the dish, highlighting key ingredients and flavor profile.
-                  </p>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-3xl font-bold text-red-600">NPR 1990</span>
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                      <span>Main Course</span>
-                      <span className="text-green-600">Available</span>
-                      <span>20 min</span>
+                      <button
+                        onClick={(e) => { e.preventDefault(); setImagePreview(null); }}
+                        className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md hover:bg-gray-100"
+                      >
+                        <X className="w-4 h-4 text-gray-600" />
+                      </button>
                     </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Sizes:</span> Medium
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Extras:</span> Add Bacon
-                    </p>
-                    <div className="flex gap-3">
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">Dairy</span>
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">Gluten</span>
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      <Upload className="w-12 h-12 text-gray-400" />
+                      <span className="text-blue-600 font-medium">Upload Image</span>
+                    </>
+                  )}
                 </div>
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+              </label>
+            </div>
+
+            {/* Item Name */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Item Name *</label>
+              <input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                placeholder="e.g., Chicken Momo"
+                className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+              />
+            </div>
+
+            {/* Description */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+              <textarea
+                name="description"
+                value={formData.description}
+                onChange={handleInputChange}
+                rows={3}
+                placeholder="A brief description of the dish..."
+                className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition resize-none"
+              />
+            </div>
+
+            {/* Category & Price */}
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <select
+                  name="category"
+                  value={formData.category}
+                  onChange={handleInputChange}
+                  className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option>Main Course</option>
+                  <option>Appetizer</option>
+                  <option>Dessert</option>
+                  <option>Beverage</option>
+                  <option>Snacks</option>
+                  <option>Breakfast</option>
+                </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Price (NPR) *</label>
+                <input
+                  type="number"
+                  name="price"
+                  value={formData.price}
+                  onChange={handleInputChange}
+                  placeholder="e.g., 250"
+                  className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                />
+              </div>
+            </div>
+
+            {/* Prep Time & Calories */}
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Preparation Time (minutes)</label>
+                <input
+                  type="number"
+                  name="preparationTime"
+                  value={formData.preparationTime}
+                  onChange={handleInputChange}
+                  className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Calories (optional)</label>
+                <input
+                  type="number"
+                  name="calories"
+                  value={formData.calories}
+                  onChange={handleInputChange}
+                  placeholder="e.g., 350"
+                  className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                />
+              </div>
+            </div>
+
+            {/* Spice Level */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Spice Level</label>
+              <div className="flex flex-wrap gap-3">
+                {['None', 'Mild', 'Medium', 'Hot', 'Extra Hot'].map(level => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, spiceLevel: level }))}
+                    className={`px-4 py-2 rounded-full border-2 transition font-medium ${formData.spiceLevel === level
+                        ? level === 'None' ? 'border-gray-500 bg-gray-500 text-white'
+                          : level === 'Mild' ? 'border-yellow-500 bg-yellow-500 text-white'
+                            : level === 'Medium' ? 'border-orange-500 bg-orange-500 text-white'
+                              : 'border-red-500 bg-red-500 text-white'
+                        : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                      }`}
+                  >
+                    {level === 'None' ? '🚫 None' : level === 'Mild' ? '🌶️ Mild' : level === 'Medium' ? '🌶️🌶️ Medium' : level === 'Hot' ? '🔥 Hot' : '🔥🔥 Extra Hot'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dietary Options */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">Dietary Options</label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isVegetarian}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isVegetarian: e.target.checked }))}
+                    className="w-5 h-5 text-green-500 rounded"
+                  />
+                  <span className="text-gray-700">🥬 Vegetarian</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isVegan}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isVegan: e.target.checked }))}
+                    className="w-5 h-5 text-green-500 rounded"
+                  />
+                  <span className="text-gray-700">🌱 Vegan</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isGlutenFree}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isGlutenFree: e.target.checked }))}
+                    className="w-5 h-5 text-amber-500 rounded"
+                  />
+                  <span className="text-gray-700">🌾 Gluten-Free</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Allergens */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-gray-700 mb-3">Allergens (select all that apply)</label>
+              <div className="flex flex-wrap gap-3">
+                {['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame'].map(allergen => (
+                  <button
+                    key={allergen}
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        allergens: prev.allergens.includes(allergen)
+                          ? prev.allergens.filter(a => a !== allergen)
+                          : [...prev.allergens, allergen]
+                      }));
+                    }}
+                    className={`px-3 py-2 rounded-lg border-2 text-sm transition ${formData.allergens.includes(allergen)
+                        ? 'border-orange-500 bg-orange-100 text-orange-700'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                  >
+                    {allergen}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex justify-end gap-4 pt-6 border-t border-gray-100">
+              <button
+                onClick={() => router.push("/menu")}
+                className="px-8 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-8 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-lg transition disabled:opacity-50 flex items-center gap-2"
+              >
+                {saving && <Loader2 className="w-5 h-5 animate-spin" />}
+                {saving ? "Saving..." : "Save Item"}
+              </button>
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <footer className="text-center text-gray-500 text-sm py-6 border-t border-gray-200">
-          © 2025 KhanaSathi Admin. All rights reserved.
-        </footer>
       </div>
     </div>
   );

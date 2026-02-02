@@ -1,28 +1,99 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import toast from "react-hot-toast";
 import {
-  Home,
-  UtensilsCrossed,
-  ClipboardList,
-  Star,
-  Tag,
-  FileText,
-  Users,
-  Banknote,
-  MessageCircle,
-  Package,
-  Settings,
-  LogOut,
   Upload,
   X,
+  Loader2,
+  ArrowLeft,
 } from "lucide-react";
+import { updateMenuItem } from "@/lib/menuService";
+import RestaurantSidebar from "@/components/RestaurantSidebar";
+import axios from "axios";
+
+const API_URL = "http://localhost:5003/api";
+
+interface MenuItem {
+  _id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  image: string;
+  isAvailable: boolean;
+  isVegetarian: boolean;
+  isVegan: boolean;
+  isGlutenFree: boolean;
+  preparationTime: number;
+}
 
 export default function EditMenuItem() {
-  const [imagePreview, setImagePreview] = useState<string | null>("/signature-dish.jpg"); // Current item image
-  const [availableNow, setAvailableNow] = useState(true);
-  const [allergens, setAllergens] = useState<string[]>(["Dairy", "Gluten"]);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const itemId = searchParams.get("id");
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    category: "Main Course",
+    price: "",
+    preparationTime: "20",
+    isAvailable: true,
+    isVegetarian: false,
+    isVegan: false,
+    isGlutenFree: false,
+    spiceLevel: "None",
+    allergens: [] as string[],
+    calories: "",
+  });
+
+  useEffect(() => {
+    if (!itemId) {
+      toast.error("No menu item ID provided");
+      router.push("/menu");
+      return;
+    }
+    fetchMenuItem();
+  }, [itemId]);
+
+  const fetchMenuItem = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API_URL}/menu/${itemId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const item = response.data.data;
+
+      setFormData({
+        name: item.name || "",
+        description: item.description || "",
+        category: item.category || "Main Course",
+        price: String(item.price || ""),
+        preparationTime: String(item.preparationTime || "20"),
+        isAvailable: item.isAvailable ?? true,
+        isVegetarian: item.isVegetarian ?? false,
+        isVegan: item.isVegan ?? false,
+        isGlutenFree: item.isGlutenFree ?? false,
+        spiceLevel: item.spiceLevel || "None",
+        allergens: item.allergens || [],
+        calories: item.calories ? String(item.calories) : "",
+      });
+      setImagePreview(item.image || null);
+    } catch (error) {
+      console.error("Error fetching menu item:", error);
+      toast.error("Failed to load menu item");
+      router.push("/menu");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -35,125 +106,128 @@ export default function EditMenuItem() {
     }
   };
 
-  const removeAllergen = (allergen: string) => {
-    setAllergens(allergens.filter((a) => a !== allergen));
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
+
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target;
+    setFormData(prev => ({ ...prev, [name]: checked }));
+  };
+
+  const handleSave = async () => {
+    if (!formData.name || !formData.price) {
+      toast.error("Please fill in name and price");
+      return;
+    }
+
+    if (!itemId) {
+      toast.error("No menu item ID");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateMenuItem(itemId, {
+        name: formData.name,
+        description: formData.description,
+        category: formData.category,
+        price: Number(formData.price),
+        preparationTime: Number(formData.preparationTime),
+        image: imagePreview || "",
+        isAvailable: formData.isAvailable,
+        isVegetarian: formData.isVegetarian,
+        isVegan: formData.isVegan,
+        isGlutenFree: formData.isGlutenFree,
+        spiceLevel: formData.spiceLevel,
+        allergens: formData.allergens,
+        calories: formData.calories ? Number(formData.calories) : undefined,
+      });
+      toast.success("Menu item updated successfully!");
+      router.push("/menu");
+    } catch (error: any) {
+      console.error("Error updating menu item:", error);
+      toast.error(error.response?.data?.message || "Failed to update menu item");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex">
+        <RestaurantSidebar />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-10 h-10 text-red-500 animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-lg flex flex-col">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-3 mb-8">
-            <Image src="/logo.png" alt="KhanaSathi" width={40} height={40} className="object-contain" />
-            <h1 className="text-xl font-bold text-red-600">KhanaSathi</h1>
-          </div>
+      <RestaurantSidebar />
 
-          <nav className="space-y-2">
-            <a href="/RM-Dashboard" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Home className="w-5 h-5" />
-              Dashboard
-            </a>
-            <a href="/RM-Dashboard/menu" className="flex items-center gap-4 px-4 py-3 bg-red-500 text-white rounded-lg font-medium">
-              <UtensilsCrossed className="w-5 h-5" />
-              Menu
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <ClipboardList className="w-5 h-5" />
-              Orders Board
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Star className="w-5 h-5" />
-              Reviews
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Tag className="w-5 h-5" />
-              Offers
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <FileText className="w-5 h-5" />
-              Analytics
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Users className="w-5 h-5" />
-              Staff
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Banknote className="w-5 h-5" />
-              Payments
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <MessageCircle className="w-5 h-5" />
-              Chat
-            </a>
-            <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-              <Package className="w-5 h-5" />
-              Group Orders
-            </a>
-          </nav>
-        </div>
-
-        <div className="mt-auto p-6 space-y-3">
-          <a href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-            <Settings className="w-5 h-5" />
-            Settings
-          </a>
-          <a href="#" className="flex items-center gap-4 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition">
-            <LogOut className="w-5 h-5" />
-            Log Out
-          </a>
-        </div>
-      </aside>
-
-      {/* Main Content */}
       <div className="flex-1">
         {/* Header */}
         <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-6 flex items-center justify-between">
-          <h1 className="text-4xl font-bold text-gray-900">Edit Menu Item</h1>
-          <div className="w-12 h-12 rounded-full overflow-hidden ring-4 ring-orange-100">
-            <Image src="/owner-avatar.jpg" alt="Owner" width={48} height={48} className="object-cover" />
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.push("/menu")}
+              className="p-2 hover:bg-gray-100 rounded-full transition"
+            >
+              <ArrowLeft className="w-6 h-6 text-gray-600" />
+            </button>
+            <h1 className="text-3xl font-bold text-gray-900">Edit Menu Item</h1>
           </div>
         </header>
 
         <div className="p-8">
-          <div className="grid lg:grid-cols-2 gap-12 max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-12 max-w-6xl mx-auto">
             {/* Left - Form */}
-            <div className="space-y-10">
+            <div className="space-y-8">
               {/* Basic Information */}
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Basic Information</h3>
+              <div className="bg-white rounded-2xl shadow-sm p-8">
+                <h3 className="text-xl font-bold text-gray-900 mb-6">Basic Information</h3>
 
                 {/* Item Photo */}
-                <div className="mb-8">
+                <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-3">Item Photo</label>
                   <label className="cursor-pointer">
-                    <div className="border-2 border-dashed border-gray-300 rounded-xl w-48 h-48 flex flex-col items-center justify-center gap-4 hover:border-red-400 transition relative">
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl w-48 h-48 flex flex-col items-center justify-center gap-4 hover:border-red-400 transition relative overflow-hidden">
                       {imagePreview ? (
-                        <div className="relative">
-                          <Image src={imagePreview} alt="Current Item" width={192} height={192} className="rounded-xl object-cover" />
-                          <button className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md hover:bg-gray-100">
+                        <>
+                          <Image src={imagePreview} alt="Preview" fill className="object-cover" />
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); setImagePreview(null); }}
+                            className="absolute top-2 right-2 bg-white rounded-full p-1 shadow-md hover:bg-gray-100 z-10"
+                          >
                             <X className="w-4 h-4 text-gray-600" />
                           </button>
-                        </div>
+                        </>
                       ) : (
                         <>
                           <Upload className="w-12 h-12 text-gray-400" />
-                          <span className="text-blue-600 font-medium">Upload New Image</span>
+                          <span className="text-blue-600 font-medium">Upload Image</span>
                         </>
                       )}
                     </div>
                     <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
                   </label>
-                  <p className="text-sm text-gray-500 mt-3">Recommended: 16:9 aspect ratio</p>
                 </div>
 
                 {/* Item Name */}
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name *</label>
                   <input
                     type="text"
-                    defaultValue="Signature Dish Name"
-                    className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                    placeholder="Enter item name"
                   />
                 </div>
 
@@ -161,110 +235,189 @@ export default function EditMenuItem() {
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                   <textarea
-                    rows={4}
-                    defaultValue="A brief, appetizing description of the dish, highlighting key ingredients and flavor profile."
-                    className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition resize-none"
+                    name="description"
+                    rows={3}
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition resize-none"
+                    placeholder="Describe your dish"
                   />
                 </div>
 
                 {/* Category & Price */}
-                <div className="grid md:grid-cols-2 gap-6 mb-6">
+                <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                    <select defaultValue="Main Course" className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <select
+                      name="category"
+                      value={formData.category}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
                       <option>Main Course</option>
                       <option>Appetizer</option>
                       <option>Dessert</option>
                       <option>Beverage</option>
+                      <option>Sides</option>
+                      <option>Breakfast</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Price</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Price (NPR) *</label>
                     <input
-                      type="text"
-                      defaultValue="1990"
-                      className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                      type="number"
+                      name="price"
+                      value={formData.price}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                      placeholder="0"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Advanced Options */}
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Advanced Options</h3>
+              <div className="bg-white rounded-2xl shadow-sm p-8">
+                <h3 className="text-xl font-bold text-gray-900 mb-6">Options</h3>
 
                 <div className="space-y-6">
-                  {/* Modifiers */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Modifiers</label>
-                    <select className="w-full px-5 py-4 border border-gray-300 rounded-xl">
-                      <option>Size Options</option>
-                    </select>
-                  </div>
-                  <div>
-                    <select className="w-full px-5 py-4 border border-gray-300 rounded-xl">
-                      <option>Extra Toppings</option>
-                    </select>
+                  {/* Prep Time & Calories */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Prep Time (min)</label>
+                      <input
+                        type="number"
+                        name="preparationTime"
+                        value={formData.preparationTime}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Calories</label>
+                      <input
+                        type="number"
+                        name="calories"
+                        value={formData.calories}
+                        onChange={handleInputChange}
+                        placeholder="Optional"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
+                      />
+                    </div>
                   </div>
 
-                  {/* Available Now */}
-                  <div className="flex items-center gap-6">
-                    <label className="text-sm font-medium text-gray-700">Available Now</label>
+                  {/* Spice Level */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Spice Level</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['None', 'Mild', 'Medium', 'Hot', 'Extra Hot'].map(level => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, spiceLevel: level }))}
+                          className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${formData.spiceLevel === level
+                              ? level === 'None' ? 'bg-gray-500 text-white'
+                                : level === 'Mild' ? 'bg-yellow-500 text-white'
+                                  : level === 'Medium' ? 'bg-orange-500 text-white'
+                                    : 'bg-red-500 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                        >
+                          {level === 'Hot' || level === 'Extra Hot' ? '🔥' : level === 'Mild' || level === 'Medium' ? '🌶️' : ''} {level}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Toggles */}
+                  <div className="flex items-center justify-between py-3 border-b">
+                    <span className="text-gray-700 font-medium">🟢 Available Now</span>
                     <button
-                      onClick={() => setAvailableNow(!availableNow)}
-                      className={`relative inline-flex h-8 w-16 items-center rounded-full transition ${availableNow ? "bg-red-500" : "bg-gray-300"
-                        }`}
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, isAvailable: !prev.isAvailable }))}
+                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isAvailable ? "bg-green-500" : "bg-gray-300"}`}
                     >
-                      <span
-                        className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${availableNow ? "translate-x-9" : "translate-x-1"
-                          }`}
-                      />
+                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isAvailable ? "translate-x-7" : "translate-x-1"}`} />
                     </button>
                   </div>
 
-                  {/* Estimated Prep Time */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Estimated Prep Time (minutes)</label>
-                    <input
-                      type="number"
-                      defaultValue="20"
-                      className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                    />
+                  <div className="flex items-center justify-between py-3 border-b">
+                    <span className="text-gray-700 font-medium">🥬 Vegetarian</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, isVegetarian: !prev.isVegetarian }))}
+                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isVegetarian ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isVegetarian ? "translate-x-7" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between py-3 border-b">
+                    <span className="text-gray-700 font-medium">🌱 Vegan</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, isVegan: !prev.isVegan }))}
+                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isVegan ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isVegan ? "translate-x-7" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between py-3 border-b">
+                    <span className="text-gray-700 font-medium">🌾 Gluten Free</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, isGlutenFree: !prev.isGlutenFree }))}
+                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isGlutenFree ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isGlutenFree ? "translate-x-7" : "translate-x-1"}`} />
+                    </button>
                   </div>
 
                   {/* Allergens */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Allergens</label>
-                    <div className="flex flex-wrap gap-3 mb-4">
-                      {allergens.map((allergen) => (
-                        <span
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Allergens</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame'].map(allergen => (
+                        <button
                           key={allergen}
-                          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm flex items-center gap-2"
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              allergens: prev.allergens.includes(allergen)
+                                ? prev.allergens.filter(a => a !== allergen)
+                                : [...prev.allergens, allergen]
+                            }));
+                          }}
+                          className={`px-2 py-1 rounded text-xs transition ${formData.allergens.includes(allergen)
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
                         >
                           {allergen}
-                          <X
-                            className="w-4 h-4 cursor-pointer hover:text-red-600"
-                            onClick={() => removeAllergen(allergen)}
-                          />
-                        </span>
+                        </button>
                       ))}
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Add new allergen (e.g., Nuts)"
-                      className="w-full px-5 py-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                    />
                   </div>
                 </div>
               </div>
 
               {/* Buttons */}
-              <div className="flex justify-end gap-4 pt-8">
-                <button className="px-8 py-4 bg-white border border-gray-300 text-gray-700 rounded-full font-medium hover:bg-gray-50 transition">
+              <div className="flex justify-end gap-4">
+                <button
+                  onClick={() => router.push("/menu")}
+                  className="px-8 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition"
+                >
                   Cancel
                 </button>
-                <button className="px-8 py-4 bg-red-500 hover:bg-red-600 text-white rounded-full font-bold shadow-lg transition">
-                  Save Changes
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-8 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-lg transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                  {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </div>
@@ -272,53 +425,45 @@ export default function EditMenuItem() {
             {/* Right - Live Preview */}
             <div>
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sticky top-8">
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">Live Preview</h3>
+                <h3 className="text-xl font-bold text-gray-900 mb-6">Live Preview</h3>
 
                 <div className="space-y-6">
-                  <div className="bg-gray-200 rounded-xl h-64 relative overflow-hidden">
+                  <div className="bg-gray-200 rounded-xl h-48 relative overflow-hidden">
                     {imagePreview ? (
                       <Image src={imagePreview} alt="Preview" fill className="object-cover" />
                     ) : (
-                      <div className="absolute inset-0 bg-gray-300 border-2 border-dashed rounded-xl" />
+                      <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                        No image
+                      </div>
                     )}
                   </div>
 
-                  <h2 className="text-3xl font-bold text-gray-900">Signature Dish Name</h2>
-                  <p className="text-gray-700">
-                    A brief, appetizing description of the dish, highlighting key ingredients and flavor profile.
-                  </p>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{formData.name || "Item Name"}</h2>
+                    <p className="text-gray-600 mt-2">{formData.description || "Item description will appear here"}</p>
+                  </div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-3xl font-bold text-red-600">NPR 1990</span>
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                      <span>Main Course</span>
-                      <span className="text-green-600">Available</span>
-                      <span>20 min</span>
+                    <span className="text-2xl font-bold text-red-600">NPR {formData.price || "0"}</span>
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className="text-gray-600">{formData.category}</span>
+                      <span className={formData.isAvailable ? "text-green-600" : "text-red-600"}>
+                        {formData.isAvailable ? "Available" : "Unavailable"}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Sizes:</span> Medium
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Extras:</span> Add Bacon
-                    </p>
-                    <div className="flex gap-3">
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">Dairy</span>
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">Gluten</span>
-                    </div>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.isVegetarian && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">Vegetarian</span>}
+                    {formData.isVegan && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">Vegan</span>}
+                    {formData.isGlutenFree && <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-sm">Gluten Free</span>}
+                    <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">{formData.preparationTime} min</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <footer className="text-center text-gray-500 text-sm py-6 border-t border-gray-200">
-          © 2025 KhanaSathi Admin. All rights reserved.
-        </footer>
       </div>
     </div>
   );

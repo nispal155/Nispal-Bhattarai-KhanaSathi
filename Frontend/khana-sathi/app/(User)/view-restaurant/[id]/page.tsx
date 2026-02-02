@@ -34,6 +34,7 @@ interface Restaurant {
 interface CartItem {
   menuItem: MenuItem;
   quantity: number;
+  specialInstructions?: string;
 }
 
 export default function ViewRestaurantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -87,7 +88,7 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
     ? menuItems
     : menuItems.filter(item => item.category === selectedCategory);
 
-  const updateLocalCart = (menuItem: MenuItem, change: number) => {
+  const updateLocalCart = (menuItem: MenuItem, change: number, instructions?: string) => {
     setCartItems(prev => {
       const existing = prev.find(item => item.menuItem._id === menuItem._id);
       if (existing) {
@@ -97,11 +98,11 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
         }
         return prev.map(item =>
           item.menuItem._id === menuItem._id
-            ? { ...item, quantity: newQty }
+            ? { ...item, quantity: newQty, specialInstructions: instructions ?? item.specialInstructions }
             : item
         );
       } else if (change > 0) {
-        return [...prev, { menuItem, quantity: change }];
+        return [...prev, { menuItem, quantity: change, specialInstructions: instructions }];
       }
       return prev;
     });
@@ -122,7 +123,7 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
       setAddingToCart(true);
       // Add each item to cart via API
       for (const item of cartItems) {
-        await addToCart(item.menuItem._id, item.quantity);
+        await addToCart(item.menuItem._id, item.quantity, item.specialInstructions);
       }
       // Clear local cart after adding
       setCartItems([]);
@@ -303,9 +304,12 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
                           {item.isVegetarian && (
                             <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">Veg</span>
+                          )}
+                          {!item.isVegetarian && (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">Non-Veg</span>
                           )}
                           {item.isVegan && (
                             <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">Vegan</span>
@@ -313,41 +317,68 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                           {item.isGlutenFree && (
                             <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">GF</span>
                           )}
-                          {item.spiceLevel && Number(item.spiceLevel) > 0 && (
-                            <span className="text-xs">{"🌶️".repeat(Number(item.spiceLevel))}</span>
+                          {item.spiceLevel && (
+                            <span className="text-xs flex items-center gap-0.5">
+                              {Array.from({ length: item.spiceLevel === 'extra_hot' ? 3 : item.spiceLevel === 'hot' ? 2 : 1 }).map((_, i) => (
+                                <span key={i}>🌶️</span>
+                              ))}
+                            </span>
+                          )}
+                          {item.calories && (
+                            <span className="text-xs text-gray-500">{item.calories} kcal</span>
+                          )}
+                          {item.preparationTime && (
+                            <span className="text-xs text-gray-400">⏱️ {item.preparationTime}m</span>
                           )}
                         </div>
+
+                        {item.allergens && item.allergens.length > 0 && (
+                          <p className="text-[10px] text-orange-600 mt-1 font-medium italic">
+                            Allergens: {item.allergens.join(", ")}
+                          </p>
+                        )}
 
                         <div className="flex items-center justify-between mt-3">
                           <span className="font-semibold text-gray-900">Rs. {item.price}</span>
 
                           {item.isAvailable ? (
-                            getItemQuantity(item._id) > 0 ? (
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => updateLocalCart(item, -1)}
-                                  className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
-                                >
-                                  <Minus className="w-4 h-4" />
-                                </button>
-                                <span className="font-medium w-6 text-center">
-                                  {getItemQuantity(item._id)}
-                                </span>
+                            <div className="flex flex-col gap-2">
+                              {getItemQuantity(item._id) > 0 ? (
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      onClick={() => updateLocalCart(item, -1)}
+                                      className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
+                                    >
+                                      <Minus className="w-4 h-4" />
+                                    </button>
+                                    <span className="font-medium w-6 text-center">
+                                      {getItemQuantity(item._id)}
+                                    </span>
+                                    <button
+                                      onClick={() => updateLocalCart(item, 1)}
+                                      className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    placeholder="Add instructions..."
+                                    className="text-xs border rounded px-2 py-1 w-full"
+                                    value={cartItems.find(i => i.menuItem._id === item._id)?.specialInstructions || ""}
+                                    onChange={(e) => updateLocalCart(item, 0, e.target.value)}
+                                  />
+                                </div>
+                              ) : (
                                 <button
                                   onClick={() => updateLocalCart(item, 1)}
-                                  className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
+                                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg font-medium transition-colors"
                                 >
-                                  <Plus className="w-4 h-4" />
+                                  Add
                                 </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => updateLocalCart(item, 1)}
-                                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg font-medium transition-colors"
-                              >
-                                Add
-                              </button>
-                            )
+                              )}
+                            </div>
                           ) : (
                             <span className="text-sm text-gray-500">Unavailable</span>
                           )}
