@@ -8,6 +8,10 @@ export interface CartItem {
   image?: string;
   quantity: number;
   specialInstructions?: string;
+  addedBy: {
+    _id: string;
+    username: string;
+  };
 }
 
 export interface RestaurantGroup {
@@ -27,6 +31,13 @@ export interface Cart {
   promoDiscount: number;
   subtotal: number;
   itemCount: number;
+  isShared: boolean;
+  shareCode?: string;
+  collaborators: {
+    _id: string;
+    username: string;
+    profilePicture?: string;
+  }[];
 }
 
 export interface CartSummary {
@@ -94,4 +105,14 @@ export async function applyPromoCode(code: string) {
 // Remove promo code
 export async function removePromoCode() {
   return del<{ success: boolean; message: string }>('/cart/remove-promo');
+}
+
+// Create shared cart
+export async function shareCart() {
+  return post<CartResponse>('/cart/share', {});
+}
+
+// Join shared cart
+export async function joinCart(shareCode: string) {
+  return post<CartResponse>('/cart/join', { shareCode });
 }

@@ -20,7 +20,7 @@ export default function CheckoutPage() {
   const [selectedAddressId, setSelectedAddressId] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
+  const [paymentMethod, setPaymentMethod] = useState("cod");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -328,7 +328,7 @@ export default function CheckoutPage() {
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment Method</h2>
               <div className="space-y-4">
                 <label
-                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "cash_on_delivery"
+                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "cod"
                     ? "border-yellow-500 bg-yellow-50"
                     : "border-gray-200 hover:border-gray-300"
                     }`}
@@ -336,8 +336,8 @@ export default function CheckoutPage() {
                   <input
                     type="radio"
                     name="payment"
-                    value="cash_on_delivery"
-                    checked={paymentMethod === "cash_on_delivery"}
+                    value="cod"
+                    checked={paymentMethod === "cod"}
                     onChange={(e) => setPaymentMethod(e.target.value)}
                   />
                   <div>

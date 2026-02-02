@@ -2,9 +2,11 @@
 
 import Image from "next/image";
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, MessageSquare } from "lucide-react";
 import { getRestaurantOrders, updateOrderStatus } from "@/lib/orderService";
 import RestaurantSidebar from "@/components/RestaurantSidebar";
+import ChatWindow from "@/components/Chat/ChatWindow";
+import { useAuth } from "@/context/AuthContext";
 
 interface OrderItem {
   name: string;
@@ -31,6 +33,8 @@ export default function OrdersBoard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [activeChatOrderId, setActiveChatOrderId] = useState<string | null>(null);
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
     fetchOrders();
@@ -139,6 +143,13 @@ export default function OrdersBoard() {
                           >
                             {updating === order._id ? "Updating..." : "Start Preparing"}
                           </button>
+                          <button
+                            onClick={() => setActiveChatOrderId(order._id)}
+                            className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                            title="Chat with Customer"
+                          >
+                            <MessageSquare className="w-5 h-5" />
+                          </button>
                         </div>
                       </div>
                     ))
@@ -174,6 +185,13 @@ export default function OrdersBoard() {
                             className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
                           >
                             {updating === order._id ? "Updating..." : "Mark Ready"}
+                          </button>
+                          <button
+                            onClick={() => setActiveChatOrderId(order._id)}
+                            className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                            title="Chat with Customer"
+                          >
+                            <MessageSquare className="w-5 h-5" />
                           </button>
                         </div>
                       </div>
@@ -211,6 +229,13 @@ export default function OrdersBoard() {
                           >
                             {updating === order._id ? "Updating..." : "Out for Delivery"}
                           </button>
+                          <button
+                            onClick={() => setActiveChatOrderId(order._id)}
+                            className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                            title="Chat with Customer"
+                          >
+                            <MessageSquare className="w-5 h-5" />
+                          </button>
                         </div>
                       </div>
                     ))
@@ -247,6 +272,13 @@ export default function OrdersBoard() {
                           >
                             {updating === order._id ? "Updating..." : "Mark Delivered"}
                           </button>
+                          <button
+                            onClick={() => setActiveChatOrderId(order._id)}
+                            className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                            title="Chat with Customer"
+                          >
+                            <MessageSquare className="w-5 h-5" />
+                          </button>
                         </div>
                       </div>
                     ))
@@ -262,6 +294,17 @@ export default function OrdersBoard() {
           © 2025 KhanaSathi Admin. All rights reserved.
         </footer>
       </div>
+
+      {/* Chat Window */}
+      {authUser && activeChatOrderId && (
+        <ChatWindow
+          orderId={activeChatOrderId}
+          currentUserId={authUser._id}
+          currentUserRole="restaurant"
+          isOpen={!!activeChatOrderId}
+          onClose={() => setActiveChatOrderId(null)}
+        />
+      )}
     </div>
   );
 }

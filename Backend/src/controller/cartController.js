@@ -2,6 +2,8 @@ const Cart = require('../models/Cart');
 const Menu = require('../models/Menu');
 const Restaurant = require('../models/Restaurant');
 const PromoCode = require('../models/PromoCode');
+const { getIO } = require('../services/socket');
+const crypto = require('crypto');
 
 /**
  * @desc    Get user's cart
@@ -10,9 +12,17 @@ const PromoCode = require('../models/PromoCode');
  */
 exports.getCart = async (req, res) => {
   try {
-    let cart = await Cart.findOne({ user: req.user._id })
+    // Find cart where user is owner OR collaborator
+    let cart = await Cart.findOne({
+      $or: [
+        { user: req.user._id },
+        { collaborators: req.user._id }
+      ]
+    })
       .populate('restaurantGroups.restaurant', 'name logoUrl')
-      .populate('restaurantGroups.items.menuItem', 'name price image isAvailable');
+      .populate('restaurantGroups.items.menuItem', 'name price image isAvailable')
+      .populate('collaborators', 'username profilePicture')
+      .populate('user', 'username profilePicture');
 
     if (!cart) {
       cart = { restaurantGroups: [], subtotal: 0, itemCount: 0 };
@@ -58,7 +68,13 @@ exports.addToCart = async (req, res) => {
     }
 
     // Find or create cart
-    let cart = await Cart.findOne({ user: req.user._id });
+    // Find cart where user is owner OR collaborator
+    let cart = await Cart.findOne({
+      $or: [
+        { user: req.user._id },
+        { collaborators: req.user._id }
+      ]
+    });
 
     if (!cart) {
       cart = new Cart({
@@ -82,7 +98,8 @@ exports.addToCart = async (req, res) => {
           price: menuItem.price,
           image: menuItem.image,
           quantity,
-          specialInstructions
+          specialInstructions,
+          addedBy: req.user._id
         }]
       });
     } else {
@@ -105,7 +122,8 @@ exports.addToCart = async (req, res) => {
           price: menuItem.price,
           image: menuItem.image,
           quantity,
-          specialInstructions
+          specialInstructions,
+          addedBy: req.user._id
         });
       }
     }
@@ -122,6 +140,12 @@ exports.addToCart = async (req, res) => {
       message: 'Item added to cart',
       data: populatedCart
     });
+
+    // Broadcast update if shared
+    if (populatedCart.isShared) {
+      const io = getIO();
+      io.to(populatedCart.shareCode).emit('cartUpdated', populatedCart);
+    }
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -432,6 +456,103 @@ exports.getCartSummary = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get cart summary',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Create a shared cart
+ * @route   POST /api/cart/share
+ * @access  Private
+ */
+exports.createSharedCart = async (req, res) => {
+  try {
+    let cart = await Cart.findOne({ user: req.user._id });
+
+    if (!cart) {
+      cart = new Cart({ user: req.user._id, restaurantGroups: [] });
+    }
+
+    if (cart.isShared) {
+      return res.status(200).json({
+        success: true,
+        message: 'Cart is already shared',
+        data: cart
+      });
+    }
+
+    cart.isShared = true;
+    cart.shareCode = crypto.randomBytes(4).toString('hex').toUpperCase(); // 8 char code
+    await cart.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Shared cart created',
+      data: cart
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create shared cart',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Join a shared cart
+ * @route   POST /api/cart/join
+ * @access  Private
+ */
+exports.joinSharedCart = async (req, res) => {
+  try {
+    const { shareCode } = req.body;
+
+    const cart = await Cart.findOne({ shareCode: shareCode.toUpperCase() });
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shared cart not found'
+      });
+    }
+
+    // Check if user is already a collaborator or owner
+    if (cart.user.toString() === req.user._id.toString() || cart.collaborators.includes(req.user._id)) {
+      return res.status(200).json({
+        success: true,
+        message: 'Already in this cart',
+        data: cart
+      });
+    }
+
+    // Add as collaborator
+    cart.collaborators.push(req.user._id);
+    await cart.save();
+
+    const populatedCart = await Cart.findById(cart._id)
+      .populate('restaurantGroups.restaurant', 'name logoUrl')
+      .populate('restaurantGroups.items.menuItem', 'name price image')
+      .populate('collaborators', 'username profilePicture')
+      .populate('user', 'username profilePicture');
+
+    // Notify others
+    const io = getIO();
+    io.to(shareCode).emit('userJoinedCart', {
+      user: { _id: req.user._id, username: req.user.username },
+      cart: populatedCart
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Joined shared cart successfully',
+      data: populatedCart
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to join shared cart',
       error: error.message
     });
   }

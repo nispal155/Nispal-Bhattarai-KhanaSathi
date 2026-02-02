@@ -8,7 +8,9 @@ const {
   clearCart,
   applyPromoCode,
   removePromoCode,
-  getCartSummary
+  getCartSummary,
+  createSharedCart,
+  joinSharedCart
 } = require('../controller/cartController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -23,5 +25,7 @@ router.delete('/remove/:menuItemId', removeFromCart);
 router.delete('/clear', clearCart);
 router.post('/apply-promo', applyPromoCode);
 router.delete('/remove-promo', removePromoCode);
+router.post('/share', createSharedCart);
+router.post('/join', joinSharedCart);
 
 module.exports = router;

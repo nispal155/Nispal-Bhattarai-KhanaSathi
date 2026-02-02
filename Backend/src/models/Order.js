@@ -116,13 +116,26 @@ const orderSchema = new mongoose.Schema({
   isRated: {
     type: Boolean,
     default: false
-  }
+  },
+  sosStatus: {
+    type: String,
+    enum: ['none', 'active', 'resolved'],
+    default: 'none'
+  },
+  riderLocationHistory: [{
+    lat: Number,
+    lng: Number,
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true
 });
 
 // Generate order number before saving
-orderSchema.pre('save', async function(next) {
+orderSchema.pre('save', async function (next) {
   if (!this.orderNumber) {
     const year = new Date().getFullYear();
     const count = await this.constructor.countDocuments();
@@ -132,7 +145,7 @@ orderSchema.pre('save', async function(next) {
 });
 
 // Add status to history when status changes
-orderSchema.pre('save', function(next) {
+orderSchema.pre('save', function (next) {
   if (this.isModified('status')) {
     this.statusHistory.push({
       status: this.status,

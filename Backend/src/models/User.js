@@ -91,6 +91,10 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    allergyPreferences: [{
+        type: String,
+        enum: ['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame']
+    }],
     // Notification preferences
     notifications: {
         push: { type: Boolean, default: true },

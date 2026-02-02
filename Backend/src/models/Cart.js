@@ -25,6 +25,11 @@ const cartItemSchema = new mongoose.Schema({
   },
   specialInstructions: {
     type: String
+  },
+  addedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   }
 });
 
@@ -51,7 +56,20 @@ const cartSchema = new mongoose.Schema({
   promoDiscount: {
     type: Number,
     default: 0
-  }
+  },
+  isShared: {
+    type: Boolean,
+    default: false
+  },
+  shareCode: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  collaborators: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }]
 }, {
   timestamps: true
 });

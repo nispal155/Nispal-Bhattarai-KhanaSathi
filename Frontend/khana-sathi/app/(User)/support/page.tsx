@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import UserHeader from "@/components/layout/UserHeader";
 import { ChevronDown, ChevronUp, Mail, Phone, MapPin, Send } from "lucide-react";
 
 export default function SupportPage() {
@@ -29,40 +30,7 @@ export default function SupportPage() {
 
     return (
         <div className="min-h-screen bg-gray-50">
-            {/* Navigation (Simplified for Support) */}
-            <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center h-16">
-                        <Link href="/" className="flex items-center gap-2">
-                            <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-                                <span className="text-white text-xl">🍜</span>
-                            </div>
-                            <div>
-                                <span className="text-red-500 font-bold text-lg">Khana Sathi</span>
-                            </div>
-                        </Link>
-
-                        <div className="hidden md:flex items-center gap-8">
-                            <Link href="/browse-restaurants" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                                <span>🏠</span> Home
-                            </Link>
-                            <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                                <span>🛒</span> Cart
-                            </Link>
-                            <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                                <span>👤</span> Profile
-                            </Link>
-                            <Link href="/support" className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm">
-                                <span>💬</span> Support
-                            </Link>
-                        </div>
-
-                        <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-                            <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
-                        </div>
-                    </div>
-                </div>
-            </nav>
+            <UserHeader />
 
             {/* Hero Section */}
             <div className="bg-red-600 text-white py-16">

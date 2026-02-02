@@ -106,6 +106,18 @@ exports.createOrder = async (req, res) => {
     // Clear the cart
     await Cart.findByIdAndDelete(cart._id);
 
+    // Create Notification for Restaurant
+    const Notification = require('../models/Notification');
+    for (const order of createdOrders) {
+      await Notification.create({
+        user: order.restaurant,
+        type: 'order_status',
+        title: 'New Order Received',
+        message: `You have a new order #${order.orderNumber}`,
+        data: { orderId: order._id }
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: `${createdOrders.length} order(s) placed successfully`,
@@ -324,6 +336,36 @@ exports.updateOrderStatus = async (req, res) => {
 
     await order.save();
 
+    // Create Persistent Notification
+    const Notification = require('../models/Notification');
+    let notificationTitle = 'Order Updated';
+    let notificationMessage = `Your order status has changed to ${status}`;
+
+    if (status === 'confirmed') {
+      notificationTitle = 'Order Confirmed';
+      notificationMessage = 'The restaurant has confirmed your order and will start preparing it soon.';
+    } else if (status === 'preparing') {
+      notificationTitle = 'Food is being prepared';
+      notificationMessage = 'The chef is working on your delicious meal!';
+    } else if (status === 'ready') {
+      notificationTitle = 'Order Ready';
+      notificationMessage = 'Your order is ready for pickup/delivery!';
+    } else if (status === 'delivered') {
+      notificationTitle = 'Order Delivered';
+      notificationMessage = 'Enjoy your food! Don\'t forget to rate us.';
+    } else if (status === 'cancelled') {
+      notificationTitle = 'Order Cancelled';
+      notificationMessage = `Your order has been cancelled. Note: ${note || 'N/A'}`;
+    }
+
+    await Notification.create({
+      user: order.customer,
+      type: 'order_status',
+      title: notificationTitle,
+      message: notificationMessage,
+      data: { orderId: order._id }
+    });
+
     // Emit live update via Socket.io
     socketService.emitOrderUpdate(order._id.toString(), status, { order });
 
@@ -502,6 +544,16 @@ exports.acceptOrder = async (req, res) => {
     // Update rider's current assignment
     await User.findByIdAndUpdate(req.user._id, {
       currentAssignment: order.orderNumber
+    });
+
+    // Persistent Notification for Customer
+    const Notification = require('../models/Notification');
+    await Notification.create({
+      user: order.customer,
+      type: 'order_status',
+      title: 'Rider Picked Up Your Order',
+      message: `${req.user.username} is on their way with your food!`,
+      data: { orderId: order._id }
     });
 
     // Emit live update
@@ -707,5 +759,118 @@ exports.getOrderStats = async (req, res) => {
       message: 'Failed to fetch order statistics',
       error: error.message
     });
+  }
+};
+
+/**
+ * @desc    Trigger SOS for an order
+ * @route   POST /api/orders/:id/sos
+ * @access  Private (Delivery Staff)
+ */
+exports.triggerSOS = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    if (order.deliveryRider?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to trigger SOS for this order'
+      });
+    }
+
+    order.sosStatus = 'active';
+    await order.save();
+
+    // Notify Admins via Socket
+    const io = socketService.getIO();
+    io.to('admin').emit('sosAlert', {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      riderName: req.user.username,
+      location: order.riderLocationHistory[order.riderLocationHistory.length - 1]
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'SOS triggered. Help is on the way.',
+      data: order
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to trigger SOS',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update rider location
+ * @route   POST /api/orders/:id/location
+ * @access  Private (Delivery Staff)
+ */
+exports.updateRiderLocation = async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.deliveryRider?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    order.riderLocationHistory.push({ lat, lng });
+    await order.save();
+
+    // Broadcast location update to customer
+    socketService.emitOrderUpdate(order._id.toString(), order.status, {
+      location: { lat, lng }
+    });
+
+    res.status(200).json({ success: true, message: 'Location updated' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Get order pools (orders from same restaurant that are ready)
+ * @route   GET /api/orders/pools
+ * @access  Private (Delivery Staff)
+ */
+exports.getPoolableOrders = async (req, res) => {
+  try {
+    // Group ready orders by restaurant
+    const pools = await Order.aggregate([
+      { $match: { status: 'ready', deliveryRider: null } },
+      {
+        $group: {
+          _id: '$restaurant',
+          count: { $sum: 1 },
+          orders: { $push: '$$ROOT' }
+        }
+      },
+      { $match: { count: { $gt: 1 } } } // Pools are restaurants with >1 ready order
+    ]);
+
+    // Populate restaurant details for each pool
+    const populatedPools = await Order.populate(pools, { path: '_id', select: 'name address', model: 'Restaurant' });
+
+    res.status(200).json({
+      success: true,
+      data: populatedPools
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };

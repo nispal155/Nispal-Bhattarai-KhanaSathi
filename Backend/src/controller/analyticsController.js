@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Restaurant = require('../models/Restaurant');
+const Invoice = require('../models/Invoice');
 
 /**
  * @desc    Get overview analytics stats
@@ -155,5 +156,166 @@ exports.getTopRestaurants = async (req, res) => {
             message: 'Failed to fetch top restaurants',
             error: error.message
         });
+    }
+};
+
+/**
+ * @desc    Get sales forecasting (next 7 days)
+ * @route   GET /api/analytics/forecasting
+ * @access  Private/Admin
+ */
+exports.getForecasting = async (req, res) => {
+    try {
+        const daysToForecast = 7;
+        const historicalDays = 30;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - historicalDays);
+
+        // Get daily sales for the last 30 days
+        const dailySales = await Order.aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: startDate },
+                    status: 'delivered'
+                }
+            },
+            {
+                $group: {
+                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                    sales: { $sum: '$pricing.total' }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]);
+
+        // Simple Linear Regression calculation
+        const n = dailySales.length;
+        if (n < 2) {
+            return res.json({ success: true, data: [], message: 'Not enough data for forecasting' });
+        }
+
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        dailySales.forEach((d, i) => {
+            sumX += i;
+            sumY += d.sales;
+            sumXY += i * d.sales;
+            sumXX += i * i;
+        });
+
+        const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        const intercept = (sumY - slope * sumX) / n;
+
+        // Generate next 7 days
+        const forecast = [];
+        const lastDate = dailySales.length > 0 ? new Date(dailySales[dailySales.length - 1]._id) : new Date();
+
+        for (let i = 1; i <= daysToForecast; i++) {
+            const forecastDate = new Date(lastDate);
+            forecastDate.setDate(forecastDate.getDate() + i);
+            const predictedSales = Math.max(0, slope * (n + i - 1) + intercept);
+
+            forecast.push({
+                date: forecastDate.toISOString().split('T')[0],
+                predictedSales: Math.round(predictedSales)
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                historical: dailySales,
+                forecast
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Get financial settlement stats
+ * @route   GET /api/analytics/settlements
+ * @access  Private/Admin
+ */
+exports.getSettlementStats = async (req, res) => {
+    try {
+        const stats = await Invoice.aggregate([
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 },
+                    totalAmount: { $sum: '$netPayout' }
+                }
+            }
+        ]);
+
+        const pendingPayouts = await Order.aggregate([
+            { $match: { status: 'delivered', paymentStatus: 'paid' } },
+            { $group: { _id: null, total: { $sum: '$pricing.subtotal' } } }
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                invoices: stats,
+                unbilledSales: pendingPayouts[0]?.total || 0
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Generate invoice for a restaurant
+ * @route   POST /api/analytics/generate-invoice
+ * @access  Private/Admin
+ */
+exports.generateInvoice = async (req, res) => {
+    try {
+        const { restaurantId, periodStart, periodEnd } = req.body;
+        const commissionRate = 0.1; // 10% commission
+
+        // sum all delivered orders for this restaurant in this period
+        const salesData = await Order.aggregate([
+            {
+                $match: {
+                    restaurant: new mongoose.Types.ObjectId(restaurantId),
+                    status: 'delivered',
+                    createdAt: { $gte: new Date(periodStart), $lte: new Date(periodEnd) }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalSales: { $sum: '$pricing.subtotal' }
+                }
+            }
+        ]);
+
+        if (!salesData.length) {
+            return res.status(404).json({ success: false, message: 'No sales found for this period' });
+        }
+
+        const totalSales = salesData[0].totalSales;
+        const commissionAmount = totalSales * commissionRate;
+        const netPayout = totalSales - commissionAmount;
+
+        const invoice = await Invoice.create({
+            restaurant: restaurantId,
+            periodStart,
+            periodEnd,
+            totalSales,
+            commissionAmount,
+            netPayout
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Invoice generated successfully',
+            data: invoice
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };

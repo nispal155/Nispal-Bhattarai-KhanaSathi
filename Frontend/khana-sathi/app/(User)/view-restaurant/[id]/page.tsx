@@ -2,8 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Star, Clock, MapPin, Phone, ShoppingCart, Plus, Minus, Loader2, ArrowLeft } from "lucide-react";
+import { Star, Clock, MapPin, Phone, ShoppingCart, Plus, Minus, Loader2, ArrowLeft, AlertCircle } from "lucide-react";
 import { useState, useEffect, use } from "react";
+import { useAuth } from "@/context/AuthContext";
+import UserHeader from "@/components/layout/UserHeader";
 import { getRestaurantById } from "@/lib/restaurantService";
 import { getRestaurantMenu, MenuItem } from "@/lib/menuService";
 import { addToCart } from "@/lib/cartService";
@@ -39,6 +41,7 @@ interface CartItem {
 
 export default function ViewRestaurantPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { user } = useAuth();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,37 +160,7 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-xl">🍜</span>
-              </div>
-              <div>
-                <span className="text-red-500 font-bold text-lg">Khana Sathi</span>
-              </div>
-            </Link>
-
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/browse-restaurants" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🏠</span> Home
-              </Link>
-              <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🛒</span> Cart
-              </Link>
-              <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>👤</span> Profile
-              </Link>
-            </div>
-
-            <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-              <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
-            </div>
-          </div>
-        </div>
-      </nav>
+      <UserHeader />
 
       {/* Restaurant Header */}
       <div className="bg-white border-b">
@@ -333,9 +306,17 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                         </div>
 
                         {item.allergens && item.allergens.length > 0 && (
-                          <p className="text-[10px] text-orange-600 mt-1 font-medium italic">
-                            Allergens: {item.allergens.join(", ")}
-                          </p>
+                          <div className="mt-1">
+                            <p className="text-[10px] text-gray-500 font-medium italic">
+                              Allergens: {item.allergens.join(", ")}
+                            </p>
+                            {user?.allergyPreferences?.some((allergy: string) => item.allergens?.includes(allergy)) && (
+                              <div className="flex items-center gap-1 mt-0.5 px-2 py-0.5 bg-orange-50 border border-orange-100 rounded text-[10px] text-orange-700 font-bold">
+                                <AlertCircle className="w-3 h-3" />
+                                <span>Contains your allergen!</span>
+                              </div>
+                            )}
+                          </div>
                         )}
 
                         <div className="flex items-center justify-between mt-3">

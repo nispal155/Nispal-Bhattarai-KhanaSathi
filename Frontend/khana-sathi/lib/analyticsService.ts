@@ -30,3 +30,23 @@ export const getTopRestaurants = async (days: number = 7, limit: number = 5) => 
         return { success: false, error: error.response?.data?.message || error.message };
     }
 };
+
+export const getForecasting = async () => {
+    try {
+        const response = await axios.get(`${API_URL}/analytics/forecasting`, getAuthHeaders());
+        return response.data;
+    } catch (error: any) {
+        console.error('Error fetching forecasting:', error);
+        return { success: false, error: error.response?.data?.message || error.message };
+    }
+};
+
+export const getSettlements = async () => {
+    try {
+        const response = await axios.get(`${API_URL}/analytics/settlements`, getAuthHeaders());
+        return response.data;
+    } catch (error: any) {
+        console.error('Error fetching settlements:', error);
+        return { success: false, error: error.response?.data?.message || error.message };
+    }
+};

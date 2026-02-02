@@ -14,13 +14,24 @@ import {
   Star,
   Settings,
   LogOut,
+  User,
+  Loader2,
+  AlertTriangle,
+  Navigation,
+  Layers,
+  Map,
   MapPin,
   Bell,
-  ChevronRight,
-  User,
-  Loader2
+  ChevronRight
 } from 'lucide-react';
 import { getRiderStats, RiderStats } from '@/lib/riderService';
+import {
+  triggerSOS,
+  updateRiderLocation,
+  getOrderPools
+} from '@/lib/orderService';
+import ChatWindow from '@/components/Chat/ChatWindow';
+import { MessageSquare } from 'lucide-react';
 
 const API_URL = "http://localhost:5003/api/auth";
 
@@ -31,6 +42,9 @@ export default function RiderDashboardPage() {
   const [isOnline, setIsOnline] = useState(true);
   const [stats, setStats] = useState<RiderStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeChatOrderId, setActiveChatOrderId] = useState<string | null>(null);
+  const [pools, setPools] = useState<any[]>([]);
+  const [isSendingSOS, setIsSendingSOS] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -41,7 +55,20 @@ export default function RiderDashboardPage() {
     }
 
     fetchStats();
-  }, [user, router, authLoading]);
+    fetchPools();
+
+    // Setup location tracking interval if order is active
+    let locationInterval: NodeJS.Timeout;
+    if (stats?.currentOrder && stats.currentOrder.status === 'on_the_way') {
+      locationInterval = setInterval(() => {
+        trackLocation(stats.currentOrder!._id);
+      }, 30000); // Every 30 seconds
+    }
+
+    return () => {
+      if (locationInterval) clearInterval(locationInterval);
+    };
+  }, [user, router, authLoading, stats?.currentOrder?._id]);
 
   const fetchStats = async () => {
     if (!user?._id) return;
@@ -56,6 +83,50 @@ export default function RiderDashboardPage() {
       console.error("Error fetching stats:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPools = async () => {
+    try {
+      const response = await getOrderPools();
+      if (response.data?.success) {
+        setPools(response.data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching pools:", error);
+    }
+  };
+
+  const trackLocation = async (orderId: string) => {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      try {
+        await updateRiderLocation(
+          orderId,
+          position.coords.latitude,
+          position.coords.longitude
+        );
+      } catch (err) {
+        console.error("Location track error:", err);
+      }
+    });
+  };
+
+  const handleSOS = async (orderId: string) => {
+    if (!window.confirm("ARE YOU SURE? This will alert emergency services and admins!")) return;
+
+    setIsSendingSOS(true);
+    try {
+      await triggerSOS(orderId);
+      toast.success("SOS SENT! Stay calm, help is coming.", {
+        duration: 10000,
+        icon: '🚨'
+      });
+    } catch (error) {
+      toast.error("Failed to send SOS. Call emergency services directly!");
+    } finally {
+      setIsSendingSOS(false);
     }
   };
 
@@ -280,19 +351,38 @@ export default function RiderDashboardPage() {
                       <p className="font-bold text-gray-800">Order #{stats.currentOrder.orderNumber}</p>
                       <p className="text-sm text-gray-600">{stats.currentOrder.restaurant.name}</p>
                     </div>
-                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm capitalize">
-                      {stats.currentOrder.status.replace('_', ' ')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm capitalize">
+                        {stats.currentOrder.status.replace('_', ' ')}
+                      </span>
+                      <button
+                        onClick={() => setActiveChatOrderId(stats.currentOrder!._id)}
+                        className="p-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition border border-orange-100"
+                        title="Chat with Customer/Restaurant"
+                      >
+                        <MessageSquare className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                   <p className="text-sm text-gray-600 mb-4">
                     <strong>Customer:</strong> {stats.currentOrder.customer.username}
                   </p>
-                  <button
-                    onClick={() => router.push('/my-deliveries')}
-                    className="w-full px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition transform hover:scale-105"
-                  >
-                    View Delivery Details
-                  </button>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => router.push('/my-deliveries')}
+                      className="flex-1 px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition transform hover:scale-105"
+                    >
+                      View Delivery Details
+                    </button>
+                    <button
+                      onClick={() => handleSOS(stats.currentOrder!._id)}
+                      disabled={isSendingSOS}
+                      className="px-6 py-3 bg-red-600 text-white font-bold rounded-xl shadow-md hover:bg-red-700 transition flex items-center gap-2"
+                    >
+                      <AlertTriangle className="w-5 h-5" /> SOS
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
@@ -310,6 +400,43 @@ export default function RiderDashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* Order Pools Section */}
+            {pools.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-gray-800">Available Pools</h3>
+                    <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs font-bold rounded-full animate-pulse">NEW</span>
+                  </div>
+                  <p className="text-xs text-blue-600 flex items-center gap-1 cursor-pointer">
+                    <Navigation className="w-3 h-3" /> Optimize Route
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {pools.map((pool) => (
+                    <div key={pool._id._id} className="p-4 border border-blue-50 bg-blue-50/30 rounded-xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-bold text-gray-800">{pool._id.name}</h4>
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                          {pool.count} Orders Waiting
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> {pool._id.address}
+                      </p>
+                      <button
+                        onClick={() => router.push('/my-deliveries')}
+                        className="text-sm text-blue-600 font-bold hover:underline flex items-center gap-1"
+                      >
+                        Pick up all orders <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Quick Links */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
@@ -344,6 +471,17 @@ export default function RiderDashboardPage() {
           </>
         )}
       </main>
+
+      {/* Chat Window */}
+      {user && activeChatOrderId && (
+        <ChatWindow
+          orderId={activeChatOrderId}
+          currentUserId={user._id}
+          currentUserRole="rider"
+          isOpen={!!activeChatOrderId}
+          onClose={() => setActiveChatOrderId(null)}
+        />
+      )}
     </div>
   );
 }

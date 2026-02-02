@@ -8,6 +8,7 @@ interface User {
     email: string;
     role?: string;
     profilePicture?: string;
+    allergyPreferences?: string[];
 }
 
 interface AuthContextType {

@@ -70,6 +70,12 @@ export interface Order {
   }>;
   promoCode?: string;
   isRated: boolean;
+  sosStatus?: 'none' | 'active' | 'resolved';
+  riderLocationHistory?: Array<{
+    lat: number;
+    lng: number;
+    timestamp: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -180,4 +186,19 @@ export async function getOrderStats() {
       totalRevenue: number;
     };
   }>('/orders/stats');
+}
+
+// Rider: Trigger SOS
+export async function triggerSOS(orderId: string) {
+  return post<OrderResponse>(`/orders/${orderId}/sos`, {});
+}
+
+// Rider: Update Location
+export async function updateRiderLocation(orderId: string, lat: number, lng: number) {
+  return post<OrderResponse>(`/orders/${orderId}/location`, { lat, lng });
+}
+
+// Rider: Get Order Pools
+export async function getOrderPools() {
+  return get<{ success: boolean; data: any[] }>('/orders/pools');
 }

@@ -6,6 +6,9 @@ import { Phone, MessageSquare, MapPin, Clock, Loader2 } from "lucide-react";
 import { useState, useEffect, use } from "react";
 import { getOrderById, cancelOrder } from "@/lib/orderService";
 import { io, Socket } from "socket.io-client";
+import { useAuth } from "@/context/AuthContext";
+import UserHeader from "@/components/layout/UserHeader";
+import ChatWindow from "@/components/Chat/ChatWindow";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
 
@@ -76,6 +79,8 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   const [cancelling, setCancelling] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
     fetchOrder();
@@ -203,37 +208,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-xl">🍜</span>
-              </div>
-              <div>
-                <span className="text-red-500 font-bold text-lg">Khana Sathi</span>
-              </div>
-            </Link>
-
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/browse-restaurants" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🏠</span> Home
-              </Link>
-              <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🛒</span> Cart
-              </Link>
-              <Link href="/profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>👤</span> Profile
-              </Link>
-            </div>
-
-            <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-              <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
-            </div>
-          </div>
-        </div>
-      </nav>
+      <UserHeader />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Order Header */}
@@ -338,7 +313,10 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                     Call
                   </a>
                 )}
-                <button className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white py-3 rounded-lg font-medium transition-colors">
+                <button
+                  onClick={() => setIsChatOpen(true)}
+                  className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white py-3 rounded-lg font-medium transition-colors"
+                >
                   <MessageSquare className="w-5 h-5" />
                   Message
                 </button>
@@ -445,6 +423,14 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
           <p>© 2025 KhanaSathi. All rights reserved.</p>
         </div>
       </footer>
+      {/* Chat Window */}
+      {authUser && isChatOpen && (
+        <ChatWindow
+          orderId={id}
+          recipientName={order.deliveryRider?.name || order.restaurant.name}
+          recipientRole={order.deliveryRider ? 'delivery_staff' : 'restaurant'}
+        />
+      )}
     </div>
   );
 }

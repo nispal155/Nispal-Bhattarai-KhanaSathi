@@ -12,7 +12,10 @@ const {
   acceptOrder,
   updateDeliveryStatus,
   cancelOrder,
-  getOrderStats
+  getOrderStats,
+  triggerSOS,
+  updateRiderLocation,
+  getPoolableOrders
 } = require('../controller/orderController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -32,8 +35,11 @@ router.put('/:id/assign-rider', assignRider);
 // Delivery rider routes
 router.get('/rider', getRiderOrders);
 router.get('/available', getAvailableOrders);
+router.get('/pools', getPoolableOrders);
 router.put('/:id/accept', acceptOrder);
 router.put('/:id/delivery-status', updateDeliveryStatus);
+router.post('/:id/sos', triggerSOS);
+router.post('/:id/location', updateRiderLocation);
 
 // Admin routes
 router.get('/stats', getOrderStats);
