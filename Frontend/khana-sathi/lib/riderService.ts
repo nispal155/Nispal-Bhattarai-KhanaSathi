@@ -58,3 +58,22 @@ export async function getRiderHistory(riderId: string, filters?: { status?: stri
     const query = params.toString() ? `?${params.toString()}` : '';
     return get<{ success: boolean; count: number; data: HistoryItem[] }>(`/staff/history/${riderId}${query}`);
 }
+
+// Available rider for assignment
+export interface AvailableRider {
+    _id: string;
+    username: string;
+    profilePicture?: string;
+    averageRating: number;
+    completedOrders: number;
+    vehicleDetails?: {
+        type: string;
+        model: string;
+        licensePlate: string;
+    };
+}
+
+// Get available (online) riders for order assignment
+export async function getAvailableRiders() {
+    return get<{ success: boolean; count: number; data: AvailableRider[] }>('/staff/available');
+}

@@ -17,6 +17,8 @@ const analyticsRoutes = require('./src/routes/analyticsRoutes');
 const contentRoutes = require('./src/routes/contentRoutes');
 const chatRoutes = require('./src/routes/chatRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
+const complaintRoutes = require('./src/routes/complaintRoutes');
+const paymentRoutes = require('./src/routes/paymentRoutes');
 
 dotenv.config();
 
@@ -42,6 +44,8 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/complaints', complaintRoutes);
+app.use('/api/payment', paymentRoutes);
 
 app.get('/', (req, res) => {
     res.send('KhanaSathi API is running...');

@@ -9,6 +9,7 @@ import { getCart, getCartSummary } from "@/lib/cartService";
 import { getProfile, getAddresses, UserProfile, Address } from "@/lib/userService";
 import { createOrder, DeliveryAddress } from "@/lib/orderService";
 import { Cart, RestaurantGroup } from "@/lib/cartService";
+import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
 
 type CartData = Cart;
 
@@ -87,41 +88,112 @@ export default function CheckoutPage() {
       return;
     }
 
+    const deliveryAddress = {
+      addressLine1: selectedAddress.addressLine1,
+      city: selectedAddress.city,
+      state: selectedAddress.state || "",
+      zipCode: selectedAddress.zipCode || "",
+    };
+
     try {
       setSubmitting(true);
 
-      const orderData = {
-        deliveryAddress: {
-          addressLine1: selectedAddress.addressLine1,
-          city: selectedAddress.city,
-          state: selectedAddress.state || "",
-          zipCode: selectedAddress.zipCode || "",
-        },
-        paymentMethod,
-        specialInstructions,
-        useLoyaltyPoints,
-        promoCode: cart.promoCode
-      };
+      // Different flow based on payment method
+      if (paymentMethod === "cod") {
+        // COD: Create order directly
+        console.log("Creating COD order...");
+        const orderData = {
+          deliveryAddress,
+          paymentMethod,
+          specialInstructions,
+          useLoyaltyPoints,
+          promoCode: cart.promoCode
+        };
 
-      const response: any = await createOrder(orderData);
-
-      const responseData = response?.data?.data || response?.data;
-      const orders = Array.isArray(responseData) ? responseData : [responseData];
-
-      // Redirect based on payment method and order count
-      if (paymentMethod === "cash_on_delivery") {
-        if (orders.length === 1 && orders[0]?._id) {
-          router.push(`/order-tracking/${orders[0]._id}`);
+        const response: any = await createOrder(orderData);
+        const responseData = response?.data?.data || response?.data;
+        const orders = Array.isArray(responseData) ? responseData : [responseData];
+        const firstOrder = orders[0];
+        
+        if (firstOrder?._id) {
+          router.push(`/order-tracking/${firstOrder._id}`);
         } else {
           router.push("/user-profile?tab=orders");
         }
-      } else {
-        router.push("/payment");
+      } else if (paymentMethod === "esewa") {
+        // eSewa: Redirect to payment first, order created after successful payment
+        console.log("Initiating eSewa payment...");
+        try {
+          const esewaRes = await initiateEsewaFromCart({
+            deliveryAddress,
+            specialInstructions,
+            useLoyaltyPoints
+          });
+          console.log("eSewa response:", JSON.stringify(esewaRes, null, 2));
+          
+          // Check for API errors first
+          if (esewaRes.error) {
+            console.error("eSewa API error:", esewaRes.error);
+            alert(`eSewa payment error: ${esewaRes.error}`);
+            setSubmitting(false);
+            return;
+          }
+          
+          if (esewaRes.data?.success && esewaRes.data.data) {
+            console.log("Redirecting to eSewa payment gateway...");
+            console.log("Payment URL:", esewaRes.data.data.paymentUrl);
+            console.log("Form Data:", JSON.stringify(esewaRes.data.data.formData, null, 2));
+            redirectToEsewa(esewaRes.data.data);
+            return; // Don't set submitting to false - we're leaving the page
+          } else {
+            console.error("eSewa initiation failed:", esewaRes);
+            alert("Failed to initiate eSewa payment. Please try again.");
+            setSubmitting(false);
+          }
+        } catch (esewaError) {
+          console.error("eSewa payment error:", esewaError);
+          alert("Failed to initiate eSewa payment. Please try again.");
+          setSubmitting(false);
+        }
+      } else if (paymentMethod === "khalti") {
+        // Khalti: Redirect to payment first, order created after successful payment
+        console.log("Initiating Khalti payment...");
+        try {
+          const khaltiRes = await initiateKhaltiFromCart({
+            deliveryAddress,
+            specialInstructions,
+            useLoyaltyPoints
+          });
+          console.log("Khalti response:", JSON.stringify(khaltiRes, null, 2));
+          
+          // Check for API errors first
+          if (khaltiRes.error) {
+            console.error("Khalti API error:", khaltiRes.error);
+            alert(`Khalti payment error: ${khaltiRes.error}`);
+            setSubmitting(false);
+            return;
+          }
+          
+          if (khaltiRes.data?.success && khaltiRes.data.data?.paymentUrl) {
+            console.log("Redirecting to Khalti payment gateway...");
+            console.log("Payment URL:", khaltiRes.data.data.paymentUrl);
+            redirectToKhalti(khaltiRes.data.data.paymentUrl);
+            return; // Don't set submitting to false - we're leaving the page
+          } else {
+            console.error("Khalti initiation failed:", khaltiRes);
+            alert("Failed to initiate Khalti payment. Please try again.");
+            setSubmitting(false);
+          }
+        } catch (khaltiError) {
+          console.error("Khalti payment error:", khaltiError);
+          alert("Failed to initiate Khalti payment. Please try again.");
+          setSubmitting(false);
+        }
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
-      alert(error.response?.data?.message || "Failed to place order");
-    } finally {
+      console.error("Order/Payment error:", error);
+      alert(error.response?.data?.message || "Failed to process. Please try again.");
       setSubmitting(false);
     }
   };
@@ -347,7 +419,7 @@ export default function CheckoutPage() {
                 </label>
                 <label
                   className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "esewa"
-                    ? "border-yellow-500 bg-yellow-50"
+                    ? "border-green-500 bg-green-50"
                     : "border-gray-200 hover:border-gray-300"
                     }`}
                 >
@@ -358,30 +430,46 @@ export default function CheckoutPage() {
                     checked={paymentMethod === "esewa"}
                     onChange={(e) => setPaymentMethod(e.target.value)}
                   />
-                  <div>
-                    <span className="font-medium text-gray-900">💚 eSewa</span>
-                    <p className="text-sm text-gray-500">Pay using eSewa wallet</p>
+                  <div className="flex items-center gap-3">
+                    <Image src="/Esewa.svg" alt="eSewa" width={40} height={40} className="object-contain" />
+                    <div>
+                      <span className="font-medium text-gray-900">eSewa</span>
+                      <p className="text-sm text-gray-500">Pay using eSewa digital wallet</p>
+                    </div>
                   </div>
                 </label>
                 <label
-                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "card"
-                    ? "border-yellow-500 bg-yellow-50"
+                  className={`flex items-center gap-4 p-4 border rounded-2xl cursor-pointer transition ${paymentMethod === "khalti"
+                    ? "border-purple-500 bg-purple-50"
                     : "border-gray-200 hover:border-gray-300"
                     }`}
                 >
                   <input
                     type="radio"
                     name="payment"
-                    value="card"
-                    checked={paymentMethod === "card"}
+                    value="khalti"
+                    checked={paymentMethod === "khalti"}
                     onChange={(e) => setPaymentMethod(e.target.value)}
                   />
-                  <div>
-                    <span className="font-medium text-gray-900">💳 Credit/Debit Card</span>
-                    <p className="text-sm text-gray-500">Pay securely with your card</p>
+                  <div className="flex items-center gap-3">
+                    <Image src="/Khalti.svg" alt="Khalti" width={40} height={40} className="object-contain" />
+                    <div>
+                      <span className="font-medium text-gray-900">Khalti</span>
+                      <p className="text-sm text-gray-500">Pay using Khalti digital wallet</p>
+                    </div>
                   </div>
                 </label>
               </div>
+              
+              {/* Payment Info Note */}
+              {(paymentMethod === "esewa" || paymentMethod === "khalti") && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <p className="text-sm text-blue-700">
+                    <span className="font-semibold">Note:</span> You will be redirected to {paymentMethod === "esewa" ? "eSewa" : "Khalti"} to complete your payment securely. 
+                    Your order will be confirmed once payment is successful.
+                  </p>
+                </div>
+              )}
             </section>
 
             {/* Loyalty Points */}
@@ -419,14 +507,16 @@ export default function CheckoutPage() {
               <button
                 onClick={handlePlaceOrder}
                 disabled={submitting || !selectedAddressId}
-                className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold text-xl px-16 py-5 rounded-full shadow-xl transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className={`${paymentMethod === "esewa" ? "bg-green-600 hover:bg-green-700" : paymentMethod === "khalti" ? "bg-purple-600 hover:bg-purple-700" : "bg-yellow-500 hover:bg-yellow-600"} text-white font-bold text-xl px-16 py-5 rounded-full shadow-xl transition transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2`}
               >
                 {submitting ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Placing Order...
+                    {paymentMethod === "esewa" || paymentMethod === "khalti" ? "Redirecting to Payment..." : "Placing Order..."}
                   </>
                 ) : (
+                  paymentMethod === "esewa" ? "Pay with eSewa" : 
+                  paymentMethod === "khalti" ? "Pay with Khalti" : 
                   "Place Order"
                 )}
               </button>
@@ -441,8 +531,8 @@ export default function CheckoutPage() {
                 {cart.restaurantGroups.map((group) => (
                   <div key={group.restaurant._id} className="space-y-3">
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider">{group.restaurant.name}</h4>
-                    {group.items.map((item) => (
-                      <div key={item.menuItem} className="flex gap-4">
+                    {group.items.map((item, itemIndex) => (
+                      <div key={`${group.restaurant._id}-${typeof item.menuItem === 'object' ? (item.menuItem as any)?._id : item.menuItem}-${itemIndex}`} className="flex gap-4">
                         <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0">
                           <Image
                             src={item.image || "/food-placeholder.jpg"}

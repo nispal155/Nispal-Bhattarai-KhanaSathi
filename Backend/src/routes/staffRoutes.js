@@ -11,11 +11,13 @@ const {
     toggleStatus,
     getRiderStats,
     getRiderEarnings,
-    getRiderHistory
+    getRiderHistory,
+    getAvailableRiders
 } = require('../controller/staffController');
 
 router.post('/add', addStaff);
 router.get('/all', getAllStaff);
+router.get('/available', getAvailableRiders);
 router.get('/profile/:id', getProfile);
 router.get('/stats/:id', getRiderStats);
 router.get('/earnings/:id', getRiderEarnings);

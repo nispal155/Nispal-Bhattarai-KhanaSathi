@@ -5,33 +5,16 @@ import Link from "next/link";
 import { ArrowLeft, CreditCard, Wallet, Building2, Check, Loader2, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getCart } from "@/lib/cartService";
+import { getCart, Cart } from "@/lib/cartService";
 import { createOrder } from "@/lib/orderService";
-
-interface CartItem {
-  _id: string;
-  menuItem: {
-    _id: string;
-    name: string;
-    price: number;
-    image?: string;
-  };
-  quantity: number;
-}
-
-interface CartData {
-  _id: string;
-  items: CartItem[];
-  subtotal: number;
-  promoDiscount: number;
-  restaurant: {
-    name: string;
-  }
-}
+import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
+import { useAuth } from "@/context/AuthContext";
+import toast from "react-hot-toast";
 
 export default function PaymentPage() {
   const router = useRouter();
-  const [cart, setCart] = useState<CartData | null>(null);
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const [cart, setCart] = useState<Cart | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState("cod");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -45,8 +28,15 @@ export default function PaymentPage() {
   });
 
   useEffect(() => {
-    fetchCartData();
-  }, []);
+    if (!authLoading && !isAuthenticated) {
+      toast.error("Please login to checkout");
+      router.push('/login');
+      return;
+    }
+    if (isAuthenticated) {
+      fetchCartData();
+    }
+  }, [isAuthenticated, authLoading, router]);
 
   const fetchCartData = async () => {
     try {
@@ -58,6 +48,7 @@ export default function PaymentPage() {
       setCart(cartData);
     } catch (err) {
       console.error("Error fetching cart:", err);
+      toast.error("Failed to load cart");
     } finally {
       setLoading(false);
     }
@@ -88,40 +79,99 @@ export default function PaymentPage() {
     if (!cart) return;
 
     if (!address.addressLine1) {
-      alert("Please enter a street address");
+      toast.error("Please enter a street address");
       return;
     }
 
     try {
       setIsProcessing(true);
 
-      const orderData = {
-        deliveryAddress: address,
-        paymentMethod: selectedPayment,
-        specialInstructions: "", // Can add this field if needed
-      };
+      // Different flow based on payment method
+      if (selectedPayment === "cod") {
+        // COD: Create order directly
+        const orderData = {
+          deliveryAddress: address,
+          paymentMethod: selectedPayment,
+          specialInstructions: "",
+        };
 
-      const response = await createOrder(orderData);
+        console.log("Creating COD order:", orderData);
+        const response = await createOrder(orderData);
+        console.log("Order API response:", response);
 
-      if (response && response.data && response.data.data) {
-        // Redirect to specific order tracking page
-        router.push(`/order-tracking/${response.data.data._id}`);
-      } else {
-        // Fallback to list
-        router.push("/order-tracking");
+        if (response.error) {
+          console.error("API returned error:", response.error);
+          toast.error(response.error);
+          return;
+        }
+
+        const responseData = response?.data?.data || response?.data;
+        const order = (Array.isArray(responseData) ? responseData[0] : responseData) as any;
+
+        if (order && order._id) {
+          toast.success("Order placed successfully!");
+          router.push(`/order-tracking/${order._id}`);
+        } else {
+          toast.error("Order creation failed - no order returned");
+        }
+      } else if (selectedPayment === "esewa") {
+        // eSewa: Redirect to payment first, order created after successful payment
+        console.log("Initiating eSewa payment...");
+        const esewaRes = await initiateEsewaFromCart({
+          deliveryAddress: address,
+          specialInstructions: "",
+          useLoyaltyPoints: false
+        });
+        console.log("eSewa response:", esewaRes);
+
+        if (esewaRes.error) {
+          toast.error(esewaRes.error);
+          return;
+        }
+
+        if (esewaRes.data?.success && esewaRes.data.data) {
+          toast.success("Redirecting to eSewa...");
+          redirectToEsewa(esewaRes.data.data);
+          return; // Don't set isProcessing to false - we're leaving the page
+        } else {
+          toast.error("Failed to initiate eSewa payment");
+        }
+      } else if (selectedPayment === "khalti") {
+        // Khalti: Redirect to payment first, order created after successful payment
+        console.log("Initiating Khalti payment...");
+        const khaltiRes = await initiateKhaltiFromCart({
+          deliveryAddress: address,
+          specialInstructions: "",
+          useLoyaltyPoints: false
+        });
+        console.log("Khalti response:", khaltiRes);
+
+        if (khaltiRes.error) {
+          toast.error(khaltiRes.error);
+          return;
+        }
+
+        if (khaltiRes.data?.success && khaltiRes.data.data?.paymentUrl) {
+          toast.success("Redirecting to Khalti...");
+          redirectToKhalti(khaltiRes.data.data.paymentUrl);
+          return; // Don't set isProcessing to false - we're leaving the page
+        } else {
+          toast.error("Failed to initiate Khalti payment");
+        }
       }
-
     } catch (err: any) {
       console.error("Payment error:", err);
-      alert(err.response?.data?.message || "Order creation failed");
+      toast.error(err.response?.data?.message || err?.message || "Payment failed");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Calculations
-  const subtotal = cart?.items.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0) || 0;
-  const deliveryFee = 50;
+  // Calculations - flatten restaurantGroups to calculate subtotal
+  const subtotal = cart?.restaurantGroups?.reduce((acc, group) => {
+    return acc + group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  }, 0) || 0;
+  const deliveryFee = (cart?.restaurantGroups?.length || 0) * 50;
   const serviceFee = 20;
   const discount = cart?.promoDiscount || 0;
   const total = subtotal + deliveryFee + serviceFee - discount;
@@ -134,7 +184,7 @@ export default function PaymentPage() {
     );
   }
 
-  if (!cart || cart.items.length === 0) {
+  if (!cart || !cart.restaurantGroups?.length) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <h2 className="text-xl font-bold mb-4">Your cart is empty</h2>
@@ -170,8 +220,8 @@ export default function PaymentPage() {
               </Link>
             </div>
 
-            <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-              <Image src="/avatar.jpg" alt="Profile" width={40} height={40} className="object-cover" />
+            <div className="w-10 h-10 rounded-full bg-pink-200 flex items-center justify-center">
+              <span className="text-pink-600 text-lg">👤</span>
             </div>
           </div>
         </div>
@@ -308,17 +358,18 @@ export default function PaymentPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-6 sticky top-24">
               <h2 className="font-semibold text-gray-900 mb-4">Order Summary</h2>
 
-              <div className="mb-4 text-sm text-gray-500">
-                Restaurant: <span className="font-medium text-gray-900">{cart.restaurant?.name}</span>
-              </div>
-
-              <div className="space-y-3 text-sm mb-4 max-h-60 overflow-y-auto">
-                {cart.items.map((item) => (
-                  <div key={item._id} className="flex justify-between">
-                    <span className="text-gray-600">
-                      {item.menuItem.name} <span className="text-xs">x{item.quantity}</span>
-                    </span>
-                    <span className="text-gray-900">Rs. {item.menuItem.price * item.quantity}</span>
+              <div className="space-y-6 text-sm mb-4 max-h-60 overflow-y-auto">
+                {cart.restaurantGroups.map((group) => (
+                  <div key={group.restaurant._id} className="space-y-3">
+                    <h3 className="font-medium text-gray-900 border-b pb-2">{group.restaurant.name}</h3>
+                    {group.items.map((item, itemIndex) => (
+                      <div key={`${group.restaurant._id}-${typeof item.menuItem === 'object' ? (item.menuItem as any)?._id : item.menuItem}-${itemIndex}`} className="flex justify-between">
+                        <span className="text-gray-600">
+                          {item.name} <span className="text-xs">x{item.quantity}</span>
+                        </span>
+                        <span className="text-gray-900">Rs. {item.price * item.quantity}</span>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>

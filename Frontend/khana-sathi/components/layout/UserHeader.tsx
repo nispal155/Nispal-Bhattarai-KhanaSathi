@@ -48,11 +48,15 @@ const UserHeader: React.FC = () => {
 
                         <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-pink-100 border border-gray-100 overflow-hidden shrink-0">
                             <Image
-                                src={user?.profilePicture || "/avatar.jpg"}
+                                src={user?.profilePicture || `https://ui-avatars.com/api/?name=${user?.username || 'User'}&background=random`}
                                 alt="Profile"
                                 width={40}
                                 height={40}
                                 className="object-cover w-full h-full"
+                                onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.src = `https://ui-avatars.com/api/?name=${user?.username || 'User'}&background=random`;
+                                }}
                             />
                         </div>
                     </div>

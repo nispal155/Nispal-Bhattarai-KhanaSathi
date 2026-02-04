@@ -479,6 +479,37 @@ const getRiderHistory = async (req, res) => {
     }
 };
 
+// @desc    Get available (online) riders for order assignment
+// @route   GET /api/staff/available
+// @access  Restaurant/Admin
+const getAvailableRiders = async (req, res) => {
+    try {
+        const riders = await User.find({
+            role: 'delivery_staff',
+            isOnline: true,
+            isApproved: true,
+            isProfileComplete: true
+        }).select('_id username profilePicture averageRating completedOrders vehicleDetails currentAssignment');
+
+        // Filter out riders with active assignments (not "None")
+        const availableRiders = riders.filter(rider => 
+            rider.currentAssignment === 'None' || !rider.currentAssignment
+        );
+
+        res.json({
+            success: true,
+            count: availableRiders.length,
+            data: availableRiders
+        });
+    } catch (error) {
+        console.error('getAvailableRiders Error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: error.message 
+        });
+    }
+};
+
 module.exports = {
     addStaff,
     getAllStaff,
@@ -490,5 +521,6 @@ module.exports = {
     toggleStatus,
     getRiderStats,
     getRiderEarnings,
-    getRiderHistory
+    getRiderHistory,
+    getAvailableRiders
 };

@@ -93,6 +93,20 @@ const orderSchema = new mongoose.Schema({
     enum: ['pending', 'paid', 'failed', 'refunded'],
     default: 'pending'
   },
+  // eSewa payment tracking
+  esewaTransactionId: {
+    type: String
+  },
+  esewaRefId: {
+    type: String
+  },
+  // Khalti payment tracking
+  khaltiPidx: {
+    type: String
+  },
+  khaltiRefId: {
+    type: String
+  },
   specialInstructions: {
     type: String
   },
@@ -135,24 +149,19 @@ const orderSchema = new mongoose.Schema({
 });
 
 // Generate order number before saving
-orderSchema.pre('save', async function (next) {
+orderSchema.pre('save', async function () {
   if (!this.orderNumber) {
     const year = new Date().getFullYear();
     const count = await this.constructor.countDocuments();
     this.orderNumber = `KS-${year}-${String(count + 1).padStart(4, '0')}`;
   }
-  next();
-});
-
-// Add status to history when status changes
-orderSchema.pre('save', function (next) {
+  // Add status to history when status changes
   if (this.isModified('status')) {
     this.statusHistory.push({
       status: this.status,
       timestamp: new Date()
     });
   }
-  next();
 });
 
 // Index for queries

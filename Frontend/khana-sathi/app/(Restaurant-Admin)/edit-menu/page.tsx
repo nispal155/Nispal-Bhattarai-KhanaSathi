@@ -24,9 +24,6 @@ interface MenuItem {
   category: string;
   image: string;
   isAvailable: boolean;
-  isVegetarian: boolean;
-  isVegan: boolean;
-  isGlutenFree: boolean;
   preparationTime: number;
 }
 
@@ -45,12 +42,6 @@ export default function EditMenuItem() {
     price: "",
     preparationTime: "20",
     isAvailable: true,
-    isVegetarian: false,
-    isVegan: false,
-    isGlutenFree: false,
-    spiceLevel: "None",
-    allergens: [] as string[],
-    calories: "",
   });
 
   useEffect(() => {
@@ -78,12 +69,6 @@ export default function EditMenuItem() {
         price: String(item.price || ""),
         preparationTime: String(item.preparationTime || "20"),
         isAvailable: item.isAvailable ?? true,
-        isVegetarian: item.isVegetarian ?? false,
-        isVegan: item.isVegan ?? false,
-        isGlutenFree: item.isGlutenFree ?? false,
-        spiceLevel: item.spiceLevel || "None",
-        allergens: item.allergens || [],
-        calories: item.calories ? String(item.calories) : "",
       });
       setImagePreview(item.image || null);
     } catch (error) {
@@ -137,12 +122,6 @@ export default function EditMenuItem() {
         preparationTime: Number(formData.preparationTime),
         image: imagePreview || "",
         isAvailable: formData.isAvailable,
-        isVegetarian: formData.isVegetarian,
-        isVegan: formData.isVegan,
-        isGlutenFree: formData.isGlutenFree,
-        spiceLevel: formData.spiceLevel,
-        allergens: formData.allergens,
-        calories: formData.calories ? Number(formData.calories) : undefined,
       });
       toast.success("Menu item updated successfully!");
       router.push("/menu");
@@ -293,43 +272,9 @@ export default function EditMenuItem() {
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Calories</label>
-                      <input
-                        type="number"
-                        name="calories"
-                        value={formData.calories}
-                        onChange={handleInputChange}
-                        placeholder="Optional"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                      />
-                    </div>
                   </div>
 
-                  {/* Spice Level */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Spice Level</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['None', 'Mild', 'Medium', 'Hot', 'Extra Hot'].map(level => (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, spiceLevel: level }))}
-                          className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${formData.spiceLevel === level
-                              ? level === 'None' ? 'bg-gray-500 text-white'
-                                : level === 'Mild' ? 'bg-yellow-500 text-white'
-                                  : level === 'Medium' ? 'bg-orange-500 text-white'
-                                    : 'bg-red-500 text-white'
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
-                        >
-                          {level === 'Hot' || level === 'Extra Hot' ? '🔥' : level === 'Mild' || level === 'Medium' ? '🌶️' : ''} {level}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Toggles */}
+                  {/* Availability Toggle */}
                   <div className="flex items-center justify-between py-3 border-b">
                     <span className="text-gray-700 font-medium">🟢 Available Now</span>
                     <button
@@ -339,66 +284,6 @@ export default function EditMenuItem() {
                     >
                       <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isAvailable ? "translate-x-7" : "translate-x-1"}`} />
                     </button>
-                  </div>
-
-                  <div className="flex items-center justify-between py-3 border-b">
-                    <span className="text-gray-700 font-medium">🥬 Vegetarian</span>
-                    <button
-                      type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, isVegetarian: !prev.isVegetarian }))}
-                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isVegetarian ? "bg-green-500" : "bg-gray-300"}`}
-                    >
-                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isVegetarian ? "translate-x-7" : "translate-x-1"}`} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between py-3 border-b">
-                    <span className="text-gray-700 font-medium">🌱 Vegan</span>
-                    <button
-                      type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, isVegan: !prev.isVegan }))}
-                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isVegan ? "bg-green-500" : "bg-gray-300"}`}
-                    >
-                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isVegan ? "translate-x-7" : "translate-x-1"}`} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between py-3 border-b">
-                    <span className="text-gray-700 font-medium">🌾 Gluten Free</span>
-                    <button
-                      type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, isGlutenFree: !prev.isGlutenFree }))}
-                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition ${formData.isGlutenFree ? "bg-green-500" : "bg-gray-300"}`}
-                    >
-                      <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition ${formData.isGlutenFree ? "translate-x-7" : "translate-x-1"}`} />
-                    </button>
-                  </div>
-
-                  {/* Allergens */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Allergens</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame'].map(allergen => (
-                        <button
-                          key={allergen}
-                          type="button"
-                          onClick={() => {
-                            setFormData(prev => ({
-                              ...prev,
-                              allergens: prev.allergens.includes(allergen)
-                                ? prev.allergens.filter(a => a !== allergen)
-                                : [...prev.allergens, allergen]
-                            }));
-                          }}
-                          className={`px-2 py-1 rounded text-xs transition ${formData.allergens.includes(allergen)
-                              ? 'bg-orange-500 text-white'
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
-                        >
-                          {allergen}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -454,9 +339,6 @@ export default function EditMenuItem() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {formData.isVegetarian && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">Vegetarian</span>}
-                    {formData.isVegan && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">Vegan</span>}
-                    {formData.isGlutenFree && <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-sm">Gluten Free</span>}
                     <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">{formData.preparationTime} min</span>
                   </div>
                 </div>

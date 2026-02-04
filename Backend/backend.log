@@ -1,0 +1,71 @@
+
+> backend@1.0.0 dev
+> nodemon index.js
+
+[33m[nodemon] 3.1.11[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: js,mjs,cjs,json[39m
+[32m[nodemon] starting `node index.js`[39m
+[dotenv@17.2.3] injecting env (7) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+Email Config: {
+  host: 'smtp.gmail.com',
+  port: '587',
+  user: 'np05cp4a230059@iic.edu.np',
+  hasPassword: true
+}
+[2026-02-03 16:30:54] DEBUG Creating transport: nodemailer (7.0.11; +https://nodemailer.com/; SMTP/7.0.11[client:7.0.11])
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+Server running on port 5003
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] Resolved smtp.gmail.com as 192.178.211.108 [cache miss]
+[2026-02-03 16:30:54] INFO  [t4AL92Wxghc] Connection established to 192.178.211.108:587
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 220 smtp.gmail.com ESMTP 41be03b00d2f7-c64277e4efdsm18008797a12.3 - gsmtp
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] C: EHLO Nispals-MacBook-Pro.local
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-smtp.gmail.com at your service, [113.199.146.10]
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-SIZE 35882577
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-8BITMIME
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-STARTTLS
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-ENHANCEDSTATUSCODES
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-PIPELINING
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250-CHUNKING
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 250 SMTPUTF8
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] C: STARTTLS
+[2026-02-03 16:30:54] DEBUG [t4AL92Wxghc] S: 220 2.0.0 Ready to start TLS
+[2026-02-03 16:30:55] INFO  [t4AL92Wxghc] Connection upgraded with STARTTLS
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] C: EHLO Nispals-MacBook-Pro.local
+MongoDB Connected: ac-tewsmax-shard-00-00.bhwlq4g.mongodb.net
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-smtp.gmail.com at your service, [113.199.146.10]
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-SIZE 35882577
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-8BITMIME
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-AUTH LOGIN PLAIN XOAUTH2 PLAIN-CLIENTTOKEN OAUTHBEARER XOAUTH
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-ENHANCEDSTATUSCODES
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-PIPELINING
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250-CHUNKING
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 250 SMTPUTF8
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] SMTP handshake finished
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] C: AUTH PLAIN AG5wMDVjcDRhMjMwMDU5QGlpYy5lZHUubnAALyogc2VjcmV0ICov
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] S: 235 2.7.0 Accepted
+[2026-02-03 16:30:55] INFO  [t4AL92Wxghc] User "np05cp4a230059@iic.edu.np" authenticated
+[2026-02-03 16:30:55] DEBUG [t4AL92Wxghc] C: QUIT
+Server is ready to take our messages
+New connection: r1yW2YDJyn3NECmmAAAB
+[2026-02-03 16:30:56] DEBUG [t4AL92Wxghc] S: 221 2.0.0 closing connection 41be03b00d2f7-c64277e4efdsm18008797a12.3 - gsmtp
+[2026-02-03 16:30:56] DEBUG [t4AL92Wxghc] Closing connection to the server using "end"
+[2026-02-03 16:30:56] INFO  [t4AL92Wxghc] Connection closed
+New connection: pBeq7V_TPnombFqjAAAD
+node:events:496
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: read EIO
+    at TTY.onStreamRead (node:internal/stream_base_commons:216:20)
+Emitted 'error' event on ReadStream instance at:
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  errno: -5,
+  code: 'EIO',
+  syscall: 'read'
+}
+
+Node.js v22.14.0

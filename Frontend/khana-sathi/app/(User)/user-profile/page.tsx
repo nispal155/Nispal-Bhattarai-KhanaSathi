@@ -45,7 +45,7 @@ interface UserProfile {
 }
 
 export default function ProfilePage() {
-  const { logout, updateUser: updateAuthUser } = useAuth();
+  const { logout, updateUser: updateAuthUser, isAuthenticated, isLoading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("personal");
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -65,8 +65,15 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!authLoading && !isAuthenticated) {
+      toast.error("Please login to view your profile");
+      window.location.href = '/login';
+      return;
+    }
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated, authLoading]);
 
   const fetchData = async () => {
     try {
@@ -90,6 +97,10 @@ export default function ProfilePage() {
       const ordersResData = ordersRes?.data as any;
       const ordersData = ordersResData?.data || ordersResData || [];
 
+      console.log('Profile data loaded:', profileData);
+      console.log('Addresses loaded:', addressesData);
+      console.log('Orders loaded:', ordersData);
+
       if (profileData) {
         setProfile({
           _id: profileData._id || '',
@@ -112,6 +123,7 @@ export default function ProfilePage() {
       setOrders(Array.isArray(ordersData) ? ordersData : []);
     } catch (err) {
       console.error("Error fetching data:", err);
+      toast.error("Failed to load profile data");
     } finally {
       setLoading(false);
     }
@@ -198,8 +210,10 @@ export default function ProfilePage() {
         state: "",
         zipCode: "",
       });
+      toast.success("Address added successfully");
     } catch (err) {
       console.error("Error adding address:", err);
+      toast.error("Failed to add address");
     } finally {
       setSaving(false);
     }
@@ -210,8 +224,10 @@ export default function ProfilePage() {
     try {
       await deleteAddress(id);
       await fetchData();
+      toast.success("Address deleted");
     } catch (err) {
       console.error("Error deleting address:", err);
+      toast.error("Failed to delete address");
     }
   };
 
@@ -219,8 +235,10 @@ export default function ProfilePage() {
     try {
       await setDefaultAddress(id);
       await fetchData();
+      toast.success("Default address updated");
     } catch (err) {
       console.error("Error setting default:", err);
+      toast.error("Failed to set default address");
     }
   };
 
@@ -302,8 +320,8 @@ export default function ProfilePage() {
               </Link>
             </div>
 
-            <div className="w-10 h-10 rounded-full bg-pink-200 overflow-hidden">
-              <Image src={profile?.profilePicture || "/avatar.jpg"} alt="Profile" width={40} height={40} className="object-cover w-full h-full" />
+            <div className="w-10 h-10 rounded-full bg-pink-200 flex items-center justify-center">
+              <span className="text-pink-600 text-lg">👤</span>
             </div>
           </div>
         </div>
@@ -316,11 +334,15 @@ export default function ProfilePage() {
             <div className="relative">
               <div className="w-24 h-24 rounded-full bg-pink-200 overflow-hidden relative group">
                 <Image
-                  src={profile?.profilePicture || "/avatar.jpg"}
+                  src={profile?.profilePicture || `https://ui-avatars.com/api/?name=${profile?.name || 'User'}&background=random&size=96`}
                   alt={profile?.name || "User"}
                   width={96}
                   height={96}
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = `https://ui-avatars.com/api/?name=${profile?.name || 'User'}&background=random&size=96`;
+                  }}
                 />
                 {saving && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
@@ -755,28 +777,6 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Security</h2>
-
-                  <div className="space-y-4">
-                    <button className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-gray-500" />
-                        <span className="font-medium text-gray-900">Change Password</span>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-gray-400" />
-                    </button>
-
-                    <button className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <HelpCircle className="w-5 h-5 text-gray-500" />
-                        <span className="font-medium text-gray-900">Help & Support</span>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-gray-400" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h2 className="text-lg font-semibold text-red-500 mb-4">Danger Zone</h2>
                   <button className="px-4 py-2 border border-red-300 text-red-500 rounded-lg hover:bg-red-50 transition-colors">
                     Delete Account
@@ -790,6 +790,6 @@ export default function ProfilePage() {
 
       {/* Footer */}
 
-    </div>
+    </div >
   );
 }

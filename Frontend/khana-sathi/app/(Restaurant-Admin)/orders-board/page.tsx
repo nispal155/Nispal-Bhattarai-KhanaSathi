@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import { useState, useEffect } from "react";
-import { Loader2, MessageSquare } from "lucide-react";
-import { getRestaurantOrders, updateOrderStatus } from "@/lib/orderService";
+import { Loader2, MessageSquare, User, Star, Bike } from "lucide-react";
+import { getRestaurantOrders, updateOrderStatus, assignRider } from "@/lib/orderService";
+import { getAvailableRiders, AvailableRider } from "@/lib/riderService";
 import RestaurantSidebar from "@/components/RestaurantSidebar";
 import ChatWindow from "@/components/Chat/ChatWindow";
 import { useAuth } from "@/context/AuthContext";
@@ -25,6 +26,10 @@ interface Order {
     addressLine1: string;
     city: string;
   };
+  deliveryRider?: {
+    _id: string;
+    username: string;
+  };
   createdAt: string;
   estimatedDeliveryTime?: string;
 }
@@ -34,6 +39,9 @@ export default function OrdersBoard() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [activeChatOrderId, setActiveChatOrderId] = useState<string | null>(null);
+  const [availableRiders, setAvailableRiders] = useState<AvailableRider[]>([]);
+  const [selectedOrderForRider, setSelectedOrderForRider] = useState<string | null>(null);
+  const [assigningRider, setAssigningRider] = useState(false);
   const { user: authUser } = useAuth();
 
   useEffect(() => {
@@ -55,6 +63,36 @@ export default function OrdersBoard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchAvailableRiders = async () => {
+    try {
+      const response = await getAvailableRiders();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseData = response?.data as any;
+      const ridersData = responseData?.data || [];
+      setAvailableRiders(Array.isArray(ridersData) ? ridersData : []);
+    } catch (err) {
+      console.error("Error fetching riders:", err);
+    }
+  };
+
+  const handleAssignRider = async (orderId: string, riderId: string) => {
+    try {
+      setAssigningRider(true);
+      await assignRider(orderId, riderId);
+      await fetchOrders();
+      setSelectedOrderForRider(null);
+    } catch (err) {
+      console.error("Error assigning rider:", err);
+    } finally {
+      setAssigningRider(false);
+    }
+  };
+
+  const openRiderSelection = async (orderId: string) => {
+    setSelectedOrderForRider(orderId);
+    await fetchAvailableRiders();
   };
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
@@ -220,12 +258,81 @@ export default function OrdersBoard() {
                           </div>
                           <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">Ready</span>
                         </div>
-                        <p className="text-sm text-gray-700 mb-4">Items: {getItemsString(order.items)}</p>
+                        <p className="text-sm text-gray-700 mb-2">Items: {getItemsString(order.items)}</p>
+                        
+                        {/* Rider Assignment Section */}
+                        {order.deliveryRider ? (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                            <p className="text-sm text-blue-800 flex items-center gap-2">
+                              <Bike className="w-4 h-4" />
+                              Assigned to: <span className="font-semibold">{order.deliveryRider.username}</span>
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="mb-4">
+                            {selectedOrderForRider === order._id ? (
+                              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                                <p className="text-sm font-medium text-orange-800 mb-2 flex items-center gap-2">
+                                  <User className="w-4 h-4" />
+                                  Select a Delivery Rider:
+                                </p>
+                                {availableRiders.length === 0 ? (
+                                  <p className="text-sm text-gray-600">No riders available right now</p>
+                                ) : (
+                                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                                    {availableRiders.map((rider) => (
+                                      <button
+                                        key={rider._id}
+                                        onClick={() => handleAssignRider(order._id, rider._id)}
+                                        disabled={assigningRider}
+                                        className="w-full flex items-center justify-between p-2 bg-white rounded-lg border border-gray-200 hover:border-orange-400 hover:bg-orange-50 transition disabled:opacity-50"
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                                            {rider.profilePicture ? (
+                                              <Image src={rider.profilePicture} alt={rider.username} width={32} height={32} className="object-cover" />
+                                            ) : (
+                                              <User className="w-4 h-4 text-gray-500" />
+                                            )}
+                                          </div>
+                                          <div className="text-left">
+                                            <p className="text-sm font-medium text-gray-900">{rider.username}</p>
+                                            <p className="text-xs text-gray-500">{rider.completedOrders} deliveries</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-1 text-yellow-500">
+                                          <Star className="w-3 h-3 fill-yellow-400" />
+                                          <span className="text-xs font-medium">{rider.averageRating?.toFixed(1) || "N/A"}</span>
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <button
+                                  onClick={() => setSelectedOrderForRider(null)}
+                                  className="mt-2 text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => openRiderSelection(order._id)}
+                                className="w-full px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition flex items-center justify-center gap-2"
+                              >
+                                <Bike className="w-4 h-4" />
+                                Assign Delivery Rider
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         <div className="flex gap-3">
                           <button
                             onClick={() => handleStatusUpdate(order._id, "picked_up")}
-                            disabled={updating === order._id}
-                            className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+                            disabled={updating === order._id || !order.deliveryRider}
+                            className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={!order.deliveryRider ? "Assign a rider first" : ""}
                           >
                             {updating === order._id ? "Updating..." : "Out for Delivery"}
                           </button>

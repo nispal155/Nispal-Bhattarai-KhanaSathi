@@ -202,3 +202,20 @@ export async function updateRiderLocation(orderId: string, lat: number, lng: num
 export async function getOrderPools() {
   return get<{ success: boolean; data: any[] }>('/orders/pools');
 }
+
+// Admin: Get all orders
+export async function getAllOrders(options?: {
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (options?.status) params.append('status', options.status);
+  if (options?.search) params.append('search', options.search);
+  if (options?.page) params.append('page', options.page.toString());
+  if (options?.limit) params.append('limit', options.limit.toString());
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return get<OrdersResponse>(`/orders/admin${query}`);
+}

@@ -10,6 +10,7 @@ import { getRestaurantById } from "@/lib/restaurantService";
 import { getRestaurantMenu, MenuItem } from "@/lib/menuService";
 import { addToCart } from "@/lib/cartService";
 import { formatPriceRange } from "@/lib/formatters";
+import toast from "react-hot-toast";
 
 interface Restaurant {
   _id: string;
@@ -130,10 +131,10 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
       }
       // Clear local cart after adding
       setCartItems([]);
-      alert("Items added to cart!");
+      toast.success("Items added to cart!");
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
-      alert(error.response?.data?.message || "Failed to add items to cart");
+      toast.error(error.response?.data?.message || "Failed to add items to cart");
     } finally {
       setAddingToCart(false);
     }

@@ -13,6 +13,7 @@ const {
   updateDeliveryStatus,
   cancelOrder,
   getOrderStats,
+  getAllOrders,
   triggerSOS,
   updateRiderLocation,
   getPoolableOrders
@@ -43,6 +44,7 @@ router.post('/:id/location', updateRiderLocation);
 
 // Admin routes
 router.get('/stats', getOrderStats);
+router.get('/admin', getAllOrders);
 
 // Common routes
 router.get('/:id', getOrderById);

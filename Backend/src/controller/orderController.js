@@ -20,15 +20,27 @@ exports.createOrder = async (req, res) => {
       useLoyaltyPoints
     } = req.body;
 
+    // IMPORTANT: Only allow COD orders through this endpoint
+    // eSewa and Khalti orders must go through the payment flow first
+    if (paymentMethod === 'esewa' || paymentMethod === 'khalti') {
+      return res.status(400).json({
+        success: false,
+        message: `For ${paymentMethod} payment, please use the payment initiation endpoint. Orders are created only after successful payment.`
+      });
+    }
+
     // Get user's cart
     const cart = await Cart.findOne({ user: req.user._id }).populate('restaurantGroups.items.menuItem');
+    console.log('Cart found for user:', req.user._id, cart ? 'Yes' : 'No');
 
     if (!cart || cart.restaurantGroups.length === 0) {
+      console.log('Cart is empty or not found');
       return res.status(400).json({
         success: false,
         message: 'Cart is empty'
       });
     }
+    console.log('Cart groups count:', cart.restaurantGroups.length);
 
     // Get user for loyalty points
     const user = await User.findById(req.user._id);
@@ -59,16 +71,21 @@ exports.createOrder = async (req, res) => {
       const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
       totalOrderValue += total;
 
+      console.log('Creating order for restaurant:', group.restaurant);
       const order = await Order.create({
         customer: req.user._id,
         restaurant: group.restaurant,
-        items: group.items.map(item => ({
-          menuItem: item.menuItem._id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          specialInstructions: item.specialInstructions
-        })),
+        items: group.items.map(item => {
+          // Handle both populated and non-populated menuItem
+          const menuItemId = item.menuItem?._id || item.menuItem;
+          return {
+            menuItem: menuItemId,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            specialInstructions: item.specialInstructions
+          };
+        }),
         status: 'pending',
         deliveryAddress,
         pricing: {
@@ -87,7 +104,8 @@ exports.createOrder = async (req, res) => {
 
       // Update menu item order counts
       for (const item of group.items) {
-        await Menu.findByIdAndUpdate(item.menuItem._id, {
+        const menuItemId = item.menuItem?._id || item.menuItem;
+        await Menu.findByIdAndUpdate(menuItemId, {
           $inc: { orderCount: item.quantity }
         });
       }
@@ -97,7 +115,9 @@ exports.createOrder = async (req, res) => {
 
     // Calculate loyalty points: 1 point per Rs. 100
     const pointsEarned = Math.floor(totalOrderValue / 100);
-    const netPointsChange = pointsEarned - (useLoyaltyPoints ? user.loyaltyPoints - pointsToDeduct : 0);
+    // If loyalty points were used, deduct them. Always add earned points.
+    const initialLoyaltyPoints = user.loyaltyPoints;
+    const netPointsChange = pointsEarned - (useLoyaltyPoints ? initialLoyaltyPoints : 0);
 
     await User.findByIdAndUpdate(req.user._id, {
       $inc: { loyaltyPoints: netPointsChange }
@@ -109,13 +129,18 @@ exports.createOrder = async (req, res) => {
     // Create Notification for Restaurant
     const Notification = require('../models/Notification');
     for (const order of createdOrders) {
-      await Notification.create({
-        user: order.restaurant,
-        type: 'order_status',
-        title: 'New Order Received',
-        message: `You have a new order #${order.orderNumber}`,
-        data: { orderId: order._id }
-      });
+      try {
+        await Notification.create({
+          user: order.restaurant,
+          type: 'order_status',
+          title: 'New Order Received',
+          message: `You have a new order #${order.orderNumber}`,
+          data: { orderId: order._id }
+        });
+      } catch (notifError) {
+        console.error(`Failed to create notification for order ${order._id}:`, notifError.message);
+        // Continue with other notifications even if one fails
+      }
     }
 
     res.status(201).json({
@@ -123,13 +148,16 @@ exports.createOrder = async (req, res) => {
       message: `${createdOrders.length} order(s) placed successfully`,
       data: createdOrders,
       pointsEarned,
-      pointsUsed: useLoyaltyPoints ? user.loyaltyPoints - pointsToDeduct : 0
+      pointsUsed: useLoyaltyPoints ? initialLoyaltyPoints : 0
     });
   } catch (error) {
+    console.error('Order creation error:', error.message);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Failed to create order',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
@@ -282,6 +310,15 @@ exports.getRestaurantOrders = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status, note } = req.body;
+    
+    console.log('Update order status request:', { orderId: req.params.id, newStatus: status, note });
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required'
+      });
+    }
 
     const order = await Order.findById(req.params.id);
 
@@ -291,6 +328,8 @@ exports.updateOrderStatus = async (req, res) => {
         message: 'Order not found'
       });
     }
+    
+    console.log('Current order status:', order.status, '-> New status:', status);
 
     // Verify restaurant ownership
     const restaurant = await Restaurant.findOne({
@@ -307,20 +346,31 @@ exports.updateOrderStatus = async (req, res) => {
 
     // Validate status transition
     const validTransitions = {
-      'pending': ['confirmed', 'cancelled'],
+      'pending': ['confirmed', 'preparing', 'cancelled'],  // Allow direct to preparing (auto-confirms)
       'confirmed': ['preparing', 'cancelled'],
       'preparing': ['ready', 'cancelled'],
       'ready': ['picked_up'],
-      'picked_up': ['on_the_way'],
+      'picked_up': ['on_the_way', 'delivered'],  // Allow direct to delivered or via on_the_way
       'on_the_way': ['delivered'],
       'delivered': [],
       'cancelled': []
     };
 
-    if (!validTransitions[order.status]?.includes(status)) {
+    // Allow same status (no-op) or valid transitions
+    if (order.status !== status && !validTransitions[order.status]?.includes(status)) {
+      console.log('Invalid status transition:', order.status, '->', status);
       return res.status(400).json({
         success: false,
         message: `Cannot change status from ${order.status} to ${status}`
+      });
+    }
+    
+    // If same status, just return success without saving
+    if (order.status === status) {
+      return res.status(200).json({
+        success: true,
+        message: 'Order status unchanged',
+        data: order
       });
     }
 
@@ -595,7 +645,7 @@ exports.updateDeliveryStatus = async (req, res) => {
     }
 
     const validTransitions = {
-      'picked_up': ['on_the_way'],
+      'picked_up': ['on_the_way', 'delivered'],  // Allow direct to delivered or via on_the_way
       'on_the_way': ['delivered']
     };
 
@@ -757,6 +807,50 @@ exports.getOrderStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch order statistics',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get all orders (Admin)
+ * @route   GET /api/orders/admin
+ * @access  Private (Admin)
+ */
+exports.getAllOrders = async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+
+    let query = {};
+
+    if (status) query.status = status;
+    if (search) {
+      query.$or = [
+        { orderNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const orders = await Order.find(query)
+      .populate('customer', 'username email phone')
+      .populate('restaurant', 'name logoUrl')
+      .populate('deliveryRider', 'username profilePicture')
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit));
+
+    const total = await Order.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count: orders.length,
+      total,
+      pages: Math.ceil(total / limit),
+      data: orders
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch orders',
       error: error.message
     });
   }
