@@ -3,6 +3,7 @@ const Cart = require('../models/Cart');
 const User = require('../models/User');
 const Menu = require('../models/Menu');
 const PendingPayment = require('../models/PendingPayment');
+const MultiOrder = require('../models/MultiOrder');
 const crypto = require('crypto');
 
 // eSewa Configuration (sandbox/test environment)
@@ -42,19 +43,19 @@ const calculateCartTotals = (cart, useLoyaltyPoints, userLoyaltyPoints) => {
             subtotal += item.price * item.quantity;
         }
     }
-    
+
     const deliveryFee = cart.restaurantGroups.length * 50;
     const serviceFee = 20;
     const promoDiscount = cart.promoDiscount || 0;
-    
+
     let loyaltyDiscount = 0;
     if (useLoyaltyPoints && userLoyaltyPoints > 0) {
         const remainingTotal = subtotal + deliveryFee + serviceFee - promoDiscount;
         loyaltyDiscount = Math.min(userLoyaltyPoints, remainingTotal);
     }
-    
+
     const total = Math.max(0, subtotal + deliveryFee + serviceFee - promoDiscount - loyaltyDiscount);
-    
+
     return { subtotal, deliveryFee, serviceFee, promoDiscount, loyaltyDiscount, total };
 };
 
@@ -64,27 +65,27 @@ const calculateCartTotals = (cart, useLoyaltyPoints, userLoyaltyPoints) => {
 const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymentMethod) => {
     const user = await User.findById(pendingPayment.user);
     const cart = pendingPayment.cartData;
-    
+
     const createdOrders = [];
     let totalOrderValue = 0;
     let pointsToDeduct = pendingPayment.useLoyaltyPoints ? user.loyaltyPoints : 0;
-    
+
     for (const group of cart.restaurantGroups) {
         const subtotal = group.items.reduce((total, item) => total + (item.price * item.quantity), 0);
         const deliveryFee = 50;
         const serviceFee = 20;
         const discount = (createdOrders.length === 0) ? (cart.promoDiscount || 0) : 0;
-        
+
         let pointsDiscount = 0;
         if (pointsToDeduct > 0) {
             const remainingGroupTotal = subtotal + deliveryFee + serviceFee - discount;
             pointsDiscount = Math.min(pointsToDeduct, remainingGroupTotal);
             pointsToDeduct -= pointsDiscount;
         }
-        
+
         const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
         totalOrderValue += total;
-        
+
         const order = await Order.create({
             customer: pendingPayment.user,
             restaurant: group.restaurant,
@@ -114,7 +115,7 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
                 note: `${paymentMethod} payment successful. Ref: ${paymentRef}`
             }]
         });
-        
+
         // Set payment reference based on method
         if (paymentMethod === 'esewa') {
             order.esewaRefId = paymentRef;
@@ -122,29 +123,29 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
             order.khaltiRefId = paymentRef;
         }
         await order.save();
-        
+
         // Update menu item order counts
         for (const item of group.items) {
             await Menu.findByIdAndUpdate(item.menuItem, {
                 $inc: { orderCount: item.quantity }
             });
         }
-        
+
         createdOrders.push(order);
     }
-    
+
     // Calculate and update loyalty points
     const pointsEarned = Math.floor(totalOrderValue / 100);
     const initialLoyaltyPoints = user.loyaltyPoints;
     const netPointsChange = pointsEarned - (pendingPayment.useLoyaltyPoints ? initialLoyaltyPoints : 0);
-    
+
     await User.findByIdAndUpdate(pendingPayment.user, {
         $inc: { loyaltyPoints: netPointsChange }
     });
-    
+
     // Clear the user's cart
     await Cart.findOneAndDelete({ user: pendingPayment.user });
-    
+
     // Create notifications for restaurants
     const Notification = require('../models/Notification');
     for (const order of createdOrders) {
@@ -160,8 +161,65 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
             console.error(`Failed to create notification for order ${order._id}:`, notifError.message);
         }
     }
-    
-    return createdOrders;
+
+    // If multiple restaurants, create a MultiOrder to group them
+    let multiOrder = null;
+    if (createdOrders.length > 1) {
+        console.log('Creating MultiOrder for payment-based order with', createdOrders.length, 'restaurants');
+
+        multiOrder = await MultiOrder.create({
+            customer: pendingPayment.user,
+            subOrders: createdOrders.map(o => o._id),
+            restaurantCount: createdOrders.length,
+            deliveryAddress: pendingPayment.deliveryAddress,
+            pricing: {
+                subtotal: createdOrders.reduce((sum, o) => sum + o.pricing.subtotal, 0),
+                deliveryFee: createdOrders.reduce((sum, o) => sum + o.pricing.deliveryFee, 0),
+                serviceFee: createdOrders.reduce((sum, o) => sum + o.pricing.serviceFee, 0),
+                discount: createdOrders.reduce((sum, o) => sum + o.pricing.discount, 0),
+                total: totalOrderValue
+            },
+            paymentMethod,
+            paymentStatus: 'paid', // Already paid via gateway
+            paymentDistribution: createdOrders.map(o => ({
+                restaurant: o.restaurant,
+                amount: o.pricing.total,
+                percentage: (o.pricing.total / totalOrderValue) * 100,
+                status: 'pending_settlement'
+            })),
+            pickupStatus: createdOrders.map(o => ({
+                subOrder: o._id,
+                restaurant: o.restaurant,
+                isReady: false,
+                isPickedUp: false
+            })),
+            specialInstructions: pendingPayment.specialInstructions,
+            promoCode: cart.promoCode,
+            estimatedDeliveryTime: new Date(Date.now() + 60 * 60 * 1000) // 60 mins for multi-restaurant
+        });
+
+        // Set payment references on MultiOrder
+        if (paymentMethod === 'esewa') {
+            multiOrder.esewaRefId = paymentRef;
+        } else if (paymentMethod === 'khalti') {
+            multiOrder.khaltiRefId = paymentRef;
+        }
+        await multiOrder.save();
+
+        // Link sub-orders to parent MultiOrder
+        for (let i = 0; i < createdOrders.length; i++) {
+            createdOrders[i].multiOrder = multiOrder._id;
+            createdOrders[i].isSubOrder = true;
+            createdOrders[i].subOrderIndex = i + 1;
+            await createdOrders[i].save();
+        }
+    }
+
+    return {
+        orders: createdOrders,
+        multiOrder,
+        isMultiRestaurant: createdOrders.length > 1
+    };
 };
 
 /**
@@ -190,7 +248,7 @@ exports.initiateEsewaFromCart = async (req, res) => {
 
         // Create pending payment record
         const transactionUuid = `ESEWA-${req.user._id}-${Date.now()}`;
-        
+
         const pendingPayment = await PendingPayment.create({
             user: req.user._id,
             cartData: {
@@ -361,7 +419,7 @@ exports.initiateKhaltiFromCart = async (req, res) => {
         } else {
             // Delete pending payment on failure
             await PendingPayment.findByIdAndDelete(pendingPayment._id);
-            
+
             console.error('Khalti initiation failed:', khaltiResponse);
             return res.status(400).json({
                 success: false,
@@ -406,8 +464,8 @@ exports.verifyEsewaPayment = async (req, res) => {
 
         if (status === 'COMPLETE') {
             // Create orders from pending payment
-            const orders = await createOrdersFromPendingPayment(pendingPayment, transaction_code, 'esewa');
-            
+            const { orders, multiOrder, isMultiRestaurant } = await createOrdersFromPendingPayment(pendingPayment, transaction_code, 'esewa');
+
             // Mark pending payment as completed
             pendingPayment.status = 'completed';
             await pendingPayment.save();
@@ -415,10 +473,12 @@ exports.verifyEsewaPayment = async (req, res) => {
             return res.status(200).json({
                 success: true,
                 message: 'Payment verified and order created successfully',
-                data: { 
-                    orderId: orders[0]._id, 
+                data: {
+                    orderId: orders[0]._id,
                     orders: orders.map(o => o._id),
-                    paymentStatus: 'paid' 
+                    multiOrderId: multiOrder?._id,
+                    isMultiRestaurant,
+                    paymentStatus: 'paid'
                 }
             });
         } else {
@@ -471,8 +531,8 @@ exports.verifyKhaltiPayment = async (req, res) => {
 
         if (khaltiResponse.status === 'Completed') {
             // Create orders from pending payment
-            const orders = await createOrdersFromPendingPayment(pendingPayment, khaltiResponse.transaction_id, 'khalti');
-            
+            const { orders, multiOrder, isMultiRestaurant } = await createOrdersFromPendingPayment(pendingPayment, khaltiResponse.transaction_id, 'khalti');
+
             // Mark pending payment as completed
             pendingPayment.status = 'completed';
             await pendingPayment.save();
@@ -480,10 +540,12 @@ exports.verifyKhaltiPayment = async (req, res) => {
             return res.status(200).json({
                 success: true,
                 message: 'Payment verified and order created successfully',
-                data: { 
+                data: {
                     orderId: orders[0]._id,
                     orders: orders.map(o => o._id),
-                    paymentStatus: 'paid' 
+                    multiOrderId: multiOrder?._id,
+                    isMultiRestaurant,
+                    paymentStatus: 'paid'
                 }
             });
         } else {

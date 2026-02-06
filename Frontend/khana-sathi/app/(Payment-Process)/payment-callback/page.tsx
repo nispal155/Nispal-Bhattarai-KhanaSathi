@@ -12,17 +12,34 @@ function PaymentCallbackContent() {
     const [status, setStatus] = useState<'verifying' | 'success' | 'failed'>('verifying');
     const [message, setMessage] = useState('Verifying your payment...');
     const [orderId, setOrderId] = useState<string | null>(null);
+    const [multiOrderId, setMultiOrderId] = useState<string | null>(null);
+    const [isMultiOrder, setIsMultiOrder] = useState(false);
 
     useEffect(() => {
         const verifyPayment = async () => {
+            const fullUrl = window.location.href;
+            console.log('Full URL:', fullUrl);
+
+            // eSewa appends ?data=... to success URL, creating malformed URL like:
+            // /payment-callback?method=esewa&status=success?data=eyJ...
+            // We need to extract the data parameter manually
+            let data = searchParams.get('data'); // Try normal parsing first
+
+            // If data is null, check for malformed URL with double question mark
+            if (!data && fullUrl.includes('?data=')) {
+                const dataMatch = fullUrl.match(/[?&]data=([^&]+)/);
+                if (dataMatch) {
+                    data = decodeURIComponent(dataMatch[1]);
+                    console.log('Extracted data from malformed URL:', data);
+                }
+            }
+
             const method = searchParams.get('method');
-            const data = searchParams.get('data'); // eSewa callback data (base64)
             const pidx = searchParams.get('pidx'); // Khalti callback
             const pendingId = searchParams.get('pendingId'); // Pending payment ID for Khalti
             const esewaStatus = searchParams.get('status'); // eSewa status param
 
-            console.log('Payment callback params:', { method, data, pidx, pendingId, esewaStatus });
-            console.log('Full URL:', window.location.href);
+            console.log('Payment callback params:', { method, data: data ? 'present' : 'null', pidx, pendingId, esewaStatus });
 
             try {
                 // Auto-detect eSewa if data parameter exists (eSewa appends this)
@@ -38,11 +55,13 @@ function PaymentCallbackContent() {
                         console.log('Verifying eSewa with data:', data);
                         const response = await verifyEsewaPayment(data);
                         console.log('eSewa verification response:', response);
-                        
+
                         if (response.data?.success) {
                             setStatus('success');
                             setMessage('Payment successful! Your order has been placed.');
                             setOrderId(response.data.data.orderId);
+                            setMultiOrderId(response.data.data.multiOrderId || null);
+                            setIsMultiOrder(!!response.data.data.isMultiRestaurant);
                         } else {
                             setStatus('failed');
                             setMessage(response.error || 'Payment verification failed. Please contact support.');
@@ -56,11 +75,13 @@ function PaymentCallbackContent() {
                         setMessage('Verifying Khalti payment and creating your order...');
                         const response = await verifyKhaltiPayment(pidx, pendingId);
                         console.log('Khalti verification response:', response);
-                        
+
                         if (response.data?.success) {
                             setStatus('success');
                             setMessage('Payment successful! Your order has been placed.');
                             setOrderId(response.data.data.orderId);
+                            setMultiOrderId(response.data.data.multiOrderId || null);
+                            setIsMultiOrder(!!response.data.data.isMultiRestaurant);
                         } else {
                             setStatus('failed');
                             setMessage('Payment verification failed. Please contact support.');
@@ -84,8 +105,14 @@ function PaymentCallbackContent() {
     }, [searchParams]);
 
     const handleContinue = () => {
-        if (status === 'success' && orderId) {
-            router.push(`/order-tracking/${orderId}`);
+        if (status === 'success') {
+            if (isMultiOrder && multiOrderId) {
+                router.push(`/multi-order-tracking/${multiOrderId}`);
+            } else if (orderId) {
+                router.push(`/order-tracking/${orderId}`);
+            } else {
+                router.push('/browse-restaurants');
+            }
         } else {
             router.push('/browse-restaurants');
         }
@@ -123,7 +150,7 @@ function PaymentCallbackContent() {
 
                     {/* Message */}
                     <h2 className={`text-2xl font-bold mb-2 ${status === 'success' ? 'text-green-600' :
-                            status === 'failed' ? 'text-red-600' : 'text-gray-800'
+                        status === 'failed' ? 'text-red-600' : 'text-gray-800'
                         }`}>
                         {status === 'verifying' ? 'Processing Payment' :
                             status === 'success' ? 'Order Placed Successfully!' : 'Payment Failed'}
@@ -135,8 +162,8 @@ function PaymentCallbackContent() {
                         <button
                             onClick={handleContinue}
                             className={`w-full py-4 rounded-xl font-semibold text-white transition ${status === 'success'
-                                    ? 'bg-green-500 hover:bg-green-600'
-                                    : 'bg-orange-500 hover:bg-orange-600'
+                                ? 'bg-green-500 hover:bg-green-600'
+                                : 'bg-orange-500 hover:bg-orange-600'
                                 }`}
                         >
                             {status === 'success' ? 'Track Your Order' : 'Back to Restaurants'}

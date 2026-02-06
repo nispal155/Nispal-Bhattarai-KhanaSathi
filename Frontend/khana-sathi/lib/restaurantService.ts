@@ -139,3 +139,18 @@ export async function getOnboardingDetails(userId: string) {
 export async function getNearbyRestaurants(city: string) {
   return get<ApiResponse<Restaurant[]>>(`/restaurant/nearby?city=${encodeURIComponent(city)}`);
 }
+/**
+ * GET CURRENT USER'S RESTAURANT
+ * GET /api/restaurant/my-restaurant
+ */
+export async function getMyRestaurant() {
+  return get<ApiResponse<Restaurant>>('/restaurant/my-restaurant');
+}
+
+/**
+ * UPDATE CURRENT USER'S RESTAURANT
+ * PUT /api/restaurant/my-restaurant
+ */
+export async function updateMyRestaurant(payload: RestaurantPayload) {
+  return put<ApiResponse<Restaurant>>('/restaurant/my-restaurant', payload);
+}

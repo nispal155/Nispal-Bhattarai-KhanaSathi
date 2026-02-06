@@ -45,6 +45,18 @@ const orderSchema = new mongoose.Schema({
     enum: ['pending', 'confirmed', 'preparing', 'ready', 'picked_up', 'on_the_way', 'delivered', 'cancelled'],
     default: 'pending'
   },
+  // Multi-order relationship fields (for orders that are part of a multi-restaurant order)
+  multiOrder: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MultiOrder'
+  },
+  isSubOrder: {
+    type: Boolean,
+    default: false
+  },
+  subOrderIndex: {
+    type: Number  // Position in multi-order (1, 2, 3...)
+  },
   deliveryAddress: {
     label: String,
     addressLine1: String,

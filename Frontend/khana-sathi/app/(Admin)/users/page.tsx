@@ -21,41 +21,58 @@ export default function UserManagementPage() {
     const [stats, setStats] = useState<UserStats | null>(null);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [appliedSearch, setAppliedSearch] = useState('');
     const [roleFilter, setRoleFilter] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
 
     useEffect(() => {
-        fetchData();
-    }, [roleFilter, currentPage]);
+        let cancelled = false;
 
-    const fetchData = async () => {
-        setLoading(true);
-        try {
-            const [usersRes, statsRes] = await Promise.all([
-                getAllUsers({ role: roleFilter || undefined, search: search || undefined, page: currentPage, limit: 15 }),
-                getUserStats()
-            ]);
+        const loadData = async () => {
+            setLoading(true);
+            try {
+                const [usersRes, statsRes] = await Promise.all([
+                    getAllUsers({ role: roleFilter || undefined, search: appliedSearch || undefined, page: currentPage, limit: 15 }),
+                    getUserStats()
+                ]);
 
-            if (usersRes.data?.success) {
-                setUsers(usersRes.data.data);
-                setTotalPages(usersRes.data.pages);
+                if (cancelled) return;
+
+                if (usersRes.data?.success) {
+                    setUsers(usersRes.data.data);
+                    setTotalPages(usersRes.data.pages);
+                } else {
+                    setUsers([]);
+                    setTotalPages(1);
+                    if (usersRes.error) {
+                        toast.error(usersRes.error);
+                    }
+                }
+                if (statsRes.data?.success) {
+                    setStats(statsRes.data.data);
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    toast.error('Failed to fetch users');
+                    console.error(error);
+                }
+            } finally {
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
-            if (statsRes.data?.success) {
-                setStats(statsRes.data.data);
-            }
-        } catch (error) {
-            toast.error('Failed to fetch users');
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        };
+
+        loadData();
+
+        return () => { cancelled = true; };
+    }, [roleFilter, currentPage, appliedSearch]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         setCurrentPage(1);
-        fetchData();
+        setAppliedSearch(search);
     };
 
     const handleApprove = async (userId: string, currentStatus: boolean) => {

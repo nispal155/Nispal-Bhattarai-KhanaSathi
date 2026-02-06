@@ -3,7 +3,9 @@ const Cart = require('../models/Cart');
 const Menu = require('../models/Menu');
 const User = require('../models/User');
 const Restaurant = require('../models/Restaurant');
+const MultiOrder = require('../models/MultiOrder');
 const socketService = require('../services/socket');
+const multiOrderController = require('./multiOrderController');
 
 /**
  * @desc    Create new orders from cart
@@ -113,6 +115,51 @@ exports.createOrder = async (req, res) => {
       createdOrders.push(order);
     }
 
+    // If multiple restaurants, create a MultiOrder to group them
+    let multiOrder = null;
+    if (createdOrders.length > 1) {
+      console.log('Creating MultiOrder for', createdOrders.length, 'restaurants');
+
+      multiOrder = await MultiOrder.create({
+        customer: req.user._id,
+        subOrders: createdOrders.map(o => o._id),
+        restaurantCount: createdOrders.length,
+        deliveryAddress,
+        pricing: {
+          subtotal: createdOrders.reduce((sum, o) => sum + o.pricing.subtotal, 0),
+          deliveryFee: createdOrders.reduce((sum, o) => sum + o.pricing.deliveryFee, 0),
+          serviceFee: createdOrders.reduce((sum, o) => sum + o.pricing.serviceFee, 0),
+          discount: createdOrders.reduce((sum, o) => sum + o.pricing.discount, 0),
+          total: totalOrderValue
+        },
+        paymentMethod,
+        paymentStatus: 'pending',
+        paymentDistribution: createdOrders.map(o => ({
+          restaurant: o.restaurant,
+          amount: o.pricing.total,
+          percentage: (o.pricing.total / totalOrderValue) * 100,
+          status: 'pending'
+        })),
+        pickupStatus: createdOrders.map(o => ({
+          subOrder: o._id,
+          restaurant: o.restaurant,
+          isReady: false,
+          isPickedUp: false
+        })),
+        specialInstructions: globalSpecialInstructions,
+        promoCode: cart.promoCode,
+        estimatedDeliveryTime: new Date(Date.now() + 60 * 60 * 1000) // 60 mins for multi-restaurant
+      });
+
+      // Link sub-orders to parent MultiOrder
+      for (let i = 0; i < createdOrders.length; i++) {
+        createdOrders[i].multiOrder = multiOrder._id;
+        createdOrders[i].isSubOrder = true;
+        createdOrders[i].subOrderIndex = i + 1;
+        await createdOrders[i].save();
+      }
+    }
+
     // Calculate loyalty points: 1 point per Rs. 100
     const pointsEarned = Math.floor(totalOrderValue / 100);
     // If loyalty points were used, deduct them. Always add earned points.
@@ -147,6 +194,8 @@ exports.createOrder = async (req, res) => {
       success: true,
       message: `${createdOrders.length} order(s) placed successfully`,
       data: createdOrders,
+      multiOrder: multiOrder ? { _id: multiOrder._id, orderNumber: multiOrder.orderNumber } : null,
+      isMultiRestaurant: createdOrders.length > 1,
       pointsEarned,
       pointsUsed: useLoyaltyPoints ? initialLoyaltyPoints : 0
     });
@@ -310,7 +359,7 @@ exports.getRestaurantOrders = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status, note } = req.body;
-    
+
     console.log('Update order status request:', { orderId: req.params.id, newStatus: status, note });
 
     if (!status) {
@@ -328,7 +377,7 @@ exports.updateOrderStatus = async (req, res) => {
         message: 'Order not found'
       });
     }
-    
+
     console.log('Current order status:', order.status, '-> New status:', status);
 
     // Verify restaurant ownership
@@ -364,7 +413,7 @@ exports.updateOrderStatus = async (req, res) => {
         message: `Cannot change status from ${order.status} to ${status}`
       });
     }
-    
+
     // If same status, just return success without saving
     if (order.status === status) {
       return res.status(200).json({
@@ -385,6 +434,11 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     await order.save();
+
+    // If this is a sub-order, update the parent MultiOrder status
+    if (order.isSubOrder && order.multiOrder) {
+      await multiOrderController.updateMultiOrderFromSubOrder(order);
+    }
 
     // Create Persistent Notification
     const Notification = require('../models/Notification');
@@ -463,11 +517,50 @@ exports.assignRider = async (req, res) => {
     order.deliveryRider = riderId;
     await order.save();
 
+    // If this is a sub-order, sync with multi-order
+    if (order.isSubOrder && order.multiOrder) {
+      console.log(`Syncing rider ${riderId} for MultiOrder ${order.multiOrder}`);
+      const multiOrder = await MultiOrder.findById(order.multiOrder).populate('subOrders');
+
+      if (multiOrder && !multiOrder.primaryRider) {
+        multiOrder.primaryRider = riderId;
+        await multiOrder.save();
+
+        // Assign to all other sub-orders
+        for (const so of multiOrder.subOrders) {
+          if (so._id.toString() !== order._id.toString()) {
+            so.deliveryRider = riderId;
+            await so.save();
+
+            // Emit update for each sub-order
+            socketService.emitOrderUpdate(so._id.toString(), so.status, {
+              rider: {
+                _id: rider._id,
+                username: rider.username,
+                profilePicture: rider.profilePicture,
+                vehicleDetails: rider.vehicleDetails
+              }
+            });
+          }
+        }
+
+        // Notify parent order as well
+        socketService.emitOrderUpdate(multiOrder._id.toString(), 'rider_assigned', {
+          rider: {
+            _id: rider._id,
+            username: rider.username,
+            profilePicture: rider.profilePicture,
+            vehicleDetails: rider.vehicleDetails
+          }
+        });
+      }
+    }
+
     // Update rider's current assignment
     rider.currentAssignment = order.orderNumber;
     await rider.save();
 
-    // Emit live update
+    // Emit live update for the current order
     socketService.emitOrderUpdate(order._id.toString(), order.status, {
       rider: {
         _id: rider._id,

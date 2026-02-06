@@ -2,13 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, CreditCard, Wallet, Building2, Check, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, Wallet, Building2, Check, Loader2, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getCart, Cart } from "@/lib/cartService";
 import { createOrder } from "@/lib/orderService";
 import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
 import { useAuth } from "@/context/AuthContext";
+import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
 
 export default function PaymentPage() {
@@ -62,10 +63,10 @@ export default function PaymentPage() {
       description: "Pay with your eSewa wallet",
     },
     {
-      id: "card",
-      name: "Credit/Debit Card",
-      icon: "card",
-      description: "Visa, Mastercard, or other cards",
+      id: "khalti",
+      name: "Khalti",
+      icon: "💜",
+      description: "Pay with your Khalti wallet",
     },
     {
       id: "cod",
@@ -105,14 +106,26 @@ export default function PaymentPage() {
           return;
         }
 
-        const responseData = response?.data?.data || response?.data;
-        const order = (Array.isArray(responseData) ? responseData[0] : responseData) as any;
+        const responseData = response?.data as any;
+        const orders = responseData?.data || responseData;
+        const multiOrder = responseData?.multiOrder;
+        const isMultiRestaurant = responseData?.isMultiRestaurant;
 
-        if (order && order._id) {
-          toast.success("Order placed successfully!");
-          router.push(`/order-tracking/${order._id}`);
+        console.log("Order response:", { orders, multiOrder, isMultiRestaurant });
+
+        if (isMultiRestaurant && multiOrder?._id) {
+          // Multi-restaurant order: redirect to unified tracking page
+          toast.success(`${(orders as any[]).length} orders placed! Tracking all restaurants together.`);
+          router.push(`/multi-order-tracking/${multiOrder._id}`);
         } else {
-          toast.error("Order creation failed - no order returned");
+          // Single restaurant order: redirect to individual tracking
+          const order = (Array.isArray(orders) ? orders[0] : orders) as any;
+          if (order?._id) {
+            toast.success("Order placed successfully!");
+            router.push(`/order-tracking/${order._id}`);
+          } else {
+            toast.error("Order creation failed - no order returned");
+          }
         }
       } else if (selectedPayment === "esewa") {
         // eSewa: Redirect to payment first, order created after successful payment
@@ -144,18 +157,22 @@ export default function PaymentPage() {
           specialInstructions: "",
           useLoyaltyPoints: false
         });
-        console.log("Khalti response:", khaltiRes);
+        console.log("Khalti response:", JSON.stringify(khaltiRes, null, 2));
 
         if (khaltiRes.error) {
           toast.error(khaltiRes.error);
           return;
         }
 
-        if (khaltiRes.data?.success && khaltiRes.data.data?.paymentUrl) {
+        const paymentUrl = khaltiRes.data?.data?.paymentUrl;
+        console.log("Payment URL:", paymentUrl);
+
+        if (khaltiRes.data?.success && paymentUrl) {
           toast.success("Redirecting to Khalti...");
-          redirectToKhalti(khaltiRes.data.data.paymentUrl);
+          redirectToKhalti(paymentUrl);
           return; // Don't set isProcessing to false - we're leaving the page
         } else {
+          console.error("Missing paymentUrl in response:", khaltiRes.data);
           toast.error("Failed to initiate Khalti payment");
         }
       }
@@ -195,37 +212,7 @@ export default function PaymentPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-xl">🍜</span>
-              </div>
-              <div>
-                <span className="text-red-500 font-bold text-lg">Khana Sathi</span>
-              </div>
-            </Link>
-
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/browse-restaurants" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🏠</span> Home
-              </Link>
-              <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🛒</span> Cart
-              </Link>
-              <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>👤</span> Profile
-              </Link>
-            </div>
-
-            <div className="w-10 h-10 rounded-full bg-pink-200 flex items-center justify-center">
-              <span className="text-pink-600 text-lg">👤</span>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <UserHeader />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Button */}
@@ -306,11 +293,7 @@ export default function PaymentPage() {
                       className="w-5 h-5 text-red-500 focus:ring-red-500"
                     />
                     <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                      {method.icon === "card" ? (
-                        <CreditCard className="w-6 h-6 text-gray-600" />
-                      ) : (
-                        <span className="text-2xl">{method.icon}</span>
-                      )}
+                      <span className="text-2xl">{method.icon}</span>
                     </div>
                     <div className="flex-1">
                       <h3 className="font-medium text-gray-900">{method.name}</h3>
@@ -326,21 +309,11 @@ export default function PaymentPage() {
               </div>
             </div>
 
-            {/* Card Details Placeholders */}
-            {selectedPayment === "card" && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h2 className="font-semibold text-gray-900 mb-4">Card Details</h2>
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-500 italic">Card payment integration coming soon. Please choose COD for now.</p>
-                </div>
-              </div>
-            )}
-
             {/* Wallet Login (shown for eSewa) */}
             {selectedPayment === "esewa" && (
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="font-semibold text-gray-900 mb-4">
-                  eSewa Login
+                  eSewa Payment
                 </h2>
                 <p className="text-gray-600 mb-4">
                   You will be redirected to eSewa to complete your payment.
@@ -348,6 +321,22 @@ export default function PaymentPage() {
                 <div className="flex items-center gap-2 p-4 bg-green-50 rounded-lg">
                   <Wallet className="w-5 h-5 text-green-600" />
                   <span className="text-green-700">Secure payment processing</span>
+                </div>
+              </div>
+            )}
+
+            {/* Wallet Login (shown for Khalti) */}
+            {selectedPayment === "khalti" && (
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="font-semibold text-gray-900 mb-4">
+                  Khalti Payment
+                </h2>
+                <p className="text-gray-600 mb-4">
+                  You will be redirected to Khalti to complete your payment.
+                </p>
+                <div className="flex items-center gap-2 p-4 bg-purple-50 rounded-lg">
+                  <Wallet className="w-5 h-5 text-purple-600" />
+                  <span className="text-purple-700">Secure payment processing</span>
                 </div>
               </div>
             )}

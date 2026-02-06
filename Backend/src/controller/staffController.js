@@ -484,6 +484,14 @@ const getRiderHistory = async (req, res) => {
 // @access  Restaurant/Admin
 const getAvailableRiders = async (req, res) => {
     try {
+        const allRiders = await User.find({ role: 'delivery_staff' });
+
+        const onlineCount = allRiders.filter(r => r.isOnline).length;
+        const approvedCount = allRiders.filter(r => r.isApproved).length;
+        const profileCompleteCount = allRiders.filter(r => r.isProfileComplete).length;
+
+        console.log(`Availability check: Total riders: ${allRiders.length}, Online: ${onlineCount}, Approved: ${approvedCount}, Profile Complete: ${profileCompleteCount}`);
+
         const riders = await User.find({
             role: 'delivery_staff',
             isOnline: true,
@@ -492,9 +500,16 @@ const getAvailableRiders = async (req, res) => {
         }).select('_id username profilePicture averageRating completedOrders vehicleDetails currentAssignment');
 
         // Filter out riders with active assignments (not "None")
-        const availableRiders = riders.filter(rider => 
-            rider.currentAssignment === 'None' || !rider.currentAssignment
+        const availableRiders = riders.filter(rider =>
+            String(rider.currentAssignment).toLowerCase() === 'none' || !rider.currentAssignment
         );
+
+        if (availableRiders.length === 0 && allRiders.length > 0) {
+            console.log("No riders available. Reason: " +
+                (onlineCount === 0 ? "All offline. " : "") +
+                (approvedCount === 0 ? "None approved. " : "") +
+                (profileCompleteCount === 0 ? "None have complete profiles." : ""));
+        }
 
         res.json({
             success: true,
@@ -503,9 +518,9 @@ const getAvailableRiders = async (req, res) => {
         });
     } catch (error) {
         console.error('getAvailableRiders Error:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: error.message 
+            message: error.message
         });
     }
 };

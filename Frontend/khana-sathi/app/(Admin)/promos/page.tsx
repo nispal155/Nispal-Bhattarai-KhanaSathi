@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import AdminSidebar from '@/components/admin/AdminSidebar';
-import { getPromoCodes, createPromoCode, updatePromoCode, deletePromoCode, togglePromoCodeStatus, PromoCode, CreatePromoInput } from '@/lib/promoService';
+import { getPromoCodes, createPromoCode, updatePromoCode, deletePromoCode, togglePromoCodeStatus, broadcastPromo, PromoCode, CreatePromoInput } from '@/lib/promoService';
 import toast from 'react-hot-toast';
-import { Tag, Plus, Loader2, Trash2, Edit, ToggleLeft, ToggleRight, Percent, DollarSign, X } from 'lucide-react';
+import { Tag, Plus, Loader2, Trash2, Edit, ToggleLeft, ToggleRight, Percent, DollarSign, X, Send } from 'lucide-react';
 
 export default function PromoManagementPage() {
     const [promos, setPromos] = useState<PromoCode[]>([]);
@@ -114,6 +114,23 @@ export default function PromoManagementPage() {
         }
     };
 
+    const handleBroadcast = async (id: string, code: string) => {
+        if (!confirm(`Broadcast "${code}" to all customers?`)) return;
+
+        const tid = toast.loading('Broadcasting offer...');
+        try {
+            const res = await broadcastPromo(id);
+            if (res.data?.success) {
+                toast.success(res.data.message || 'Offer broadcasted successfully!', { id: tid });
+            } else {
+                toast.error('Failed to broadcast offer', { id: tid });
+            }
+        } catch (error) {
+            toast.error('Failed to broadcast offer', { id: tid });
+            console.error(error);
+        }
+    };
+
     const isExpired = (date: string) => new Date(date) < new Date();
 
     return (
@@ -184,6 +201,15 @@ export default function PromoManagementPage() {
                                         <button onClick={() => handleDelete(promo._id)} className="p-2 rounded-lg hover:bg-red-50 transition" title="Delete">
                                             <Trash2 className="w-5 h-5 text-red-500" />
                                         </button>
+                                        {promo.isActive && !isExpired(promo.validUntil) && (
+                                            <button
+                                                onClick={() => handleBroadcast(promo._id, promo.code)}
+                                                className="p-2 ml-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center gap-1 text-xs font-bold"
+                                                title="Broadcast notification to todos users"
+                                            >
+                                                <Send className="w-3.5 h-3.5" /> Push
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>

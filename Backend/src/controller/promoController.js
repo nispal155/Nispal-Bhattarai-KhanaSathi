@@ -1,4 +1,7 @@
 const PromoCode = require('../models/PromoCode');
+const User = require('../models/User');
+const Notification = require('../models/Notification');
+const { getIO } = require('../services/socket');
 
 /**
  * @desc    Create a new promo code
@@ -270,6 +273,77 @@ exports.togglePromoCodeStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to toggle promo code status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Broadcast a promo code notification to all customers
+ * @route   POST /api/promo/broadcast/:id
+ * @access  Private (Admin)
+ */
+exports.broadcastPromoNotification = async (req, res) => {
+  try {
+    const promoCode = await PromoCode.findById(req.params.id);
+
+    if (!promoCode) {
+      return res.status(404).json({
+        success: false,
+        message: 'Promo code not found'
+      });
+    }
+
+    // Find all customers
+    const customers = await User.find({ role: 'customer' });
+
+    if (customers.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No customers found to notify'
+      });
+    }
+
+    const notificationTitle = `Special Offer: ${promoCode.code}`;
+    const notificationMessage = promoCode.description || `Use code ${promoCode.code} to get ${promoCode.discountValue}${promoCode.discountType === 'percentage' ? '%' : ' Rs.'} off your next order!`;
+
+    // Create notifications for all customers
+    const notificationPromises = customers.map(customer => {
+      return Notification.create({
+        user: customer._id,
+        type: 'promotion',
+        title: notificationTitle,
+        message: notificationMessage,
+        data: {
+          code: promoCode.code,
+          promoId: promoCode._id
+        }
+      });
+    });
+
+    await Promise.all(notificationPromises);
+
+    // Broadcast via socket.io
+    const io = getIO();
+    io.emit('notification', {
+      type: 'promotion',
+      title: notificationTitle,
+      message: notificationMessage,
+      data: {
+        code: promoCode.code,
+        promoId: promoCode._id
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully broadcasted offer to ${customers.length} customers`
+    });
+  } catch (error) {
+    console.error('Broadcast error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to broadcast promo notification',
       error: error.message
     });
   }

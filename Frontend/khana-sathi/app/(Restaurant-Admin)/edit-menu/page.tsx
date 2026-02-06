@@ -234,10 +234,11 @@ export default function EditMenuItem() {
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
                     >
                       <option>Main Course</option>
-                      <option>Appetizer</option>
-                      <option>Dessert</option>
-                      <option>Beverage</option>
+                      <option>Appetizers</option>
+                      <option>Desserts</option>
+                      <option>Beverages</option>
                       <option>Sides</option>
+                      <option>Snacks</option>
                       <option>Breakfast</option>
                     </select>
                   </div>

@@ -1,4 +1,4 @@
-import { get, put } from './api';
+import { get, post, put } from './api';
 
 export interface ChatMessage {
     _id: string;
@@ -6,9 +6,10 @@ export interface ChatMessage {
     sender: {
         _id: string;
         name: string;
+        username?: string;
         profilePicture?: string;
     };
-    senderRole: 'customer' | 'restaurant' | 'rider' | 'admin';
+    senderRole: 'customer' | 'restaurant' | 'rider' | 'delivery_staff' | 'admin';
     content: string;
     attachments?: string[];
     isRead: boolean;
@@ -18,6 +19,11 @@ export interface ChatMessage {
 interface ChatResponse {
     success: boolean;
     data: ChatMessage[];
+}
+
+interface SendMessageResponse {
+    success: boolean;
+    data: ChatMessage;
 }
 
 /**
@@ -45,7 +51,7 @@ export async function getChatMessages(orderId: string) {
  * POST a new chat message
  */
 export async function sendMessage(data: { orderId: string; message: string; senderRole: string }) {
-    return put<{ success: boolean; data: ChatMessage }>(`/chat/${data.orderId}`, {
+    return post<SendMessageResponse>(`/chat/${data.orderId}`, {
         message: data.message,
         senderRole: data.senderRole
     });

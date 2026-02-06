@@ -5,7 +5,9 @@ import Link from "next/link";
 import { Camera, MapPin, CreditCard, Bell, Shield, HelpCircle, LogOut, ChevronRight, Edit2, Loader2, Plus, Trash2 } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
+import UserHeader from "@/components/layout/UserHeader";
 import { getProfile, updateProfile, getAddresses, addAddress, deleteAddress, setDefaultAddress } from "@/lib/userService";
+import { getMyRestaurant, updateMyRestaurant } from "@/lib/restaurantService";
 import { getMyOrders } from "@/lib/orderService";
 import toast from "react-hot-toast";
 
@@ -45,7 +47,7 @@ interface UserProfile {
 }
 
 export default function ProfilePage() {
-  const { logout, updateUser: updateAuthUser, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, logout, updateUser: updateAuthUser, isAuthenticated, isLoading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("personal");
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -63,6 +65,17 @@ export default function ProfilePage() {
     state: "",
     zipCode: "",
   });
+  const [restaurant, setRestaurant] = useState<any>(null);
+  const [restaurantEdit, setRestaurantEdit] = useState({
+    name: "",
+    contactPhone: "",
+    addressLine1: "",
+    city: "",
+    state: "",
+    zipCode: "",
+    openingHour: "",
+    closingHour: ""
+  });
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -78,11 +91,13 @@ export default function ProfilePage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [profileRes, addressesRes, ordersRes] = await Promise.all([
+      const results = await Promise.all([
         getProfile(),
         getAddresses(),
         getMyOrders(),
+        user?.role === 'restaurant' ? getMyRestaurant() : Promise.resolve({ data: null })
       ]);
+      const [profileRes, addressesRes, ordersRes] = results;
 
       // Handle the nested response structure - extract actual data from API response
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,6 +136,25 @@ export default function ProfilePage() {
       }));
       setAddresses(mappedAddresses);
       setOrders(Array.isArray(ordersData) ? ordersData : []);
+
+      // Handle restaurant data
+      if (user?.role === 'restaurant') {
+        const restaurantRes = (results[3] as any)?.data;
+        const rData = restaurantRes?.data || restaurantRes;
+        if (rData) {
+          setRestaurant(rData);
+          setRestaurantEdit({
+            name: rData.name || "",
+            contactPhone: rData.contactPhone || "",
+            addressLine1: rData.address?.addressLine1 || "",
+            city: rData.address?.city || "",
+            state: rData.address?.state || "",
+            zipCode: rData.address?.zipCode || "",
+            openingHour: rData.openingHour || "",
+            closingHour: rData.closingHour || ""
+          });
+        }
+      }
     } catch (err) {
       console.error("Error fetching data:", err);
       toast.error("Failed to load profile data");
@@ -181,6 +215,15 @@ export default function ProfilePage() {
       });
       if (response.data && response.data.data) {
         updateAuthUser(response.data.data);
+
+        // If restaurant manager, also update restaurant details
+        if (user?.role === 'restaurant') {
+          const restResponse = await updateMyRestaurant(restaurantEdit);
+          if (restResponse.data && restResponse.data.data) {
+            setRestaurant(restResponse.data.data);
+          }
+        }
+
         toast.success("Profile updated successfully");
       }
       setEditMode(false);
@@ -292,40 +335,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-xl">🍜</span>
-              </div>
-              <div>
-                <span className="text-red-500 font-bold text-lg">Khana Sathi</span>
-              </div>
-            </Link>
-
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/browse-restaurants" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🏠</span> Home
-              </Link>
-              <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>🛒</span> Cart
-              </Link>
-              <Link href="/user-profile" className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm">
-                <span>👤</span> Profile
-              </Link>
-              <Link href="/support" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-                <span>💬</span> Support
-              </Link>
-            </div>
-
-            <div className="w-10 h-10 rounded-full bg-pink-200 flex items-center justify-center">
-              <span className="text-pink-600 text-lg">👤</span>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <UserHeader />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Profile Header */}
@@ -454,7 +464,7 @@ export default function ProfilePage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-500 mb-1">Phone Number</label>
-                      {editMode ? (
+                      {editMode && user?.role !== 'restaurant' ? (
                         <input
                           type="tel"
                           value={profile?.phone || ""}
@@ -468,7 +478,7 @@ export default function ProfilePage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-500 mb-1">Date of Birth</label>
-                      {editMode ? (
+                      {editMode && user?.role !== 'restaurant' ? (
                         <input
                           type="date"
                           value={profile?.dateOfBirth?.split("T")[0] || ""}
@@ -503,6 +513,109 @@ export default function ProfilePage() {
                     </div>
                   )}
                 </form>
+
+                {/* Restaurant Details Section - Only for Restaurant Managers */}
+                {user?.role === 'restaurant' && restaurant && (
+                  <div className="mt-10 pt-10 border-t border-gray-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-lg font-semibold text-gray-900 border-l-4 border-red-500 pl-3">Restaurant Details</h2>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">Restaurant Name</label>
+                        {editMode ? (
+                          <input
+                            type="text"
+                            value={restaurantEdit.name}
+                            onChange={(e) => setRestaurantEdit(r => ({ ...r, name: e.target.value }))}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          />
+                        ) : (
+                          <p className="text-gray-900 font-medium">{restaurant.name}</p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">Contact Phone</label>
+                        {editMode ? (
+                          <input
+                            type="tel"
+                            value={restaurantEdit.contactPhone}
+                            onChange={(e) => setRestaurantEdit(r => ({ ...r, contactPhone: e.target.value }))}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          />
+                        ) : (
+                          <p className="text-gray-900">{restaurant.contactPhone || "Not set"}</p>
+                        )}
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-500 mb-1">Address</label>
+                        {editMode ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <input
+                              type="text"
+                              placeholder="Address Line 1"
+                              value={restaurantEdit.addressLine1}
+                              onChange={(e) => setRestaurantEdit(r => ({ ...r, addressLine1: e.target.value }))}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                            <input
+                              type="text"
+                              placeholder="City"
+                              value={restaurantEdit.city}
+                              onChange={(e) => setRestaurantEdit(r => ({ ...r, city: e.target.value }))}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                            <input
+                              type="text"
+                              placeholder="State"
+                              value={restaurantEdit.state}
+                              onChange={(e) => setRestaurantEdit(r => ({ ...r, state: e.target.value }))}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Zip Code"
+                              value={restaurantEdit.zipCode}
+                              onChange={(e) => setRestaurantEdit(r => ({ ...r, zipCode: e.target.value }))}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-gray-900">
+                            {restaurant.address?.addressLine1}{restaurant.address?.city ? `, ${restaurant.address.city}` : ""}{restaurant.address?.state ? `, ${restaurant.address.state}` : ""}{restaurant.address?.zipCode ? ` ${restaurant.address.zipCode}` : ""}
+                            {!restaurant.address?.addressLine1 && "Not set"}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">Business Hours</label>
+                        {editMode ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="time"
+                              value={restaurantEdit.openingHour}
+                              onChange={(e) => setRestaurantEdit(r => ({ ...r, openingHour: e.target.value }))}
+                              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                            <span className="text-gray-500">to</span>
+                            <input
+                              type="time"
+                              value={restaurantEdit.closingHour}
+                              onChange={(e) => setRestaurantEdit(r => ({ ...r, closingHour: e.target.value }))}
+                              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-gray-900 flex items-center gap-2">
+                            <span className="px-2 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded uppercase">Open</span>
+                            {restaurant.openingHour || "00:00"} - {restaurant.closingHour || "00:00"}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

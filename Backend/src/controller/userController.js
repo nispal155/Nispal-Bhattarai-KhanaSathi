@@ -53,9 +53,13 @@ exports.updateProfile = async (req, res) => {
 
     const updateData = {};
     if (username) updateData.username = username;
-    if (phone) updateData.phone = phone;
-    if (dateOfBirth) updateData.dateOfBirth = dateOfBirth;
     if (profilePicture) updateData.profilePicture = profilePicture;
+
+    // Only allow customers to update phone and date of birth
+    if (req.user.role !== 'restaurant') {
+      if (phone) updateData.phone = phone;
+      if (dateOfBirth) updateData.dateOfBirth = dateOfBirth;
+    }
 
     const user = await User.findByIdAndUpdate(
       req.user._id,

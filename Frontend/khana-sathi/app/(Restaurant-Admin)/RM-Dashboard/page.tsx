@@ -53,12 +53,21 @@ export default function OwnerDashboard() {
       const inQueue = orders.filter((o: any) => ['pending', 'confirmed', 'preparing'].includes(o.status));
       const todaySales = todayOrders
         .filter((o: any) => o.status === 'delivered')
-        .reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        .reduce((sum: number, o: any) => sum + (o.pricing?.total || 0), 0);
+
+      // Pending settlements: COD orders delivered but not settled
+      const pendingSettlements = orders
+        .filter((o: any) => o.status === 'delivered' && o.paymentMethod === 'cod')
+        .reduce((sum: number, o: any) => {
+          const orderTotal = o.pricing?.total || 0;
+          const commission = orderTotal * 0.15; // 15% platform commission
+          return sum + (orderTotal - commission);
+        }, 0);
 
       setStats({
         todaySales,
         ordersInQueue: inQueue.length,
-        pendingSettlements: 0,
+        pendingSettlements: Math.round(pendingSettlements),
         totalOrders: orders.length
       });
 
@@ -153,7 +162,7 @@ export default function OwnerDashboard() {
         </div>
 
         <div className="mt-auto p-6 space-y-3">
-          <Link href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+          <Link href="/settings" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
             <Settings className="w-5 h-5" />
             Settings
           </Link>
@@ -241,7 +250,7 @@ export default function OwnerDashboard() {
                       <div key={order._id} className="p-4 bg-gray-50 rounded-xl flex items-center justify-between">
                         <div>
                           <p className="font-medium text-gray-900">#{order.orderNumber}</p>
-                          <p className="text-sm text-gray-600">{order.items?.length || 0} items • NPR {order.totalAmount}</p>
+                          <p className="text-sm text-gray-600">{order.items?.length || 0} items • NPR {order.pricing?.total || 0}</p>
                         </div>
                         <span className={`px-4 py-1 rounded-full text-sm font-medium capitalize ${getStatusStyle(order.status)}`}>
                           {order.status?.replace('_', ' ')}

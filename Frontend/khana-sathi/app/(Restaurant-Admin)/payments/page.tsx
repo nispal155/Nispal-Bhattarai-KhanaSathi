@@ -14,6 +14,7 @@ import {
     DollarSign
 } from 'lucide-react';
 import RestaurantSidebar from '@/components/RestaurantSidebar';
+import { getRestaurantOrders } from '@/lib/orderService';
 
 interface Settlement {
     _id: string;
@@ -50,18 +51,92 @@ export default function PaymentsPage() {
     const fetchPaymentData = async () => {
         try {
             setLoading(true);
-            setTimeout(() => {
-                setStats({
-                    pendingAmount: 0,
-                    lastPayout: 0,
-                    totalEarnings: 0,
-                    thisMonth: 0
+            const response = await getRestaurantOrders();
+            const orders = (response.data as any)?.data || [];
+
+            // Filter completed orders
+            const completedOrders = orders.filter((o: any) => o.status === 'delivered');
+            
+            // Calculate total earnings (all time)
+            const totalEarnings = completedOrders.reduce((sum: number, o: any) => {
+                const orderTotal = o.pricing?.total || 0;
+                const commission = orderTotal * 0.15; // 15% commission
+                return sum + (orderTotal - commission);
+            }, 0);
+
+            // Calculate this month earnings
+            const thisMonthStart = new Date();
+            thisMonthStart.setDate(1);
+            thisMonthStart.setHours(0, 0, 0, 0);
+            
+            const thisMonthOrders = completedOrders.filter((o: any) => new Date(o.createdAt) >= thisMonthStart);
+            const thisMonth = thisMonthOrders.reduce((sum: number, o: any) => {
+                const orderTotal = o.pricing?.total || 0;
+                const commission = orderTotal * 0.15;
+                return sum + (orderTotal - commission);
+            }, 0);
+
+            // Pending amount: COD orders that are delivered but not yet settled
+            const pendingOrders = completedOrders.filter((o: any) => 
+                o.paymentMethod === 'cod' && o.paymentStatus !== 'settled'
+            );
+            const pendingAmount = pendingOrders.reduce((sum: number, o: any) => {
+                const orderTotal = o.pricing?.total || 0;
+                const commission = orderTotal * 0.15;
+                return sum + (orderTotal - commission);
+            }, 0);
+
+            setStats({
+                pendingAmount: Math.round(pendingAmount),
+                lastPayout: 0, // Would need actual payout records
+                totalEarnings: Math.round(totalEarnings),
+                thisMonth: Math.round(thisMonth)
+            });
+
+            // Generate weekly settlements from order data
+            const weeklySettlements: Settlement[] = [];
+            const weekMap = new Map<string, { orders: any[], grossAmount: number }>();
+
+            completedOrders.forEach((order: any) => {
+                const orderDate = new Date(order.createdAt);
+                const weekStart = new Date(orderDate);
+                weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekEnd.getDate() + 6);
+                
+                const periodKey = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                
+                const existing = weekMap.get(periodKey) || { orders: [], grossAmount: 0 };
+                weekMap.set(periodKey, {
+                    orders: [...existing.orders, order],
+                    grossAmount: existing.grossAmount + (order.pricing?.total || 0)
                 });
-                setSettlements([]);
-                setLoading(false);
-            }, 500);
+            });
+
+            weekMap.forEach((data, period) => {
+                const commission = Math.round(data.grossAmount * 0.15);
+                weeklySettlements.push({
+                    _id: period,
+                    period,
+                    totalOrders: data.orders.length,
+                    grossAmount: Math.round(data.grossAmount),
+                    commission,
+                    netAmount: Math.round(data.grossAmount - commission),
+                    status: 'completed' // Simplified
+                });
+            });
+
+            // Sort by period (most recent first)
+            weeklySettlements.sort((a, b) => {
+                const dateA = new Date(a.period.split(' - ')[0]);
+                const dateB = new Date(b.period.split(' - ')[0]);
+                return dateB.getTime() - dateA.getTime();
+            });
+
+            setSettlements(weeklySettlements.slice(0, 10)); // Last 10 weeks
         } catch (error) {
             console.error("Error fetching payments:", error);
+        } finally {
             setLoading(false);
         }
     };

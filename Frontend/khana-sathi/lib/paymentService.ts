@@ -68,7 +68,16 @@ export async function initiateEsewaPayment(orderId: string) {
  * Verify eSewa payment
  */
 export async function verifyEsewaPayment(data: string) {
-    return post<{ success: boolean; data: { orderId: string; orders?: string[]; paymentStatus: string } }>('/payment/esewa/verify', { data });
+    return post<{
+        success: boolean;
+        data: {
+            orderId: string;
+            orders?: string[];
+            multiOrderId?: string;
+            isMultiRestaurant?: boolean;
+            paymentStatus: string
+        }
+    }>('/payment/esewa/verify', { data });
 }
 
 /**
@@ -82,7 +91,16 @@ export async function initiateKhaltiPayment(orderId: string) {
  * Verify Khalti payment
  */
 export async function verifyKhaltiPayment(pidx: string, pendingId: string) {
-    return post<{ success: boolean; data: { orderId: string; orders?: string[]; paymentStatus: string } }>('/payment/khalti/verify', { pidx, pendingId });
+    return post<{
+        success: boolean;
+        data: {
+            orderId: string;
+            orders?: string[];
+            multiOrderId?: string;
+            isMultiRestaurant?: boolean;
+            paymentStatus: string
+        }
+    }>('/payment/khalti/verify', { pidx, pendingId });
 }
 
 /**

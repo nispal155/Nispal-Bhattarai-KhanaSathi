@@ -87,6 +87,111 @@ exports.createRestaurant = async (req, res) => {
 };
 
 /**
+ * @desc    Get current user's restaurant
+ * @route   GET /api/restaurants/my-restaurant
+ * @access  Private (Restaurant Manager)
+ */
+exports.getMyRestaurant = async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+
+    if (!restaurant) {
+      return res.status(404).json({
+        success: false,
+        message: "Restaurant not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: restaurant
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch restaurant",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update current user's restaurant
+ * @route   PUT /api/restaurants/my-restaurant
+ * @access  Private (Restaurant Manager)
+ */
+exports.updateMyRestaurant = async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+
+    if (!restaurant) {
+      return res.status(404).json({
+        success: false,
+        message: "Restaurant not found"
+      });
+    }
+
+    const {
+      name,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      zipCode,
+      openingHour,
+      closingHour,
+      contactPhone,
+      contactEmail,
+      logoUrl,
+      description,
+      cuisineType
+    } = req.body;
+
+    // Update basic fields
+    if (name !== undefined) restaurant.name = name;
+    if (openingHour !== undefined) restaurant.openingHour = openingHour;
+    if (closingHour !== undefined) restaurant.closingHour = closingHour;
+    if (contactPhone !== undefined) restaurant.contactPhone = contactPhone;
+    if (contactEmail !== undefined) restaurant.contactEmail = contactEmail;
+    if (logoUrl !== undefined) restaurant.logoUrl = logoUrl;
+    if (description !== undefined) restaurant.description = description;
+
+    // Handle nested address
+    if (addressLine1 !== undefined || addressLine2 !== undefined || city !== undefined || state !== undefined || zipCode !== undefined) {
+      if (!restaurant.address) restaurant.address = {};
+      if (addressLine1 !== undefined) restaurant.address.addressLine1 = addressLine1;
+      if (addressLine2 !== undefined) restaurant.address.addressLine2 = addressLine2;
+      if (city !== undefined) restaurant.address.city = city;
+      if (state !== undefined) restaurant.address.state = state;
+      if (zipCode !== undefined) restaurant.address.zipCode = zipCode;
+    }
+
+    // Handle cuisineType
+    if (cuisineType !== undefined) {
+      if (Array.isArray(cuisineType)) {
+        restaurant.cuisineType = cuisineType;
+      } else if (typeof cuisineType === "string") {
+        restaurant.cuisineType = cuisineType.split(",").map(c => c.trim());
+      }
+    }
+
+    await restaurant.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Restaurant details updated successfully",
+      data: restaurant
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to update restaurant",
+      error: error.message
+    });
+  }
+};
+
+/**
  * @desc    Get all restaurants
  * @route   GET /api/restaurants
  * @access  Public
@@ -381,7 +486,7 @@ exports.approveRestaurant = async (req, res) => {
  */
 exports.getOnboardingDetails = async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId).select('restaurantDocuments username email isApproved');
+    const user = await User.findById(req.params.userId).select('restaurantDocuments username email isApproved profilePicture');
     const restaurant = await Restaurant.findOne({ createdBy: req.params.userId });
 
     if (!user) {

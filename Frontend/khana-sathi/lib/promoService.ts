@@ -65,3 +65,8 @@ export async function togglePromoCodeStatus(id: string) {
 export async function validatePromoCode(code: string, orderAmount: number, restaurantId?: string) {
     return post<{ success: boolean; data: { code: string; discountType: string; discountValue: number; calculatedDiscount: number; description: string } }>('/promo/validate', { code, orderAmount, restaurantId });
 }
+
+// Broadcast promo code notification
+export async function broadcastPromo(id: string) {
+    return post<{ success: boolean; message: string }>(`/promo/broadcast/${id}`, {});
+}

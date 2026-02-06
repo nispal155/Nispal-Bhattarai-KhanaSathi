@@ -52,6 +52,7 @@ const UserHeader: React.FC = () => {
                                 alt="Profile"
                                 width={40}
                                 height={40}
+                                unoptimized
                                 className="object-cover w-full h-full"
                                 onError={(e) => {
                                     const target = e.target as HTMLImageElement;

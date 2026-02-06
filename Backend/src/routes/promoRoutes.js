@@ -7,7 +7,8 @@ const {
   validatePromoCode,
   updatePromoCode,
   deletePromoCode,
-  togglePromoCodeStatus
+  togglePromoCodeStatus,
+  broadcastPromoNotification
 } = require('../controller/promoController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -24,5 +25,6 @@ router.get('/', getAllPromoCodes);
 router.put('/:id', updatePromoCode);
 router.put('/:id/toggle', togglePromoCodeStatus);
 router.delete('/:id', deletePromoCode);
+router.post('/broadcast/:id', broadcastPromoNotification);
 
 module.exports = router;

@@ -76,6 +76,9 @@ export interface Order {
     lng: number;
     timestamp: string;
   }>;
+  multiOrder?: string | { _id: string; orderNumber: string };
+  isSubOrder?: boolean;
+  subOrderIndex?: number;
   createdAt: string;
   updatedAt: string;
 }

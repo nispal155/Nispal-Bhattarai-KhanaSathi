@@ -84,7 +84,14 @@ export default function RestaurantSidebar() {
             </div>
 
             <div className="mt-auto p-6 space-y-3">
-                <Link href="#" className="flex items-center gap-4 px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+                <Link 
+                    href="/settings" 
+                    className={`flex items-center gap-4 px-4 py-3 rounded-lg transition ${
+                        pathname === '/settings' 
+                            ? "bg-red-500 text-white" 
+                            : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                >
                     <Settings className="w-5 h-5" />
                     Settings
                 </Link>

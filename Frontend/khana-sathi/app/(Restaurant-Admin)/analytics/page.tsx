@@ -72,7 +72,7 @@ export default function AnalyticsPage() {
             const completedOrders = filteredOrders.filter((o: any) => o.status === 'delivered');
 
             // Calculate stats
-            const totalRevenue = completedOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+            const totalRevenue = completedOrders.reduce((sum: number, o: any) => sum + (o.pricing?.total || 0), 0);
             setStats({
                 totalOrders: filteredOrders.length,
                 totalRevenue,
@@ -94,7 +94,7 @@ export default function AnalyticsPage() {
                 const existing = dailyMap.get(dateStr) || { orders: 0, revenue: 0 };
                 dailyMap.set(dateStr, {
                     orders: existing.orders + 1,
-                    revenue: existing.revenue + (order.status === 'delivered' ? order.totalAmount : 0)
+                    revenue: existing.revenue + (order.status === 'delivered' ? (order.pricing?.total || 0) : 0)
                 });
             });
 

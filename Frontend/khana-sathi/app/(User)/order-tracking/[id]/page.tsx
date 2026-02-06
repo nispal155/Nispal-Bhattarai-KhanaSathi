@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Phone, MessageSquare, MapPin, Clock, Loader2 } from "lucide-react";
+import { Phone, MessageSquare, MapPin, Clock, Loader2, Store } from "lucide-react";
 import { useState, useEffect, use } from "react";
+import { useRouter } from "next/navigation";
 import { getOrderById, cancelOrder } from "@/lib/orderService";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/context/AuthContext";
@@ -11,6 +12,8 @@ import UserHeader from "@/components/layout/UserHeader";
 import ChatWindow from "@/components/Chat/ChatWindow";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
+
+type ChatRecipient = 'restaurant' | 'rider' | null;
 
 interface OrderItem {
   menuItem: {
@@ -52,6 +55,8 @@ interface Order {
     discount: number;
     total: number;
   };
+  multiOrder?: string | { _id: string }; // Added this
+  isSubOrder?: boolean;                  // Added this
   estimatedDeliveryTime?: Date;
   createdAt: string;
 }
@@ -73,13 +78,14 @@ const getStepNumber = (status: string): number => {
 
 export default function OrderTrackingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
   const { user: authUser } = useAuth();
 
   useEffect(() => {
@@ -148,6 +154,18 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const responseData = response?.data as any;
       const orderData = responseData?.data || responseData;
+
+      // Auto-redirect to multi-order tracking if this is a sub-order
+      if (orderData?.isSubOrder && orderData?.multiOrder) {
+        const mid = typeof orderData.multiOrder === 'string'
+          ? orderData.multiOrder
+          : orderData.multiOrder._id;
+
+        console.log(`Redirecting sub-order ${id} to parent multi-order tracking ${mid}`);
+        router.push(`/multi-order-tracking/${mid}`);
+        return;
+      }
+
       setOrder(orderData as Order);
       setError("");
     } catch (err) {
@@ -314,7 +332,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                   </a>
                 )}
                 <button
-                  onClick={() => setIsChatOpen(true)}
+                  onClick={() => setChatRecipient('rider')}
                   className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white py-3 rounded-lg font-medium transition-colors"
                 >
                   <MessageSquare className="w-5 h-5" />
@@ -349,7 +367,18 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
 
         {/* Order Items */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Order Items</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-900">Order Items</h2>
+            {order.status !== 'delivered' && order.status !== 'cancelled' && (
+              <button
+                onClick={() => setChatRecipient('restaurant')}
+                className="flex items-center gap-2 px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition-colors"
+              >
+                <Store className="w-4 h-4" />
+                Message Restaurant
+              </button>
+            )}
+          </div>
 
           <div className="space-y-3">
             {order.items.map((item: OrderItem, index: number) => (
@@ -424,11 +453,12 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
         </div>
       </footer>
       {/* Chat Window */}
-      {authUser && isChatOpen && (
+      {authUser && chatRecipient && (
         <ChatWindow
           orderId={id}
-          recipientName={order.deliveryRider?.name || order.restaurant.name}
-          recipientRole={order.deliveryRider ? 'delivery_staff' : 'restaurant'}
+          recipientName={chatRecipient === 'rider' ? (order.deliveryRider?.name || 'Rider') : order.restaurant.name}
+          recipientRole={chatRecipient === 'rider' ? 'delivery_staff' : 'restaurant'}
+          onClose={() => setChatRecipient(null)}
         />
       )}
     </div>

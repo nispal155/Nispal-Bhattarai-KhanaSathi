@@ -424,7 +424,10 @@ export default function RiderDashboardPage() {
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 mb-3 flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> {pool._id.address}
+                        <MapPin className="w-3 h-3" /> 
+                        {typeof pool._id.address === 'object' 
+                          ? `${pool._id.address?.addressLine1 || ''}, ${pool._id.address?.city || ''}`.replace(/^,\s*|,\s*$/g, '')
+                          : pool._id.address || 'No address'}
                       </p>
                       <button
                         onClick={() => router.push('/my-deliveries')}
@@ -473,12 +476,11 @@ export default function RiderDashboardPage() {
       </main>
 
       {/* Chat Window */}
-      {user && activeChatOrderId && (
+      {user && activeChatOrderId && stats?.currentOrder && (
         <ChatWindow
           orderId={activeChatOrderId}
-          currentUserId={user._id}
-          currentUserRole="rider"
-          isOpen={!!activeChatOrderId}
+          recipientName={stats.currentOrder.customer?.username || "Customer"}
+          recipientRole="customer"
           onClose={() => setActiveChatOrderId(null)}
         />
       )}

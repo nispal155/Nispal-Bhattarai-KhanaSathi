@@ -2,37 +2,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown, Clock, Star } from "lucide-react";
+import UserHeader from "@/components/layout/UserHeader";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-white font-sans">
-
-      {/* Top Navigation Bar */}
-      <nav className="bg-gradient-to-r from-red-600 to-orange-500 text-white sticky top-0 z-50 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <div className="relative w-12 h-12">
-                <Image src="/logo-chili.png" alt="KhanaSathi" fill className="object-contain" />
-              </div>
-              <span className="text-2xl md:text-3xl font-bold">KhanaSathi</span>
-            </div>
-
-            {/* Login/Signup + mobile menu */}
-            <div className="flex items-center gap-6">
-              <button className="hidden md:flex items-center gap-2 px-6 py-3 bg-white text-red-700 font-semibold rounded-full hover:bg-gray-100 transition">
-                Login / Signup
-              </button>
-              <button className="lg:hidden text-white">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <UserHeader />
 
       {/* Hero Section - Our Restaurants */}
       <section className="relative bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50 pt-16 pb-24">

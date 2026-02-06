@@ -9,9 +9,11 @@ import {
     MapPin,
     Loader2,
     Navigation,
-    Phone
+    Phone,
+    MessageSquare
 } from 'lucide-react';
 import { getRiderOrders, updateDeliveryStatus } from '@/lib/orderService';
+import ChatWindow from '@/components/Chat/ChatWindow';
 
 interface Order {
     _id: string;
@@ -37,12 +39,15 @@ interface Order {
     items: Array<{ name: string; quantity: number }>;
 }
 
+type ChatRecipient = { orderId: string; name: string; role: 'customer' | 'restaurant' } | null;
+
 export default function MyDeliveriesPage() {
     const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [deliveries, setDeliveries] = useState<Order[]>([]);
     const [updating, setUpdating] = useState<string | null>(null);
+    const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
 
     useEffect(() => {
         if (authLoading) return;
@@ -193,6 +198,17 @@ export default function MyDeliveriesPage() {
                                                 {updating === delivery._id ? 'Updating...' : 'Mark Delivered'}
                                             </button>
                                         )}
+                                        <button 
+                                            onClick={() => setChatRecipient({
+                                                orderId: delivery._id,
+                                                name: delivery.customer?.username || 'Customer',
+                                                role: 'customer'
+                                            })}
+                                            className="flex items-center justify-center gap-2 bg-orange-100 hover:bg-orange-200 text-orange-700 py-2 px-4 rounded-lg font-medium transition"
+                                        >
+                                            <MessageSquare className="w-4 h-4" />
+                                            Chat
+                                        </button>
                                         <button className="flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg font-medium transition">
                                             <Phone className="w-4 h-4" />
                                             Call
@@ -218,6 +234,16 @@ export default function MyDeliveriesPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Chat Window */}
+            {user && chatRecipient && (
+                <ChatWindow
+                    orderId={chatRecipient.orderId}
+                    recipientName={chatRecipient.name}
+                    recipientRole={chatRecipient.role}
+                    onClose={() => setChatRecipient(null)}
+                />
+            )}
         </div>
     );
 }
