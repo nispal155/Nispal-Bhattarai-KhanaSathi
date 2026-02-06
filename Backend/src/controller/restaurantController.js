@@ -144,7 +144,11 @@ exports.updateMyRestaurant = async (req, res) => {
       contactEmail,
       logoUrl,
       description,
-      cuisineType
+      cuisineType,
+      minimumOrder,
+      deliveryRadius,
+      deliveryTimeMin,
+      deliveryTimeMax
     } = req.body;
 
     // Update basic fields
@@ -155,6 +159,15 @@ exports.updateMyRestaurant = async (req, res) => {
     if (contactEmail !== undefined) restaurant.contactEmail = contactEmail;
     if (logoUrl !== undefined) restaurant.logoUrl = logoUrl;
     if (description !== undefined) restaurant.description = description;
+    if (minimumOrder !== undefined) restaurant.minimumOrder = Number(minimumOrder);
+    if (deliveryRadius !== undefined) restaurant.deliveryRadius = Number(deliveryRadius);
+
+    // Handle delivery time
+    if (deliveryTimeMin !== undefined || deliveryTimeMax !== undefined) {
+      if (!restaurant.deliveryTime) restaurant.deliveryTime = {};
+      if (deliveryTimeMin !== undefined) restaurant.deliveryTime.min = Number(deliveryTimeMin);
+      if (deliveryTimeMax !== undefined) restaurant.deliveryTime.max = Number(deliveryTimeMax);
+    }
 
     // Handle nested address
     if (addressLine1 !== undefined || addressLine2 !== undefined || city !== undefined || state !== undefined || zipCode !== undefined) {
@@ -188,6 +201,98 @@ exports.updateMyRestaurant = async (req, res) => {
       message: "Failed to update restaurant",
       error: error.message
     });
+  }
+};
+
+/**
+ * @desc    Get staff for current user's restaurant
+ * @route   GET /api/restaurants/my-restaurant/staff
+ * @access  Private (Restaurant Manager)
+ */
+exports.getMyStaff = async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: "Restaurant not found" });
+    }
+    res.status(200).json({ success: true, data: restaurant.staff || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch staff", error: error.message });
+  }
+};
+
+/**
+ * @desc    Add staff member to restaurant
+ * @route   POST /api/restaurants/my-restaurant/staff
+ * @access  Private (Restaurant Manager)
+ */
+exports.addStaff = async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: "Restaurant not found" });
+    }
+    const { name, email, phone, role } = req.body;
+    if (!name || !email || !role) {
+      return res.status(400).json({ success: false, message: "Name, email, and role are required" });
+    }
+    restaurant.staff.push({ name, email, phone, role });
+    await restaurant.save();
+    const newMember = restaurant.staff[restaurant.staff.length - 1];
+    res.status(201).json({ success: true, message: "Staff member added", data: newMember });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to add staff", error: error.message });
+  }
+};
+
+/**
+ * @desc    Update a staff member
+ * @route   PUT /api/restaurants/my-restaurant/staff/:staffId
+ * @access  Private (Restaurant Manager)
+ */
+exports.updateStaff = async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: "Restaurant not found" });
+    }
+    const member = restaurant.staff.id(req.params.staffId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: "Staff member not found" });
+    }
+    const { name, email, phone, role, status } = req.body;
+    if (name !== undefined) member.name = name;
+    if (email !== undefined) member.email = email;
+    if (phone !== undefined) member.phone = phone;
+    if (role !== undefined) member.role = role;
+    if (status !== undefined) member.status = status;
+    await restaurant.save();
+    res.status(200).json({ success: true, message: "Staff member updated", data: member });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to update staff", error: error.message });
+  }
+};
+
+/**
+ * @desc    Remove a staff member
+ * @route   DELETE /api/restaurants/my-restaurant/staff/:staffId
+ * @access  Private (Restaurant Manager)
+ */
+exports.removeStaff = async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: "Restaurant not found" });
+    }
+    const member = restaurant.staff.id(req.params.staffId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: "Staff member not found" });
+    }
+    member.deleteOne();
+    await restaurant.save();
+    res.status(200).json({ success: true, message: "Staff member removed" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to remove staff", error: error.message });
   }
 };
 

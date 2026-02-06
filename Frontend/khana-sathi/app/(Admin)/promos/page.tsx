@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import AdminSidebar from '@/components/admin/AdminSidebar';
 import { getPromoCodes, createPromoCode, updatePromoCode, deletePromoCode, togglePromoCodeStatus, broadcastPromo, PromoCode, CreatePromoInput } from '@/lib/promoService';
 import toast from 'react-hot-toast';
 import { Tag, Plus, Loader2, Trash2, Edit, ToggleLeft, ToggleRight, Percent, DollarSign, X, Send } from 'lucide-react';
 
 export default function PromoManagementPage() {
+    const { user } = useAuth();
     const [promos, setPromos] = useState<PromoCode[]>([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -133,6 +135,17 @@ export default function PromoManagementPage() {
 
     const isExpired = (date: string) => new Date(date) < new Date();
 
+    const isOwnPromo = (promo: PromoCode) => {
+        if (!user || !promo.createdBy) return false;
+        const creatorId = typeof promo.createdBy === 'string' ? promo.createdBy : promo.createdBy._id;
+        return creatorId === user._id;
+    };
+
+    const getCreatorLabel = (promo: PromoCode) => {
+        if (!promo.createdBy || typeof promo.createdBy === 'string') return null;
+        return promo.createdBy.role === 'restaurant' ? promo.createdBy.username : 'Admin';
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 flex">
             <AdminSidebar />
@@ -191,16 +204,29 @@ export default function PromoManagementPage() {
                                     <div className="text-xs text-gray-400">
                                         Valid: {new Date(promo.validFrom).toLocaleDateString()} - {new Date(promo.validUntil).toLocaleDateString()}
                                     </div>
+                                    {getCreatorLabel(promo) && (
+                                        <div className="text-xs">
+                                            <span className={`px-2 py-0.5 rounded-full ${typeof promo.createdBy === 'object' && promo.createdBy?.role === 'restaurant' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                Created by: {getCreatorLabel(promo)}
+                                            </span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-                                        <button onClick={() => handleToggle(promo._id)} className="p-2 rounded-lg hover:bg-gray-100 transition" title="Toggle status">
-                                            {promo.isActive ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5 text-gray-400" />}
-                                        </button>
-                                        <button onClick={() => handleOpenModal(promo)} className="p-2 rounded-lg hover:bg-gray-100 transition" title="Edit">
-                                            <Edit className="w-5 h-5 text-blue-500" />
-                                        </button>
-                                        <button onClick={() => handleDelete(promo._id)} className="p-2 rounded-lg hover:bg-red-50 transition" title="Delete">
-                                            <Trash2 className="w-5 h-5 text-red-500" />
-                                        </button>
+                                        {isOwnPromo(promo) && (
+                                            <button onClick={() => handleToggle(promo._id)} className="p-2 rounded-lg hover:bg-gray-100 transition" title="Toggle status">
+                                                {promo.isActive ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5 text-gray-400" />}
+                                            </button>
+                                        )}
+                                        {isOwnPromo(promo) && (
+                                            <button onClick={() => handleOpenModal(promo)} className="p-2 rounded-lg hover:bg-gray-100 transition" title="Edit">
+                                                <Edit className="w-5 h-5 text-blue-500" />
+                                            </button>
+                                        )}
+                                        {isOwnPromo(promo) && (
+                                            <button onClick={() => handleDelete(promo._id)} className="p-2 rounded-lg hover:bg-red-50 transition" title="Delete">
+                                                <Trash2 className="w-5 h-5 text-red-500" />
+                                            </button>
+                                        )}
                                         {promo.isActive && !isExpired(promo.validUntil) && (
                                             <button
                                                 onClick={() => handleBroadcast(promo._id, promo.code)}

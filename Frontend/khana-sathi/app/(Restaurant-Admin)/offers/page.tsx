@@ -8,6 +8,7 @@ import {
     Tag,
     Plus,
     Trash2,
+    Edit,
     ToggleLeft,
     ToggleRight,
     Loader2,
@@ -16,7 +17,7 @@ import {
     Calendar,
     X
 } from 'lucide-react';
-import { getPromoCodes, createPromoCode, deletePromoCode, togglePromoCodeStatus, PromoCode } from '@/lib/promoService';
+import { getPromoCodes, createPromoCode, updatePromoCode, deletePromoCode, togglePromoCodeStatus, PromoCode } from '@/lib/promoService';
 import RestaurantSidebar from '@/components/RestaurantSidebar';
 
 export default function OffersPage() {
@@ -25,6 +26,7 @@ export default function OffersPage() {
     const [loading, setLoading] = useState(true);
     const [offers, setOffers] = useState<PromoCode[]>([]);
     const [showModal, setShowModal] = useState(false);
+    const [editingOffer, setEditingOffer] = useState<PromoCode | null>(null);
     const [formData, setFormData] = useState({
         code: '',
         description: '',
@@ -50,7 +52,7 @@ export default function OffersPage() {
     const fetchOffers = async () => {
         try {
             setLoading(true);
-            const response = await getPromoCodes();
+            const response = await getPromoCodes({ mine: true });
             if (response.data?.data) {
                 setOffers(response.data.data);
             }
@@ -71,14 +73,25 @@ export default function OffersPage() {
 
         try {
             setSubmitting(true);
-            await createPromoCode({
-                ...formData,
-                minOrderAmount: formData.minOrderAmount || undefined,
-                maxDiscount: formData.maxDiscount || undefined,
-                usageLimit: formData.usageLimit || undefined
-            });
-            toast.success("Offer created successfully!");
+            if (editingOffer) {
+                await updatePromoCode(editingOffer._id, {
+                    ...formData,
+                    minOrderAmount: formData.minOrderAmount || undefined,
+                    maxDiscount: formData.maxDiscount || undefined,
+                    usageLimit: formData.usageLimit || undefined
+                });
+                toast.success("Offer updated successfully!");
+            } else {
+                await createPromoCode({
+                    ...formData,
+                    minOrderAmount: formData.minOrderAmount || undefined,
+                    maxDiscount: formData.maxDiscount || undefined,
+                    usageLimit: formData.usageLimit || undefined
+                });
+                toast.success("Offer created successfully!");
+            }
             setShowModal(false);
+            setEditingOffer(null);
             setFormData({
                 code: '', description: '', discountType: 'percentage', discountValue: 0,
                 minOrderAmount: 0, maxDiscount: 0, validFrom: '', validUntil: '', usageLimit: 0
@@ -100,6 +113,22 @@ export default function OffersPage() {
         } catch (error) {
             toast.error("Failed to delete offer");
         }
+    };
+
+    const handleEdit = (offer: PromoCode) => {
+        setEditingOffer(offer);
+        setFormData({
+            code: offer.code,
+            description: offer.description,
+            discountType: offer.discountType,
+            discountValue: offer.discountValue,
+            minOrderAmount: offer.minOrderAmount || 0,
+            maxDiscount: offer.maxDiscount || 0,
+            validFrom: offer.validFrom?.split('T')[0] || '',
+            validUntil: offer.validUntil?.split('T')[0] || '',
+            usageLimit: offer.usageLimit || 0
+        });
+        setShowModal(true);
     };
 
     const handleToggle = async (id: string) => {
@@ -198,6 +227,9 @@ export default function OffersPage() {
                                         </span>
                                         <span className="text-xs text-gray-400">Used {offer.usedCount || 0} times</span>
                                         <div className="flex-1"></div>
+                                        <button onClick={() => handleEdit(offer)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition">
+                                            <Edit className="w-4 h-4" />
+                                        </button>
                                         <button onClick={() => handleDelete(offer._id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition">
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -213,8 +245,8 @@ export default function OffersPage() {
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
                             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                                <h3 className="text-xl font-bold text-gray-800">Create New Offer</h3>
-                                <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                                <h3 className="text-xl font-bold text-gray-800">{editingOffer ? 'Edit Offer' : 'Create New Offer'}</h3>
+                                <button onClick={() => { setShowModal(false); setEditingOffer(null); }} className="p-2 hover:bg-gray-100 rounded-full">
                                     <X className="w-5 h-5 text-gray-500" />
                                 </button>
                             </div>
@@ -318,7 +350,7 @@ export default function OffersPage() {
                                     disabled={submitting}
                                     className="w-full py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition disabled:opacity-50"
                                 >
-                                    {submitting ? 'Creating...' : 'Create Offer'}
+                                    {submitting ? 'Saving...' : (editingOffer ? 'Update Offer' : 'Create Offer')}
                                 </button>
                             </form>
                         </div>

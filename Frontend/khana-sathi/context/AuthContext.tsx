@@ -9,6 +9,7 @@ interface User {
     role?: string;
     profilePicture?: string;
     allergyPreferences?: string[];
+    notifications?: { push: boolean; email: boolean; sms: boolean };
 }
 
 interface AuthContextType {

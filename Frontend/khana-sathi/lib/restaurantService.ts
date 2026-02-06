@@ -42,6 +42,9 @@ export interface Restaurant {
   contactEmail: string;
   logoUrl?: string;
   isActive: boolean;
+  description?: string;
+  minimumOrder?: number;
+  deliveryRadius?: number;
   averageRating: number;
   reviewCount: number;
   deliveryTime: {

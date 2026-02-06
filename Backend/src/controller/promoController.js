@@ -71,7 +71,7 @@ exports.createPromoCode = async (req, res) => {
  */
 exports.getAllPromoCodes = async (req, res) => {
   try {
-    const { active, expired } = req.query;
+    const { active, expired, mine } = req.query;
     const now = new Date();
 
     let query = {};
@@ -85,7 +85,14 @@ exports.getAllPromoCodes = async (req, res) => {
       query.validUntil = { $lt: now };
     }
 
-    const promoCodes = await PromoCode.find(query).sort({ createdAt: -1 });
+    // Filter by creator if mine=true
+    if (mine === 'true' && req.user) {
+      query.createdBy = req.user._id;
+    }
+
+    const promoCodes = await PromoCode.find(query)
+      .populate('createdBy', 'username email role')
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -189,11 +196,7 @@ exports.validatePromoCode = async (req, res) => {
  */
 exports.updatePromoCode = async (req, res) => {
   try {
-    const promoCode = await PromoCode.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const promoCode = await PromoCode.findById(req.params.id);
 
     if (!promoCode) {
       return res.status(404).json({
@@ -201,6 +204,17 @@ exports.updatePromoCode = async (req, res) => {
         message: 'Promo code not found'
       });
     }
+
+    // Only the creator can update
+    if (promoCode.createdBy && promoCode.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only edit promo codes you created'
+      });
+    }
+
+    Object.assign(promoCode, req.body);
+    await promoCode.save();
 
     res.status(200).json({
       success: true,
@@ -223,7 +237,7 @@ exports.updatePromoCode = async (req, res) => {
  */
 exports.deletePromoCode = async (req, res) => {
   try {
-    const promoCode = await PromoCode.findByIdAndDelete(req.params.id);
+    const promoCode = await PromoCode.findById(req.params.id);
 
     if (!promoCode) {
       return res.status(404).json({
@@ -231,6 +245,16 @@ exports.deletePromoCode = async (req, res) => {
         message: 'Promo code not found'
       });
     }
+
+    // Only the creator can delete
+    if (promoCode.createdBy && promoCode.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only delete promo codes you created'
+      });
+    }
+
+    await promoCode.deleteOne();
 
     res.status(200).json({
       success: true,

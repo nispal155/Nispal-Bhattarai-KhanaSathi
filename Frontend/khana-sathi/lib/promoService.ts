@@ -15,6 +15,7 @@ export interface PromoCode {
     perUserLimit?: number;
     usedCount: number;
     isActive: boolean;
+    createdBy?: { _id: string; username: string; email: string; role: string } | string;
     createdAt: string;
 }
 
@@ -32,8 +33,11 @@ export interface CreatePromoInput {
 }
 
 // Get all promo codes (Admin/Restaurant)
-export async function getPromoCodes() {
-    return get<{ success: boolean; count: number; data: PromoCode[] }>('/promo');
+export async function getPromoCodes(options?: { mine?: boolean }) {
+    const params = new URLSearchParams();
+    if (options?.mine) params.append('mine', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return get<{ success: boolean; count: number; data: PromoCode[] }>(`/promo${query}`);
 }
 
 // Get active promo codes (for customers)

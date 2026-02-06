@@ -15,6 +15,7 @@ import {
     X,
 } from 'lucide-react';
 import RestaurantSidebar from '@/components/RestaurantSidebar';
+import { get, post, put, del } from '@/lib/api';
 
 interface StaffMember {
     _id: string;
@@ -53,12 +54,14 @@ export default function StaffPage() {
     const fetchStaff = async () => {
         try {
             setLoading(true);
-            setTimeout(() => {
-                setStaff([]);
-                setLoading(false);
-            }, 500);
+            const response = await get<{ success: boolean; data: StaffMember[] }>('/restaurants/my-restaurant/staff');
+            if (response.data?.data) {
+                setStaff(response.data.data);
+            }
         } catch (error) {
             console.error("Error fetching staff:", error);
+            toast.error("Failed to load staff");
+        } finally {
             setLoading(false);
         }
     };
@@ -72,29 +75,19 @@ export default function StaffPage() {
 
         try {
             setSubmitting(true);
-            const newStaff: StaffMember = {
-                _id: Date.now().toString(),
-                name: formData.name,
-                email: formData.email,
-                phone: formData.phone,
-                role: formData.role,
-                status: 'active',
-                createdAt: new Date().toISOString()
-            };
-
             if (editingId) {
-                setStaff(staff.map(s => s._id === editingId ? { ...newStaff, _id: editingId } : s));
+                await put(`/restaurants/my-restaurant/staff/${editingId}`, formData);
                 toast.success("Staff updated successfully!");
             } else {
-                setStaff([...staff, newStaff]);
+                await post('/restaurants/my-restaurant/staff', formData);
                 toast.success("Staff added successfully!");
             }
-
             setShowModal(false);
             setEditingId(null);
             setFormData({ name: '', email: '', phone: '', role: 'waiter' });
-        } catch (error) {
-            toast.error("Failed to save staff member");
+            fetchStaff();
+        } catch (error: any) {
+            toast.error(error.response?.data?.message || "Failed to save staff member");
         } finally {
             setSubmitting(false);
         }
@@ -111,10 +104,15 @@ export default function StaffPage() {
         setShowModal(true);
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (!confirm("Are you sure you want to remove this staff member?")) return;
-        setStaff(staff.filter(s => s._id !== id));
-        toast.success("Staff removed");
+        try {
+            await del(`/restaurants/my-restaurant/staff/${id}`);
+            toast.success("Staff removed");
+            fetchStaff();
+        } catch (error) {
+            toast.error("Failed to remove staff member");
+        }
     };
 
     const getRoleColor = (role: string) => {

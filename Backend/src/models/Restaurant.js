@@ -58,6 +58,30 @@ const restaurantSchema = new mongoose.Schema(
       default: true
     },
 
+    description: {
+      type: String,
+      default: ''
+    },
+
+    minimumOrder: {
+      type: Number,
+      default: 0
+    },
+
+    deliveryRadius: {
+      type: Number,
+      default: 5
+    },
+
+    staff: [{
+      name: { type: String, required: true },
+      email: { type: String, required: true },
+      phone: { type: String },
+      role: { type: String, enum: ['chef', 'cashier', 'waiter', 'manager'], required: true },
+      status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+      createdAt: { type: Date, default: Date.now }
+    }],
+
     averageRating: {
       type: Number,
       default: 0

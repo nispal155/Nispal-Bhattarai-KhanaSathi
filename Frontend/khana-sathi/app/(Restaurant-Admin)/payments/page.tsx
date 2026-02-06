@@ -39,6 +39,36 @@ export default function PaymentsPage() {
         thisMonth: 0
     });
 
+    const handleExport = () => {
+        if (settlements.length === 0) {
+            alert('No settlement data to export');
+            return;
+        }
+        const headers = ['Period', 'Total Orders', 'Gross Amount (Rs.)', 'Commission (Rs.)', 'Net Amount (Rs.)', 'Status'];
+        const rows = settlements.map(s => [
+            s.period,
+            s.totalOrders,
+            s.grossAmount,
+            s.commission,
+            s.netAmount,
+            s.status.charAt(0).toUpperCase() + s.status.slice(1)
+        ]);
+        const csv = [
+            headers.join(','),
+            ...rows.map(r => r.join(','))
+        ].join('\n');
+        const summaryLine = `\nSummary,,,\nPending Settlement,Rs. ${stats.pendingAmount},,\nThis Month,Rs. ${stats.thisMonth},,\nTotal Earnings,Rs. ${stats.totalEarnings},,`;
+        const blob = new Blob([csv + summaryLine], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `settlement-statement-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     useEffect(() => {
         if (authLoading) return;
         if (!user) {
@@ -160,7 +190,10 @@ export default function PaymentsPage() {
                             <h1 className="text-2xl font-bold text-gray-800">Payments & Settlements</h1>
                             <p className="text-gray-500">Track your earnings and payouts</p>
                         </div>
-                        <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition">
+                        <button
+                            onClick={handleExport}
+                            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition"
+                        >
                             <Download className="w-5 h-5 text-gray-600" />
                             Export Statement
                         </button>

@@ -40,13 +40,14 @@ exports.getProfile = async (req, res) => {
  */
 exports.updateProfile = async (req, res) => {
   try {
-    const { username, phone, dateOfBirth, profilePicture } = req.body;
+    const { username, phone, dateOfBirth, profilePicture, notifications } = req.body;
     console.log('Update profile request received:', {
       username,
       phone,
       dateOfBirth,
       hasProfilePicture: !!profilePicture,
-      pictureSize: profilePicture ? profilePicture.length : 0
+      pictureSize: profilePicture ? profilePicture.length : 0,
+      notifications
     });
 
     console.log('Current authenticated user ID:', req.user?._id);
@@ -59,6 +60,15 @@ exports.updateProfile = async (req, res) => {
     if (req.user.role !== 'restaurant') {
       if (phone) updateData.phone = phone;
       if (dateOfBirth) updateData.dateOfBirth = dateOfBirth;
+    }
+
+    // Allow all roles to update notification preferences
+    if (notifications) {
+      updateData.notifications = {
+        push: notifications.push ?? true,
+        email: notifications.email ?? true,
+        sms: notifications.sms ?? false
+      };
     }
 
     const user = await User.findByIdAndUpdate(
