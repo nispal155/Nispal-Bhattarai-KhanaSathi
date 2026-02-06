@@ -24,25 +24,41 @@ export default function DeliveryStaffManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStaff, setCurrentStaff] = useState<any>(null);
   const [modalTitle, setModalTitle] = useState("");
-
-  const fetchStaff = async () => {
-    try {
-      const { data, error } = await get<any[]>("/staff/all");
-      if (data) {
-        setStaffData(data);
-      } else if (error) {
-        console.error("Error fetching staff:", error);
-      }
-    } catch (error) {
-      console.error("Error fetching staff:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    fetchStaff();
-  }, []);
+    let cancelled = false;
+
+    const loadStaff = async () => {
+      try {
+        setLoading(true);
+        const params = new URLSearchParams();
+        if (appliedSearch) params.append('search', appliedSearch);
+        if (statusFilter) params.append('status', statusFilter);
+        const query = params.toString() ? `?${params.toString()}` : '';
+
+        const { data, error } = await get<any[]>(`/staff/all${query}`);
+        if (cancelled) return;
+        if (data) {
+          setStaffData(data);
+        } else if (error) {
+          console.error("Error fetching staff:", error);
+          setStaffData([]);
+        }
+      } catch (error) {
+        if (!cancelled) console.error("Error fetching staff:", error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadStaff();
+
+    return () => { cancelled = true; };
+  }, [appliedSearch, statusFilter, refreshKey]);
 
   const handleAddClick = () => {
     setCurrentStaff(null);
@@ -63,7 +79,7 @@ export default function DeliveryStaffManagement() {
         if (error) {
           alert(error);
         } else {
-          fetchStaff();
+          setRefreshKey(k => k + 1);
         }
       } catch (error) {
         console.error("Error deleting staff:", error);
@@ -84,7 +100,7 @@ export default function DeliveryStaffManagement() {
       if (result.error) {
         alert(result.error);
       } else {
-        fetchStaff();
+        setRefreshKey(k => k + 1);
         setIsModalOpen(false);
       }
     } catch (error: any) {
@@ -183,21 +199,30 @@ export default function DeliveryStaffManagement() {
           </div>
 
           {/* Search & Filter */}
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
+          <form onSubmit={(e) => { e.preventDefault(); setAppliedSearch(search); }} className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by Email or Name..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-12 pr-4 py-3.5 text-black bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
               />
             </div>
-            <select className="px-5 py-3.5 bg-white border text-black border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500">
-              <option>All Statuses</option>
-              <option>Online</option>
-              <option>Offline</option>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-5 py-3.5 bg-white border text-black border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+            >
+              <option value="">All Statuses</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
             </select>
-          </div>
+            <button type="submit" className="px-6 py-3.5 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition">
+              Search
+            </button>
+          </form>
 
           {/* Table */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

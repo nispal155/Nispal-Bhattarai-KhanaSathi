@@ -132,7 +132,24 @@ const completeProfile = async (req, res) => {
 // @access  Admin
 const getAllStaff = async (req, res) => {
     try {
-        const staff = await User.find({ role: 'delivery_staff' }).select('-password');
+        const { search, status } = req.query;
+
+        let query = { role: 'delivery_staff' };
+
+        if (search) {
+            query.$or = [
+                { username: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        if (status === 'online') {
+            query.isOnline = true;
+        } else if (status === 'offline') {
+            query.isOnline = false;
+        }
+
+        const staff = await User.find(query).select('-password').sort({ createdAt: -1 });
         res.json(staff);
     } catch (error) {
         res.status(500).json({ message: error.message });

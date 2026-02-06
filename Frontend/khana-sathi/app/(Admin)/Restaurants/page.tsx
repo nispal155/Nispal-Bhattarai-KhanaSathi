@@ -47,8 +47,15 @@ export default function Restaurants() {
           if (!appliedSearch && !statusFilter && !cuisineFilter) {
             const cuisines = new Set<string>();
             res.data.data.forEach((r: any) => {
-              if (r.cuisineType) {
-                r.cuisineType.forEach((c: string) => cuisines.add(c));
+              if (r.cuisineType && Array.isArray(r.cuisineType)) {
+                r.cuisineType.forEach((c: string) => {
+                  // Handle comma-separated values within a single array element
+                  if (c.includes(',')) {
+                    c.split(',').map(s => s.trim()).filter(Boolean).forEach(s => cuisines.add(s));
+                  } else if (c.trim()) {
+                    cuisines.add(c.trim());
+                  }
+                });
               }
             });
             setAllCuisines(Array.from(cuisines).sort());

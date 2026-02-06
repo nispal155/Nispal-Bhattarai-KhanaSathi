@@ -1,25 +1,44 @@
 "use client";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Eye, Edit, Trash2 } from "lucide-react";
+import { Eye, Edit, Trash2, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { useAuth } from "@/context/AuthContext";
+import { getAllOrders } from "@/lib/orderService";
+import { getOverviewStats } from "@/lib/analyticsService";
+import type { Order } from "@/lib/orderService";
 
 export default function AdminDashboard() {
   const { user } = useAuth();
-  const recentOrders = [
-    { id: "FF1005", customer: "Eve Davis", restaurant: "The Green Plate", amount: "NPR 320", status: "pending" },
-    { id: "FF1004", customer: "Diana Miller", restaurant: "Sushi Delight", amount: "NPR 332", status: "canceled" },
-    { id: "FF1003", customer: "Charlie Brown", restaurant: "Burger Haven", amount: "NPR 223", status: "delivered" },
-    { id: "FF1002", customer: "Bob Johnson", restaurant: "Spice Route", amount: "NPR 290", status: "pending" },
-    { id: "FF1001", customer: "Alice Smith", restaurant: "Pizzeria Bella", amount: "NPR 300", status: "delivered" },
-    { id: "FF1000", customer: "John Doe", restaurant: "Pasta Place", amount: "NPR 250", status: "delivered" },
-    { id: "FF0999", customer: "Jane Doe", restaurant: "Salad Stop", amount: "NPR 180", status: "pending" },
-    { id: "FF0998", customer: "Mike Ross", restaurant: "Taco Bell", amount: "NPR 450", status: "delivered" },
-    { id: "FF0997", customer: "Rachel Zane", restaurant: "Subway", amount: "NPR 210", status: "delivered" },
-    { id: "FF0996", customer: "Harvey Specter", restaurant: "Steak House", amount: "NPR 1200", status: "delivered" },
-  ];
   const router = useRouter();
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [ordersRes, statsRes] = await Promise.all([
+          getAllOrders({ limit: 10, page: 1 }),
+          getOverviewStats(30)
+        ]);
+
+        if (ordersRes.data?.success) {
+          setRecentOrders(ordersRes.data.data);
+        }
+        if (statsRes?.success) {
+          setStats(statsRes.data);
+        }
+      } catch (error) {
+        console.error("Failed to load dashboard data:", error);
+      } finally {
+        setLoadingOrders(false);
+      }
+    };
+
+    loadData();
+  }, []);
   return (
 
     <div className="min-h-screen bg-gray-50 flex">
@@ -54,34 +73,22 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Total Orders</p>
-                <p className="text-4xl font-bold text-gray-900">1,245</p>
-                <p className="text-green-600 text-sm mt-2 flex items-center gap-1">
-                  <span>↑</span> +12.5% ↑ from previous period
-                </p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.totalOrders ?? '—'}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-sm text-gray-500 font-medium">Total Revenue</p>
-                <p className="text-4xl font-bold text-gray-900">NPR 52,100</p>
-                <p className="text-green-600 text-sm mt-2 flex items-center gap-1">
-                  <span>↑</span> +8.2% ↑ from previous period
-                </p>
+                <p className="text-4xl font-bold text-gray-900">NPR {stats?.totalRevenue?.toLocaleString() ?? '—'}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Active Restaurants</p>
-                <p className="text-4xl font-bold text-gray-900">78</p>
-                <p className="text-green-600 text-sm mt-2 flex items-center gap-1">
-                  <span>↑</span> +0.5% ↑ from previous period
-                </p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.activeRestaurants ?? '—'}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Active Delivery Staff</p>
-                <p className="text-4xl font-bold text-gray-900">45</p>
-                <p className="text-red-600 text-sm mt-2 flex items-center gap-1">
-                  <span>↓</span> -1.2% ↓ from previous period
-                </p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.activeDeliveryStaff ?? '—'}</p>
               </div>
             </div>
           </div>
@@ -103,20 +110,33 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {recentOrders.map((order) => (
-                      <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="px-6 py-5 font-medium text-blue-600">#{order.id}</td>
-                        <td className="px-6 py-5 text-gray-900">{order.customer}</td>
-                        <td className="px-6 py-5 text-gray-900">{order.restaurant}</td>
-                        <td className="px-6 py-5 font-semibold text-gray-900">{order.amount}</td>
+                    {loadingOrders ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-10">
+                          <Loader2 className="w-8 h-8 animate-spin text-red-500 mx-auto" />
+                        </td>
+                      </tr>
+                    ) : recentOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-10 text-gray-400">No recent orders</td>
+                      </tr>
+                    ) : (
+                      recentOrders.map((order) => (
+                      <tr key={order._id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-6 py-5 font-medium text-blue-600">#{order.orderNumber}</td>
+                        <td className="px-6 py-5 text-gray-900">{order.customer?.username || '—'}</td>
+                        <td className="px-6 py-5 text-gray-900">{order.restaurant?.name || '—'}</td>
+                        <td className="px-6 py-5 font-semibold text-gray-900">NPR {order.pricing?.total?.toLocaleString() || '—'}</td>
 
                         <td className="px-6 py-5">
                           <span
                             className={`px-4 py-2 rounded-full text-sm font-medium ${order.status === "pending"
                               ? "bg-yellow-100 text-yellow-700"
-                              : order.status === "canceled"
+                              : order.status === "cancelled"
                                 ? "bg-red-100 text-red-700"
-                                : "bg-green-100 text-green-700"
+                                : order.status === "delivered"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-blue-100 text-blue-700"
                               }`}
                           >
                             {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
@@ -124,19 +144,17 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-3">
-                            <button className="text-gray-600 hover:text-blue-600">
+                            <button
+                              onClick={() => router.push(`/orders`)}
+                              className="text-gray-600 hover:text-blue-600"
+                            >
                               <Eye className="w-5 h-5" />
-                            </button>
-                            <button className="text-gray-600 hover:text-orange-600">
-                              <Edit className="w-5 h-5" />
-                            </button>
-                            <button className="text-gray-600 hover:text-red-600">
-                              <Trash2 className="w-5 h-5" />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
