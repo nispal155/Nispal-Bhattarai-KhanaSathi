@@ -75,7 +75,7 @@ const init = (server) => {
                     if (senderRole === 'customer') {
                         receiverId = order.restaurant;
                     } else {
-                        receiverId = order.user;
+                        receiverId = order.customer;
                     }
 
                     if (receiverId) {
