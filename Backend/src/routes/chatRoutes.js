@@ -13,12 +13,21 @@ const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+// Validate the :thread param before reaching the controller
+const VALID_THREADS = ['customer-restaurant', 'customer-rider', 'restaurant-rider'];
+const validateThread = (req, res, next) => {
+    if (!VALID_THREADS.includes(req.params.thread)) {
+        return res.status(400).json({ message: `Invalid chat thread. Must be one of: ${VALID_THREADS.join(', ')}` });
+    }
+    next();
+};
+
 // ── New thread-aware routes ──
 router.get('/active', protect, getActiveChats);
 router.get('/:orderId/availability', protect, getChatAvailability);
-router.get('/:orderId/:thread(customer-restaurant|customer-rider|restaurant-rider)', protect, getThreadMessages);
-router.post('/:orderId/:thread(customer-restaurant|customer-rider|restaurant-rider)', protect, sendThreadMessage);
-router.put('/:orderId/:thread(customer-restaurant|customer-rider|restaurant-rider)/read', protect, markThreadAsRead);
+router.get('/:orderId/:thread', protect, validateThread, getThreadMessages);
+router.post('/:orderId/:thread', protect, validateThread, sendThreadMessage);
+router.put('/:orderId/:thread/read', protect, validateThread, markThreadAsRead);
 
 // ── Legacy routes (backward compat) ──
 router.get('/:orderId', protect, getOrderMessages);
