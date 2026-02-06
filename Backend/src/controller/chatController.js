@@ -317,7 +317,10 @@ exports.sendMessage = async (req, res) => {
         try { const io = getIO(); io.to(orderId).emit('newMessage', newMsg); io.to(`${orderId}:${thread}`).emit('newMessage', newMsg); } catch (e) {}
 
         for (const rid of getRecipients(order, senderId, thread)) {
-            try { await Notification.create({ user: rid, type: 'chat_message', title: 'New Message', message: `Message on order #${order.orderNumber || orderId.toString().slice(-6)}`, data: { orderId, thread } }); } catch (e) {}
+            try {
+                await Notification.create({ user: rid, type: 'chat_message', title: 'New Message', message: `Message on order #${order.orderNumber || orderId.toString().slice(-6)}`, data: { orderId, thread } });
+                try { const io = getIO(); io.to(rid.toString()).emit('notification', { type: 'chat_message', orderId, thread }); } catch (e) {}
+            } catch (e) {}
         }
 
         res.status(201).json({ success: true, data: newMsg });

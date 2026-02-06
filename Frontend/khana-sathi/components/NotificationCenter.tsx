@@ -24,8 +24,13 @@ const NotificationCenter: React.FC = () => {
             fetchNotifications();
 
             const newSocket = io(SOCKET_URL, {
-                transports: ["websocket"],
+                transports: ["websocket", "polling"],
                 auth: { token: localStorage.getItem("token") }
+            });
+
+            newSocket.on('connect', () => {
+                // Join user's personal room so backend can push notifications
+                newSocket.emit('join', user._id);
             });
 
             newSocket.on('notification', (data: any) => {
@@ -191,7 +196,13 @@ const NotificationCenter: React.FC = () => {
                                                 </span>
                                                 {notif.data?.orderId && (
                                                     <Link
-                                                        href={`/order-tracking/${notif.data.orderId}`}
+                                                        href={
+                                                            user.role === 'restaurant_admin' || user.role === 'restaurant'
+                                                                ? '/orders-board'
+                                                                : user.role === 'delivery_staff'
+                                                                    ? '/my-deliveries'
+                                                                    : `/order-tracking/${notif.data.orderId}`
+                                                        }
                                                         className="text-[10px] text-red-500 font-bold flex items-center gap-0.5 hover:underline"
                                                         onClick={() => setIsOpen(false)}
                                                     >

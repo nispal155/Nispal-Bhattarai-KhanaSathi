@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Phone, MessageSquare, MapPin, Clock, Loader2, Store, Wifi, WifiOff } from "lucide-react";
-import { useState, useEffect, useRef, useCallback, use } from "react";
+import { Phone, MessageSquare, MapPin, Clock, Loader2, Store } from "lucide-react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { getOrderById, cancelOrder } from "@/lib/orderService";
 import { io, Socket } from "socket.io-client";
@@ -12,8 +12,6 @@ import UserHeader from "@/components/layout/UserHeader";
 import ChatWindow from "@/components/Chat/ChatWindow";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
-const POLL_INTERVAL_CONNECTED = 120000;   // 2 min fallback when socket connected
-const POLL_INTERVAL_DISCONNECTED = 10000; // 10 s fallback when socket is down
 
 type ChatRecipient = 'restaurant' | 'rider' | null;
 
@@ -49,8 +47,6 @@ interface Order {
     _id: string;
     name: string;
     phone?: string;
-    profilePicture?: string;
-    vehicleDetails?: string;
   };
   pricing: {
     subtotal: number;
@@ -63,11 +59,6 @@ interface Order {
   isSubOrder?: boolean;
   estimatedDeliveryTime?: Date;
   createdAt: string;
-}
-
-interface RiderLocation {
-  lat: number;
-  lng: number;
 }
 
 const statusSteps = [
@@ -95,144 +86,57 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
-  const [socketConnected, setSocketConnected] = useState(false);
-  const [riderLocation, setRiderLocation] = useState<RiderLocation | null>(null);
   const { user: authUser } = useAuth();
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Stable fetch wrapped in useCallback so socket listeners can use it
-  const fetchOrder = useCallback(async () => {
-    try {
-      const response = await getOrderById(id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const responseData = response?.data as any;
-      const orderData = responseData?.data || responseData;
-
-      if (orderData?.isSubOrder && orderData?.multiOrder) {
-        const mid = typeof orderData.multiOrder === 'string'
-          ? orderData.multiOrder
-          : orderData.multiOrder._id;
-        router.push(`/multi-order-tracking/${mid}`);
-        return;
-      }
-
-      setOrder(orderData as Order);
-      setError("");
-    } catch (err) {
-      console.error("Error fetching order:", err);
-      setError("Failed to load order details");
-    } finally {
-      setLoading(false);
-    }
-  }, [id, router]);
-
-  // Helper: start / restart polling with the given interval
-  const startPolling = useCallback((interval: number) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(fetchOrder, interval);
-  }, [fetchOrder]);
-
-  // ── Socket setup ──────────────────────────────────────────────
   useEffect(() => {
-    fetchOrder(); // initial load
+    fetchOrder();
 
+    // Socket initialization
     const newSocket = io(SOCKET_URL, {
-      transports: ["websocket"],
-      auth: { token: localStorage.getItem("token") },
+      transports: ["websocket", "polling"],
+      auth: {
+        token: localStorage.getItem("token")
+      }
     });
 
-    // ─ Connection lifecycle ─
     newSocket.on("connect", () => {
-      console.log("[tracking] socket connected");
-      setSocketConnected(true);
-      newSocket.emit("joinOrder", id); // join the orderId room
-      startPolling(POLL_INTERVAL_CONNECTED);
+      console.log("Connected to tracking socket");
+      newSocket.emit("joinOrder", id);
     });
 
-    newSocket.on("disconnect", () => {
-      console.log("[tracking] socket disconnected");
-      setSocketConnected(false);
-      startPolling(POLL_INTERVAL_DISCONNECTED); // poll faster while disconnected
+    newSocket.on("orderStatusUpdate", (data: { orderId: string; status: string }) => {
+      if (data.orderId === id) {
+        setOrder(prev => prev ? { ...prev, status: data.status } : null);
+        // Re-fetch full order to get updated rider info etc.
+        fetchOrder();
+      }
     });
 
-    newSocket.on("connect_error", () => {
-      setSocketConnected(false);
-      startPolling(POLL_INTERVAL_DISCONNECTED);
-    });
-
-    // ─ Real-time order status updates ─
-    newSocket.on("orderStatusUpdate", (data: { orderId: string; status: string; order?: Record<string, unknown> }) => {
-      if (data.orderId !== id) return;
-
-      setOrder(prev => {
-        if (!prev) return prev;
-
-        // If the backend sent the full order object, merge it
-        if (data.order) {
-          const incoming = data.order as Record<string, unknown>;
-
-          // Map backend rider shape (username) → frontend shape (name)
-          let rider = prev.deliveryRider;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const incomingRider = (incoming as any).deliveryRider;
-          if (incomingRider) {
-            rider = {
-              _id: incomingRider._id,
-              name: incomingRider.username || incomingRider.name || 'Rider',
-              phone: incomingRider.phone,
-              profilePicture: incomingRider.profilePicture,
-              vehicleDetails: incomingRider.vehicleDetails,
-            };
-          }
-
-          return {
-            ...prev,
-            ...incoming,
-            status: data.status,
-            deliveryRider: rider,
-          } as Order;
-        }
-
-        // Fallback: only status changed
-        return { ...prev, status: data.status };
-      });
-    });
-
-    // ─ Rider assigned event ─
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     newSocket.on("riderAssigned", (data: { orderId: string; rider: any }) => {
-      if (data.orderId !== id || !data.rider) return;
-      setOrder(prev => {
-        if (!prev) return prev;
-        return {
+      if (data.orderId === id && data.rider) {
+        setOrder(prev => prev ? {
           ...prev,
           deliveryRider: {
             _id: data.rider._id,
             name: data.rider.username || data.rider.name || 'Rider',
             phone: data.rider.phone,
-            profilePicture: data.rider.profilePicture,
-            vehicleDetails: data.rider.vehicleDetails,
-          },
-        };
-      });
-    });
-
-    // ─ Rider live location ─
-    newSocket.on("riderLocation", (data: { orderId: string; lat: number; lng: number }) => {
-      if (data.orderId !== id) return;
-      setRiderLocation({ lat: data.lat, lng: data.lng });
+          }
+        } : null);
+      }
     });
 
     setSocket(newSocket);
 
-    // Start initial polling as fallback (will be adjusted by connect/disconnect)
-    startPolling(POLL_INTERVAL_CONNECTED);
+    // Polling as fallback
+    const interval = setInterval(fetchOrder, 60000);
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      clearInterval(interval);
       newSocket.disconnect();
     };
-  }, [id, fetchOrder, startPolling]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   // Cancellation timer logic
   useEffect(() => {
@@ -259,6 +163,35 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
 
     return () => clearInterval(timer);
   }, [order]);
+
+  const fetchOrder = async () => {
+    try {
+      const response = await getOrderById(id);
+      // Handle nested response structure
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseData = response?.data as any;
+      const orderData = responseData?.data || responseData;
+
+      // Auto-redirect to multi-order tracking if this is a sub-order
+      if (orderData?.isSubOrder && orderData?.multiOrder) {
+        const mid = typeof orderData.multiOrder === 'string'
+          ? orderData.multiOrder
+          : orderData.multiOrder._id;
+
+        console.log(`Redirecting sub-order ${id} to parent multi-order tracking ${mid}`);
+        router.push(`/multi-order-tracking/${mid}`);
+        return;
+      }
+
+      setOrder(orderData as Order);
+      setError("");
+    } catch (err) {
+      console.error("Error fetching order:", err);
+      setError("Failed to load order details");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCancelOrder = async () => {
     if (!confirm("Are you sure you want to cancel this order?")) return;
@@ -318,16 +251,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-xl font-bold text-gray-900">Order #{order.orderNumber}</h1>
-              <div className="flex items-center gap-2">
-                <p className="text-gray-600 text-sm">From {order.restaurant.name}</p>
-                {/* Live connection indicator */}
-                {order.status !== "delivered" && order.status !== "cancelled" && (
-                  <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${socketConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {socketConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    {socketConnected ? 'Live' : 'Reconnecting…'}
-                  </span>
-                )}
-              </div>
+              <p className="text-gray-600 text-sm">From {order.restaurant.name}</p>
             </div>
             {order.status !== "delivered" && order.status !== "cancelled" && (
               <div className="flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
@@ -354,22 +278,24 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                 {statusSteps.slice(0, 5).map((step) => (
                   <div key={step.id} className="flex flex-col items-center flex-1">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.id <= currentStep
+                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${
+                        step.id <= currentStep
                         ? "bg-red-500 text-white"
                         : "bg-gray-200 text-gray-500"
-                        }`}
+                      }`}
                     >
                       {step.id < currentStep ? (
-                        <span>✓</span>
+                        <span>&#10003;</span>
                       ) : (
                         <span>{step.id}</span>
                       )}
                     </div>
                     <span
-                      className={`text-xs mt-2 text-center ${step.id <= currentStep
+                      className={`text-xs mt-2 text-center ${
+                        step.id <= currentStep
                         ? "text-red-500 font-medium"
                         : "text-gray-500"
-                        }`}
+                      }`}
                     >
                       {step.title}
                     </span>
@@ -398,7 +324,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden">
                   <Image
-                    src={order.deliveryRider.profilePicture || "/rider-placeholder.jpg"}
+                    src="/rider-placeholder.jpg"
                     alt={order.deliveryRider.name}
                     width={64}
                     height={64}
@@ -407,11 +333,8 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                 </div>
                 <div className="flex-1">
                   <h3 className="font-medium text-gray-900">{order.deliveryRider.name}</h3>
-                  {order.deliveryRider.vehicleDetails && (
-                    <p className="text-sm text-gray-500">{order.deliveryRider.vehicleDetails}</p>
-                  )}
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <span className="text-yellow-500">★</span>
+                    <span className="text-yellow-500">&#9733;</span>
                     <span>4.8 Rating</span>
                   </div>
                 </div>
@@ -454,18 +377,9 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
               </div>
             </div>
 
-            {/* Map / Rider location */}
-            <div className="h-40 bg-gray-200 rounded-lg flex flex-col items-center justify-center relative overflow-hidden">
-              {riderLocation ? (
-                <>
-                  <MapPin className="w-6 h-6 text-red-500 animate-bounce" />
-                  <span className="text-xs text-gray-600 mt-1">
-                    Rider at {riderLocation.lat.toFixed(4)}, {riderLocation.lng.toFixed(4)}
-                  </span>
-                </>
-              ) : (
-                <span className="text-gray-500">Live Map Tracking</span>
-              )}
+            {/* Map Placeholder */}
+            <div className="h-40 bg-gray-200 rounded-lg flex items-center justify-center">
+              <span className="text-gray-500">Live Map Tracking</span>
             </div>
           </div>
         </div>
@@ -554,9 +468,10 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       {/* Footer */}
       <footer className="bg-red-500 mt-16 py-6">
         <div className="max-w-7xl mx-auto px-4 text-center text-white">
-          <p>© 2025 KhanaSathi. All rights reserved.</p>
+          <p>&copy; 2025 KhanaSathi. All rights reserved.</p>
         </div>
       </footer>
+
       {/* Chat Window */}
       {authUser && chatRecipient && (
         <ChatWindow

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, User, MessageSquare, Minimize2, Loader2, Info } from 'lucide-react';
+import { Send, User, MessageSquare, Minimize2, Loader2, Info, AlertCircle } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '@/context/AuthContext';
 import { getThreadMessages, sendThreadMessage, markThreadAsRead, getChatMessages, sendMessage, markAsRead } from '@/lib/chatService';
@@ -37,12 +37,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     const [isMinimized, setIsMinimized] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
+    const [chatError, setChatError] = useState<string | null>(null);
     const [socket, setSocket] = useState<Socket | null>(null);
-    const [isTyping, setIsTyping] = useState(false);
     const [typingUser, setTypingUser] = useState<string | null>(null);
     const { user } = useAuth();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+    const isMinimizedRef = useRef(isMinimized);
+
+    // Keep ref in sync so socket handler sees latest value
+    useEffect(() => { isMinimizedRef.current = isMinimized; }, [isMinimized]);
 
     // Determine room id
     const roomId = chatThread ? `${orderId}:${chatThread}` : orderId;
@@ -50,77 +54,81 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     const fetchMessages = useCallback(async () => {
         try {
             setIsLoading(true);
+            setChatError(null);
             if (chatThread) {
                 const res = await getThreadMessages(orderId, chatThread);
                 if (res.data?.success) {
                     setMessages(res.data.data);
-                    await markThreadAsRead(orderId, chatThread);
+                    await markThreadAsRead(orderId, chatThread).catch(() => {});
+                } else if (res.error) {
+                    setChatError(res.error);
                 }
             } else {
                 const res = await getChatMessages(orderId);
                 if (res.data?.success) {
                     setMessages(res.data.data);
-                    await markAsRead(orderId);
+                    await markAsRead(orderId).catch(() => {});
+                } else if (res.error) {
+                    setChatError(res.error);
                 }
             }
         } catch (error) {
             console.error("Failed to fetch messages:", error);
+            setChatError("Failed to load messages");
         } finally {
             setIsLoading(false);
         }
     }, [orderId, chatThread]);
 
     useEffect(() => {
-        if (orderId && user) {
-            fetchMessages();
+        if (!orderId || !user) return;
 
-            const newSocket = io(SOCKET_URL, {
-                transports: ["websocket", "polling"],
-                auth: { token: localStorage.getItem("token") }
+        fetchMessages();
+
+        const newSocket = io(SOCKET_URL, {
+            transports: ["websocket", "polling"],
+            auth: { token: localStorage.getItem("token") }
+        });
+
+        newSocket.on('connect', () => {
+            // Join thread room + legacy room + personal room
+            newSocket.emit('join', roomId);
+            if (chatThread) newSocket.emit('join', orderId);
+            newSocket.emit('join', user._id);
+        });
+
+        newSocket.on('newMessage', (message: Message) => {
+            setMessages(prev => {
+                // Deduplicate (socket echo + optimistic msg)
+                const withoutTemp = prev.filter(m => !m._id.startsWith('temp-') || m.content !== message.content);
+                if (withoutTemp.some(m => m._id === message._id)) return withoutTemp;
+                return [...withoutTemp, message];
             });
 
-            newSocket.on('connect', () => {
-                // Join thread room + user room
-                newSocket.emit('join', roomId);
-                if (chatThread) newSocket.emit('join', orderId); // also join legacy
-                newSocket.emit('join', user._id); // personal room for notifications
-            });
+            if (message.sender._id !== user?._id && isMinimizedRef.current) {
+                toast.success(`New message from ${message.sender.name || message.sender.username || recipientName}`);
+            }
+        });
 
-            newSocket.on('newMessage', (message: Message) => {
-                setMessages(prev => {
-                    if (prev.some(m => m._id === message._id)) return prev;
-                    return [...prev, message];
-                });
+        newSocket.on('typing', ({ username }: { userId: string; username: string }) => {
+            setTypingUser(username || 'Someone');
+        });
 
-                if (message.sender._id !== user?._id && isMinimized) {
-                    toast.success(`New message from ${message.sender.name || message.sender.username || recipientName}`);
-                }
-            });
+        newSocket.on('stopTyping', () => {
+            setTypingUser(null);
+        });
 
-            newSocket.on('typing', ({ username }: { userId: string; username: string }) => {
-                setTypingUser(username || 'Someone');
-            });
+        newSocket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+        });
 
-            newSocket.on('stopTyping', () => {
-                setTypingUser(null);
-            });
+        setSocket(newSocket);
 
-            newSocket.on('messagesRead', () => {
-                // Could update read receipts UI here
-            });
-
-            newSocket.on('connect_error', (error) => {
-                console.error('Socket connection error:', error);
-            });
-
-            setSocket(newSocket);
-
-            return () => {
-                newSocket.emit('leave', roomId);
-                newSocket.disconnect();
-            };
-        }
-    }, [orderId, user, roomId, chatThread, fetchMessages]);
+        return () => {
+            newSocket.emit('leave', roomId);
+            newSocket.disconnect();
+        };
+    }, [orderId, user, roomId, chatThread, fetchMessages, recipientName]);
 
     useEffect(() => {
         scrollToBottom();
@@ -147,21 +155,55 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         const messageContent = newMessage.trim();
         setNewMessage("");
         setIsSending(true);
+        setChatError(null);
 
         // Stop typing indicator
         if (socket) socket.emit('stopTyping', { roomId, userId: user._id });
 
+        // Optimistic message – show immediately
+        const tempId = `temp-${Date.now()}`;
+        const optimisticMsg: Message = {
+            _id: tempId,
+            sender: { _id: user._id, username: user.username, name: user.name },
+            content: messageContent,
+            senderRole: user.role || 'customer',
+            messageType: 'user',
+            createdAt: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, optimisticMsg]);
+
         try {
+            let savedMsg: Message | null = null;
             if (chatThread) {
                 const res = await sendThreadMessage(orderId, chatThread, messageContent);
-                if (!res.data?.success) throw new Error('Failed to send');
+                if (res.data?.success) {
+                    savedMsg = res.data.data as unknown as Message;
+                } else {
+                    throw new Error(res.error || 'Failed to send');
+                }
             } else {
                 let senderRole = user.role || 'customer';
                 if (senderRole === 'restaurant_admin') senderRole = 'restaurant';
                 const res = await sendMessage({ orderId, message: messageContent, senderRole });
-                if (!res.data?.success) throw new Error('Failed to send');
+                if (res.data?.success) {
+                    savedMsg = res.data.data as unknown as Message;
+                } else {
+                    throw new Error(res.error || 'Failed to send');
+                }
+            }
+
+            // Replace optimistic msg with real one if socket hasn't already
+            if (savedMsg) {
+                setMessages(prev => {
+                    const filtered = prev.filter(m => m._id !== tempId);
+                    if (!filtered.some(m => m._id === savedMsg!._id)) {
+                        return [...filtered, savedMsg!];
+                    }
+                    return filtered;
+                });
             }
         } catch {
+            setMessages(prev => prev.filter(m => m._id !== tempId));
             toast.error("Failed to send message");
             setNewMessage(messageContent);
         } finally {
@@ -227,6 +269,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                     <div className="h-full flex items-center justify-center">
                         <Loader2 className="w-6 h-6 animate-spin text-red-600" />
                     </div>
+                ) : chatError ? (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-400 gap-2">
+                        <AlertCircle className="w-8 h-8 text-red-400" />
+                        <p className="text-xs text-red-500 text-center">{chatError}</p>
+                        <button onClick={fetchMessages} className="text-xs text-red-600 underline hover:text-red-700">Retry</button>
+                    </div>
                 ) : messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-gray-400">
                         <MessageSquare className="w-8 h-8 opacity-20 mb-2" />
@@ -246,9 +294,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                             );
                         }
                         // User messages
+                        const isMine = msg.sender._id === user?._id;
+                        const isTemp = msg._id.startsWith('temp-');
                         return (
-                            <div key={msg._id} className={`flex flex-col ${msg.sender._id === user?._id ? 'items-end' : 'items-start'}`}>
-                                {msg.sender._id !== user?._id && (
+                            <div key={msg._id} className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
+                                {!isMine && (
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-xs font-medium text-gray-600">
                                             {msg.sender.name || msg.sender.username}
@@ -258,11 +308,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                                         </span>
                                     </div>
                                 )}
-                                <div className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${msg.sender._id === user?._id ? 'bg-red-600 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-100 shadow-sm rounded-tl-none'}`}>
+                                <div className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${isMine ? 'bg-red-600 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-100 shadow-sm rounded-tl-none'} ${isTemp ? 'opacity-60' : ''}`}>
                                     {msg.content}
                                 </div>
                                 <span className="text-[10px] text-gray-400 mt-1">
-                                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {isTemp ? 'Sending…' : new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                             </div>
                         );
