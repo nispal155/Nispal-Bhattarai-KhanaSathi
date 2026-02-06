@@ -1,3 +1,5 @@
+"use client";
+
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { Search } from "lucide-react";
 import Image from "next/image";

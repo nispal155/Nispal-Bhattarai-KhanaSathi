@@ -12,24 +12,63 @@ export default function Restaurants() {
   const { user } = useAuth();
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [cuisineFilter, setCuisineFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [allCuisines, setAllCuisines] = useState<string[]>([]);
+
+  // A refresh key to force useEffect re-run after delete
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    fetchRestaurants();
-  }, []);
+    let cancelled = false;
 
-  const fetchRestaurants = async () => {
-    try {
-      setLoading(true);
-      const res = await getAllRestaurants();
-      if (res.data && res.data.data) {
-        setRestaurants(res.data.data); // backend returns { success, data }
+    const loadRestaurants = async () => {
+      try {
+        setLoading(true);
+        const res = await getAllRestaurants({
+          search: appliedSearch || undefined,
+          status: statusFilter || undefined,
+          cuisine: cuisineFilter || undefined,
+          page: currentPage,
+          limit: 15,
+        });
+        if (cancelled) return;
+        if (res.data && res.data.data) {
+          setRestaurants(res.data.data);
+          setTotalPages(res.data.pages || 1);
+          setTotalCount(res.data.total || res.data.data.length);
+
+          // Build cuisine list from first unfiltered load
+          if (!appliedSearch && !statusFilter && !cuisineFilter) {
+            const cuisines = new Set<string>();
+            res.data.data.forEach((r: any) => {
+              if (r.cuisineType) {
+                r.cuisineType.forEach((c: string) => cuisines.add(c));
+              }
+            });
+            setAllCuisines(Array.from(cuisines).sort());
+          }
+        } else {
+          setRestaurants([]);
+          setTotalPages(1);
+          setTotalCount(0);
+        }
+      } catch (err: any) {
+        if (!cancelled) toast.error("Failed to load restaurants");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err: any) {
-      toast.error("Failed to load restaurants");
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+
+    loadRestaurants();
+
+    return () => { cancelled = true; };
+  }, [appliedSearch, statusFilter, cuisineFilter, currentPage, refreshKey]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this restaurant?")) return;
@@ -37,7 +76,7 @@ export default function Restaurants() {
     try {
       await deleteRestaurant(id);
       toast.success("Restaurant deleted");
-      fetchRestaurants();
+      setRefreshKey(k => k + 1);
     } catch (err) {
       toast.error("Failed to delete restaurant");
     }
@@ -72,31 +111,50 @@ export default function Restaurants() {
 
         {/* Filters */}
         <div className="p-8">
-          <div className="flex flex-col md:flex-row gap-4 mb-8">
+          <form onSubmit={(e) => { e.preventDefault(); setCurrentPage(1); setAppliedSearch(search); }} className="flex flex-col md:flex-row gap-4 mb-8">
 
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search restaurants..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-12 pr-4 text-black py-3.5 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition"
               />
             </div>
-            <select className="px-5 py-3.5 text-black bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500">
-              <option>All Statuses</option>
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+              className="px-5 py-3.5 text-black bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+            >
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="deactivated">Deactivated</option>
             </select>
-            <select className="px-5 py-3.5 text-black bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500">
-              <option>All Cuisines</option>
+            <select
+              value={cuisineFilter}
+              onChange={(e) => { setCuisineFilter(e.target.value); setCurrentPage(1); }}
+              className="px-5 py-3.5 text-black bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+            >
+              <option value="">All Cuisines</option>
+              {allCuisines.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
-            <button className="px-6 py-3.5  bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition">
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setAppliedSearch(''); setStatusFilter(''); setCuisineFilter(''); setCurrentPage(1); }}
+              className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition"
+            >
               Reset Filters
             </button>
-            <button onClick={() => router.push("/add-restaurants")}
+            <button type="button" onClick={() => router.push("/add-restaurants")}
               className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full font-medium shadow-md transition"
             >
               Add Restaurant
             </button>
-          </div>
+          </form>
 
           {/* Table */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -207,11 +265,27 @@ export default function Restaurants() {
 
             {/* Pagination */}
             <div className="px-6 py-5 border-t border-gray-200 flex items-center justify-between">
-              <p className="text-gray-600 text-sm">Showing 1–{restaurants.length} of {restaurants.length} restaurants</p>
-              <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-gray-100 rounded transition">&lt;</button>
-                <button className="p-2 hover:bg-gray-100 rounded transition">&gt;</button>
-              </div>
+              <p className="text-gray-600 text-sm">Showing {restaurants.length} of {totalCount} restaurants</p>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50 transition"
+                  >
+                    Previous
+                  </button>
+                  <span className="px-4 py-2 bg-red-500 text-white rounded-lg">{currentPage}</span>
+                  <span className="text-gray-500">of {totalPages}</span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50 transition"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

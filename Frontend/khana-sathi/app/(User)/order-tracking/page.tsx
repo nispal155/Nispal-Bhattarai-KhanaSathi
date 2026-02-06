@@ -23,7 +23,7 @@ interface Order {
   };
   createdAt: string;
   isSubOrder?: boolean;
-  multiOrder?: string;
+  multiOrder?: string | { _id: string; orderNumber: string };
 }
 
 interface DisplayOrder {

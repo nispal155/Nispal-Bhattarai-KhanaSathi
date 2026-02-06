@@ -78,8 +78,22 @@ export async function createRestaurant(
  * GET ALL RESTAURANTS
  * GET /api/restaurants
  */
-export async function getAllRestaurants() {
-  return get<ApiResponse<Restaurant[]>>('/restaurant');
+export async function getAllRestaurants(options?: {
+  search?: string;
+  status?: string;
+  cuisine?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (options?.search) params.append('search', options.search);
+  if (options?.status) params.append('status', options.status);
+  if (options?.cuisine) params.append('cuisine', options.cuisine);
+  if (options?.page) params.append('page', options.page.toString());
+  if (options?.limit) params.append('limit', options.limit.toString());
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return get<ApiResponse<Restaurant[]> & { total?: number; pages?: number }>(`/restaurant${query}`);
 }
 
 /**

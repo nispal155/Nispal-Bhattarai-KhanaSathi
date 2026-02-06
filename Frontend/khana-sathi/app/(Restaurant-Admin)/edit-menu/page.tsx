@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import {
@@ -27,7 +27,7 @@ interface MenuItem {
   preparationTime: number;
 }
 
-export default function EditMenuItem() {
+function EditMenuItemContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const itemId = searchParams.get("id");
@@ -349,5 +349,13 @@ export default function EditMenuItem() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function EditMenuItem() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-red-500" /></div>}>
+      <EditMenuItemContent />
+    </Suspense>
   );
 }

@@ -198,12 +198,43 @@ exports.updateMyRestaurant = async (req, res) => {
  */
 exports.getAllRestaurants = async (req, res) => {
   try {
-    const restaurants = await Restaurant.find({ isActive: true })
-      .sort({ createdAt: -1 });
+    const { search, status, cuisine, page = 1, limit = 20 } = req.query;
+
+    let query = {};
+
+    // Status filter: 'active', 'deactivated', or all
+    if (status === 'active') {
+      query.isActive = true;
+    } else if (status === 'deactivated') {
+      query.isActive = false;
+    }
+    // If no status specified from admin, show all; for public use, default active only
+
+    // Search by name, contact email, or contact phone
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { contactEmail: { $regex: search, $options: 'i' } },
+        { contactPhone: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Cuisine filter
+    if (cuisine) {
+      query.cuisineType = { $in: [new RegExp(cuisine, 'i')] };
+    }
+
+    const total = await Restaurant.countDocuments(query);
+    const restaurants = await Restaurant.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit));
 
     res.status(200).json({
       success: true,
       count: restaurants.length,
+      total,
+      pages: Math.ceil(total / Number(limit)),
       data: restaurants
     });
   } catch (error) {

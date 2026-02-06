@@ -25,6 +25,7 @@ export default function UserManagementPage() {
     const [roleFilter, setRoleFilter] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
+    const [refreshKey, setRefreshKey] = useState(0);
 
     useEffect(() => {
         let cancelled = false;
@@ -67,7 +68,7 @@ export default function UserManagementPage() {
         loadData();
 
         return () => { cancelled = true; };
-    }, [roleFilter, currentPage, appliedSearch]);
+    }, [roleFilter, currentPage, appliedSearch, refreshKey]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -79,7 +80,7 @@ export default function UserManagementPage() {
         try {
             await adminUpdateUser(userId, { isApproved: !currentStatus });
             toast.success(currentStatus ? 'User suspended' : 'User approved');
-            fetchData();
+            setRefreshKey(k => k + 1);
         } catch {
             toast.error('Failed to update user status');
         }
@@ -89,7 +90,7 @@ export default function UserManagementPage() {
         try {
             await adminUpdateUser(userId, { isVerified: !currentStatus });
             toast.success(currentStatus ? 'Verification removed' : 'User verified');
-            fetchData();
+            setRefreshKey(k => k + 1);
         } catch {
             toast.error('Failed to verify user');
         }
@@ -100,7 +101,7 @@ export default function UserManagementPage() {
         try {
             await adminDeleteUser(userId);
             toast.success('User deleted successfully');
-            fetchData();
+            setRefreshKey(k => k + 1);
         } catch {
             toast.error('Failed to delete user');
         }
