@@ -15,43 +15,66 @@ const init = (server) => {
     io.on('connection', (socket) => {
         console.log(`New connection: ${socket.id}`);
 
-        // Join a room based on ID (could be orderId or userId)
+        // Join a room – supports orderId, `orderId:thread`, or userId
         socket.on('join', (roomId) => {
             socket.join(roomId);
             console.log(`Socket ${socket.id} joined room ${roomId}`);
         });
 
-        // Chat functionality
+        // Alias: joinOrder (used by order-tracking page)
+        socket.on('joinOrder', (orderId) => {
+            socket.join(orderId);
+            console.log(`Socket ${socket.id} joined order room ${orderId}`);
+        });
+
+        // Leave a room
+        socket.on('leave', (roomId) => {
+            socket.leave(roomId);
+            console.log(`Socket ${socket.id} left room ${roomId}`);
+        });
+
+        // Rider location broadcast – rider emits, customer receives
+        socket.on('riderLocation', ({ orderId, lat, lng }) => {
+            if (orderId && lat != null && lng != null) {
+                socket.to(orderId).emit('riderLocation', { orderId, lat, lng });
+            }
+        });
+
+        // Chat functionality (legacy – kept for backward compat)
         socket.on('sendMessage', async (data) => {
-            const { orderId, senderId, senderRole, content, attachments } = data;
+            const { orderId, senderId, senderRole, content, attachments, thread } = data;
 
             try {
-                // Persist message to DB
+                // Determine chatThread
+                const chatThread = thread || 'customer-restaurant';
+
                 const message = await Message.create({
                     order: orderId,
+                    chatThread,
                     sender: senderId,
                     senderRole,
+                    messageType: 'user',
                     content,
-                    attachments
+                    attachments,
+                    readBy: [senderId]
                 });
 
-                // Broadcast to everyone in the room (including sender to confirm receipt)
+                // Broadcast to both legacy room and thread room
                 io.to(orderId).emit('newMessage', message);
+                if (thread) {
+                    io.to(`${orderId}:${thread}`).emit('newMessage', message);
+                }
 
-                // Persist notification for the receiver
+                // Notifications
                 const Notification = require('../models/Notification');
                 const Order = require('../models/Order');
                 const order = await Order.findById(orderId);
 
                 if (order) {
-                    // Determine receiver based on senderRole
                     let receiverId;
                     if (senderRole === 'customer') {
-                        // Notify restaurant or delivery staff? Usually both or context dependent.
-                        // For simplicity, notify the restaurant owner.
                         receiverId = order.restaurant;
                     } else {
-                        // Notify customer
                         receiverId = order.user;
                     }
 
@@ -66,17 +89,19 @@ const init = (server) => {
                     }
                 }
 
-                // Also emit a notification event for the receiver if they are not in the room
-                io.emit('notification', {
-                    type: 'chat',
-                    orderId,
-                    message: `New message from ${senderRole}`
-                });
-
             } catch (error) {
                 console.error('Chat error:', error);
                 socket.emit('error', { message: 'Failed to send message' });
             }
+        });
+
+        // Typing indicator – relay to room
+        socket.on('typing', ({ roomId, userId, username }) => {
+            socket.to(roomId).emit('typing', { userId, username });
+        });
+
+        socket.on('stopTyping', ({ roomId, userId }) => {
+            socket.to(roomId).emit('stopTyping', { userId });
         });
 
         socket.on('disconnect', () => {
@@ -97,7 +122,12 @@ const getIO = () => {
 // Helper to emit order updates
 const emitOrderUpdate = (orderId, status, data) => {
     if (io) {
-        io.to(orderId).emit('orderStatusUpdate', { orderId, status, data });
+        io.to(orderId).emit('orderStatusUpdate', { orderId, status, ...data });
+
+        // If a rider was just assigned, emit a dedicated event so the tracking page updates the rider card
+        if (data?.rider) {
+            io.to(orderId).emit('riderAssigned', { orderId, rider: data.rider });
+        }
     }
 };
 

@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, User, MessageSquare, Minimize2, Loader2 } from 'lucide-react';
+import { Send, User, MessageSquare, Minimize2, Loader2, Info } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '@/context/AuthContext';
-import { getChatMessages, sendMessage, markAsRead } from '@/lib/chatService';
+import { getThreadMessages, sendThreadMessage, markThreadAsRead, getChatMessages, sendMessage, markAsRead } from '@/lib/chatService';
+import type { ChatThread } from '@/lib/chatService';
 import toast from 'react-hot-toast';
 
 interface Message {
@@ -16,6 +17,7 @@ interface Message {
     };
     content: string;
     senderRole: string;
+    messageType?: 'user' | 'system';
     createdAt: string;
 }
 
@@ -23,36 +25,50 @@ interface ChatWindowProps {
     orderId: string;
     recipientName: string;
     recipientRole: 'restaurant' | 'delivery_staff' | 'customer';
+    chatThread?: ChatThread;
     onClose?: () => void;
 }
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipientRole, onClose }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipientRole, chatThread, onClose }) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState("");
     const [isMinimized, setIsMinimized] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
     const [socket, setSocket] = useState<Socket | null>(null);
+    const [isTyping, setIsTyping] = useState(false);
+    const [typingUser, setTypingUser] = useState<string | null>(null);
     const { user } = useAuth();
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+
+    // Determine room id
+    const roomId = chatThread ? `${orderId}:${chatThread}` : orderId;
 
     const fetchMessages = useCallback(async () => {
         try {
             setIsLoading(true);
-            const res = await getChatMessages(orderId);
-            if (res.data?.success) {
-                setMessages(res.data.data);
-                // Mark messages as read when fetched
-                await markAsRead(orderId);
+            if (chatThread) {
+                const res = await getThreadMessages(orderId, chatThread);
+                if (res.data?.success) {
+                    setMessages(res.data.data);
+                    await markThreadAsRead(orderId, chatThread);
+                }
+            } else {
+                const res = await getChatMessages(orderId);
+                if (res.data?.success) {
+                    setMessages(res.data.data);
+                    await markAsRead(orderId);
+                }
             }
         } catch (error) {
             console.error("Failed to fetch messages:", error);
         } finally {
             setIsLoading(false);
         }
-    }, [orderId]);
+    }, [orderId, chatThread]);
 
     useEffect(() => {
         if (orderId && user) {
@@ -64,23 +80,33 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             });
 
             newSocket.on('connect', () => {
-                console.log('Socket connected:', newSocket.id);
-                newSocket.emit('join', orderId);
+                // Join thread room + user room
+                newSocket.emit('join', roomId);
+                if (chatThread) newSocket.emit('join', orderId); // also join legacy
+                newSocket.emit('join', user._id); // personal room for notifications
             });
 
             newSocket.on('newMessage', (message: Message) => {
                 setMessages(prev => {
-                    // Avoid duplicate messages
-                    if (prev.some(m => m._id === message._id)) {
-                        return prev;
-                    }
+                    if (prev.some(m => m._id === message._id)) return prev;
                     return [...prev, message];
                 });
-                
-                // Show toast if message is from someone else and window is minimized
+
                 if (message.sender._id !== user?._id && isMinimized) {
                     toast.success(`New message from ${message.sender.name || message.sender.username || recipientName}`);
                 }
+            });
+
+            newSocket.on('typing', ({ username }: { userId: string; username: string }) => {
+                setTypingUser(username || 'Someone');
+            });
+
+            newSocket.on('stopTyping', () => {
+                setTypingUser(null);
+            });
+
+            newSocket.on('messagesRead', () => {
+                // Could update read receipts UI here
             });
 
             newSocket.on('connect_error', (error) => {
@@ -90,10 +116,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             setSocket(newSocket);
 
             return () => {
+                newSocket.emit('leave', roomId);
                 newSocket.disconnect();
             };
         }
-    }, [orderId, user, fetchMessages]);
+    }, [orderId, user, roomId, chatThread, fetchMessages]);
 
     useEffect(() => {
         scrollToBottom();
@@ -101,6 +128,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    const handleTyping = () => {
+        if (socket && user) {
+            socket.emit('typing', { roomId, userId: user._id, username: user.username });
+            if (typingTimeout.current) clearTimeout(typingTimeout.current);
+            typingTimeout.current = setTimeout(() => {
+                socket.emit('stopTyping', { roomId, userId: user._id });
+            }, 2000);
+        }
     };
 
     const handleSendMessage = async (e: React.FormEvent) => {
@@ -111,27 +148,21 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         setNewMessage("");
         setIsSending(true);
 
+        // Stop typing indicator
+        if (socket) socket.emit('stopTyping', { roomId, userId: user._id });
+
         try {
-            // Determine sender role
-            let senderRole = user.role || 'customer';
-            if (senderRole === 'admin') senderRole = 'admin';
-            else if (senderRole === 'restaurant_admin') senderRole = 'restaurant';
-            else if (senderRole === 'delivery_staff') senderRole = 'delivery_staff';
-            else senderRole = 'customer';
-
-            const data = {
-                orderId,
-                message: messageContent,
-                senderRole
-            };
-
-            const res = await sendMessage(data);
-            if (!res.data?.success) {
-                throw new Error(res.error || 'Failed to send message');
+            if (chatThread) {
+                const res = await sendThreadMessage(orderId, chatThread, messageContent);
+                if (!res.data?.success) throw new Error('Failed to send');
+            } else {
+                let senderRole = user.role || 'customer';
+                if (senderRole === 'restaurant_admin') senderRole = 'restaurant';
+                const res = await sendMessage({ orderId, message: messageContent, senderRole });
+                if (!res.data?.success) throw new Error('Failed to send');
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to send message");
-            // Restore message if sending failed
             setNewMessage(messageContent);
         } finally {
             setIsSending(false);
@@ -140,17 +171,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
 
     const getRoleBadgeColor = (role: string) => {
         switch (role) {
-            case 'restaurant':
-                return 'bg-orange-100 text-orange-700';
-            case 'delivery_staff':
-            case 'rider':
-                return 'bg-blue-100 text-blue-700';
-            case 'customer':
-                return 'bg-green-100 text-green-700';
-            default:
-                return 'bg-gray-100 text-gray-700';
+            case 'restaurant': return 'bg-orange-100 text-orange-700';
+            case 'delivery_staff': case 'rider': return 'bg-blue-100 text-blue-700';
+            case 'customer': return 'bg-green-100 text-green-700';
+            default: return 'bg-gray-100 text-gray-700';
         }
     };
+
+    const threadLabel = chatThread
+        ? chatThread.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ↔ ')
+        : '';
 
     if (isMinimized) {
         return (
@@ -174,7 +204,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                     </div>
                     <div>
                         <h4 className="font-bold text-sm leading-none">{recipientName}</h4>
-                        <span className="text-[10px] opacity-70 uppercase tracking-wider">{recipientRole.replace('_', ' ')}</span>
+                        <span className="text-[10px] opacity-70 uppercase tracking-wider">
+                            {threadLabel || recipientRole.replace('_', ' ')}
+                        </span>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -201,35 +233,45 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                         <p className="text-xs">No messages yet. Start the conversation!</p>
                     </div>
                 ) : (
-                    messages.map((msg) => (
-                        <div
-                            key={msg._id}
-                            className={`flex flex-col ${msg.sender._id === user?._id ? 'items-end' : 'items-start'}`}
-                        >
-                            {/* Sender name and role badge for received messages */}
-                            {msg.sender._id !== user?._id && (
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-xs font-medium text-gray-600">
-                                        {msg.sender.name || msg.sender.username}
-                                    </span>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${getRoleBadgeColor(msg.senderRole)}`}>
-                                        {msg.senderRole.replace('_', ' ')}
-                                    </span>
+                    messages.map((msg) => {
+                        // System messages
+                        if (msg.messageType === 'system') {
+                            return (
+                                <div key={msg._id} className="flex justify-center">
+                                    <div className="flex items-center gap-1 bg-gray-200 text-gray-600 text-[11px] px-3 py-1 rounded-full">
+                                        <Info className="w-3 h-3" />
+                                        {msg.content}
+                                    </div>
                                 </div>
-                            )}
-                            <div
-                                className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${msg.sender._id === user?._id
-                                    ? 'bg-red-600 text-white rounded-tr-none'
-                                    : 'bg-white text-gray-800 border border-gray-100 shadow-sm rounded-tl-none'
-                                    }`}
-                            >
-                                {msg.content}
+                            );
+                        }
+                        // User messages
+                        return (
+                            <div key={msg._id} className={`flex flex-col ${msg.sender._id === user?._id ? 'items-end' : 'items-start'}`}>
+                                {msg.sender._id !== user?._id && (
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-xs font-medium text-gray-600">
+                                            {msg.sender.name || msg.sender.username}
+                                        </span>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${getRoleBadgeColor(msg.senderRole)}`}>
+                                            {msg.senderRole.replace('_', ' ')}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${msg.sender._id === user?._id ? 'bg-red-600 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-100 shadow-sm rounded-tl-none'}`}>
+                                    {msg.content}
+                                </div>
+                                <span className="text-[10px] text-gray-400 mt-1">
+                                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
                             </div>
-                            <span className="text-[10px] text-gray-400 mt-1">
-                                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                        </div>
-                    ))
+                        );
+                    })
+                )}
+                {typingUser && (
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                        <span className="animate-pulse">●</span> {typingUser} is typing…
+                    </div>
                 )}
                 <div ref={messagesEndRef} />
             </div>
@@ -239,7 +281,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                 <input
                     type="text"
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }}
                     placeholder="Type a message..."
                     className="flex-1 px-4 py-2 bg-gray-100 border-none rounded-full text-sm focus:ring-2 focus:ring-red-500 outline-none transition"
                     disabled={isSending}

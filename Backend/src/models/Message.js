@@ -6,6 +6,11 @@ const messageSchema = new mongoose.Schema({
         ref: 'Order',
         required: true
     },
+    chatThread: {
+        type: String,
+        enum: ['customer-restaurant', 'customer-rider', 'restaurant-rider'],
+        required: true
+    },
     sender: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
@@ -16,23 +21,28 @@ const messageSchema = new mongoose.Schema({
         enum: ['customer', 'restaurant', 'rider', 'delivery_staff', 'admin'],
         required: true
     },
+    messageType: {
+        type: String,
+        enum: ['user', 'system'],
+        default: 'user'
+    },
     content: {
         type: String,
         required: true
     },
     attachments: [{
-        type: String // URL to images or files
+        type: String
     }],
-    isRead: {
-        type: Boolean,
-        default: false
-    }
+    readBy: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }]
 }, {
     timestamps: true
 });
 
 // Index for performance
-messageSchema.index({ order: 1, createdAt: 1 });
+messageSchema.index({ order: 1, chatThread: 1, createdAt: 1 });
 
 const Message = mongoose.model('Message', messageSchema);
 

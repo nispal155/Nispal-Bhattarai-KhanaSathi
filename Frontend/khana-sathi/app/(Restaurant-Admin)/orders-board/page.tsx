@@ -408,6 +408,7 @@ export default function OrdersBoard() {
           orderId={activeChatOrderId}
           recipientName={orders.find(o => o._id === activeChatOrderId)?.customer?.username || "Customer"}
           recipientRole="customer"
+          chatThread="customer-restaurant"
           onClose={() => setActiveChatOrderId(null)}
         />
       )}

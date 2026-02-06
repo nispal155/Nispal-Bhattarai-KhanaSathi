@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { getRiderOrders, updateDeliveryStatus } from '@/lib/orderService';
 import ChatWindow from '@/components/Chat/ChatWindow';
+import type { ChatThread } from '@/lib/chatService';
 
 interface Order {
     _id: string;
@@ -39,7 +40,7 @@ interface Order {
     items: Array<{ name: string; quantity: number }>;
 }
 
-type ChatRecipient = { orderId: string; name: string; role: 'customer' | 'restaurant' } | null;
+type ChatRecipient = { orderId: string; name: string; role: 'customer' | 'restaurant'; thread: ChatThread } | null;
 
 export default function MyDeliveriesPage() {
     const { user, isLoading: authLoading } = useAuth();
@@ -202,7 +203,8 @@ export default function MyDeliveriesPage() {
                                             onClick={() => setChatRecipient({
                                                 orderId: delivery._id,
                                                 name: delivery.customer?.username || 'Customer',
-                                                role: 'customer'
+                                                role: 'customer',
+                                                thread: 'customer-rider'
                                             })}
                                             className="flex items-center justify-center gap-2 bg-orange-100 hover:bg-orange-200 text-orange-700 py-2 px-4 rounded-lg font-medium transition"
                                         >
@@ -241,6 +243,7 @@ export default function MyDeliveriesPage() {
                     orderId={chatRecipient.orderId}
                     recipientName={chatRecipient.name}
                     recipientRole={chatRecipient.role}
+                    chatThread={chatRecipient.thread}
                     onClose={() => setChatRecipient(null)}
                 />
             )}

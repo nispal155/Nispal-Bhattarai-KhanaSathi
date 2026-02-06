@@ -481,6 +481,7 @@ export default function RiderDashboardPage() {
           orderId={activeChatOrderId}
           recipientName={stats.currentOrder.customer?.username || "Customer"}
           recipientRole="customer"
+          chatThread="customer-rider"
           onClose={() => setActiveChatOrderId(null)}
         />
       )}
