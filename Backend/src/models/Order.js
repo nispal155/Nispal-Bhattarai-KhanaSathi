@@ -155,7 +155,11 @@ const orderSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     }
-  }]
+  }],
+  isHiddenForCustomer: {
+    type: Boolean,
+    default: false
+  }
 }, {
   timestamps: true
 });

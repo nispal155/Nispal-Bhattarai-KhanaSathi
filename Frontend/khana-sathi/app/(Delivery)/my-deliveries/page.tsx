@@ -3,6 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { useSocket } from '@/context/SocketContext';
 import {
     ArrowLeft,
     Package,
@@ -13,6 +14,7 @@ import {
     MessageSquare
 } from 'lucide-react';
 import { getRiderOrders, updateDeliveryStatus } from '@/lib/orderService';
+import { getRiderEarnings } from '@/lib/riderService';
 import ChatWindow from '@/components/Chat/ChatWindow';
 import type { ChatThread } from '@/lib/chatService';
 
@@ -44,11 +46,13 @@ type ChatRecipient = { orderId: string; name: string; role: 'customer' | 'restau
 
 export default function MyDeliveriesPage() {
     const { user, isLoading: authLoading } = useAuth();
+    const { onOrderUpdate, onRiderAssigned } = useSocket();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [deliveries, setDeliveries] = useState<Order[]>([]);
     const [updating, setUpdating] = useState<string | null>(null);
     const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
+    const [deliveryCounts, setDeliveryCounts] = useState({ today: 0, week: 0, total: 0 });
 
     useEffect(() => {
         if (authLoading) return;
@@ -58,7 +62,25 @@ export default function MyDeliveriesPage() {
             return;
         }
         fetchDeliveries();
-    }, [user, router, authLoading]);
+        fetchDeliveryCounts();
+
+        // Listen for real-time order assignments (personal room)
+        const unsubscribeRider = onRiderAssigned((data: any) => {
+            console.log("[Socket] Rider assigned event received on deliveries:", data);
+            fetchDeliveries();
+        });
+
+        // Listen for order updates (order rooms - though we might not be in them yet)
+        const unsubscribeOrder = onOrderUpdate((data: any) => {
+            console.log("[Socket] Order update received on my-deliveries:", data);
+            fetchDeliveries();
+        });
+
+        return () => {
+            unsubscribeRider();
+            unsubscribeOrder();
+        };
+    }, [user, router, authLoading, onRiderAssigned, onOrderUpdate]);
 
     const fetchDeliveries = async () => {
         try {
@@ -72,6 +94,23 @@ export default function MyDeliveriesPage() {
             console.error("Error fetching deliveries:", err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchDeliveryCounts = async () => {
+        if (!user?._id) return;
+        try {
+            const response = await getRiderEarnings(user._id);
+            const data = (response?.data as any)?.data;
+            if (data) {
+                setDeliveryCounts({
+                    today: data.today?.deliveries || 0,
+                    week: data.week?.deliveries || 0,
+                    total: data.total?.deliveries || 0,
+                });
+            }
+        } catch (err) {
+            console.error('Error fetching delivery counts:', err);
         }
     };
 
@@ -153,17 +192,16 @@ export default function MyDeliveriesPage() {
                                                 <p className="text-sm text-gray-500">{delivery.restaurant?.name}</p>
                                             </div>
                                         </div>
-                                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                                            delivery.status === 'on_the_way' 
-                                                ? 'bg-blue-100 text-blue-700'
-                                                : delivery.status === 'picked_up'
+                                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${delivery.status === 'on_the_way'
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : delivery.status === 'picked_up'
                                                 ? 'bg-yellow-100 text-yellow-700'
                                                 : 'bg-green-100 text-green-700'
-                                        }`}>
+                                            }`}>
                                             {delivery.status.replace('_', ' ')}
                                         </span>
                                     </div>
-                                    
+
                                     <div className="ml-6 pl-9 border-l-2 border-gray-100">
                                         <div className="flex items-start gap-2 mb-2">
                                             <MapPin className="w-4 h-4 text-red-500 mt-1" />
@@ -199,7 +237,7 @@ export default function MyDeliveriesPage() {
                                                 {updating === delivery._id ? 'Updating...' : 'Mark Delivered'}
                                             </button>
                                         )}
-                                        <button 
+                                        <button
                                             onClick={() => setChatRecipient({
                                                 orderId: delivery._id,
                                                 name: delivery.customer?.username || 'Customer',
@@ -223,15 +261,15 @@ export default function MyDeliveriesPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                     <div className="bg-white p-4 rounded-xl shadow-sm text-center">
-                        <p className="text-2xl font-bold text-gray-800">0</p>
+                        <p className="text-2xl font-bold text-gray-800">{deliveryCounts.today}</p>
                         <p className="text-xs text-gray-500">Today</p>
                     </div>
                     <div className="bg-white p-4 rounded-xl shadow-sm text-center">
-                        <p className="text-2xl font-bold text-gray-800">0</p>
+                        <p className="text-2xl font-bold text-gray-800">{deliveryCounts.week}</p>
                         <p className="text-xs text-gray-500">This Week</p>
                     </div>
                     <div className="bg-white p-4 rounded-xl shadow-sm text-center">
-                        <p className="text-2xl font-bold text-gray-800">0</p>
+                        <p className="text-2xl font-bold text-gray-800">{deliveryCounts.total}</p>
                         <p className="text-xs text-gray-500">Total</p>
                     </div>
                 </div>

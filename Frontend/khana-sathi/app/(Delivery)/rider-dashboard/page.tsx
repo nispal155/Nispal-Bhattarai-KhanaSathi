@@ -3,6 +3,7 @@
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useSocket } from '@/context/SocketContext';
 import Image from 'next/image';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -22,7 +23,8 @@ import {
   Map,
   MapPin,
   Bell,
-  ChevronRight
+  ChevronRight,
+  Store
 } from 'lucide-react';
 import { getRiderStats, RiderStats } from '@/lib/riderService';
 import {
@@ -30,6 +32,7 @@ import {
   updateRiderLocation,
   getOrderPools
 } from '@/lib/orderService';
+import NotificationCenter from '@/components/NotificationCenter';
 import ChatWindow from '@/components/Chat/ChatWindow';
 import { MessageSquare } from 'lucide-react';
 
@@ -37,12 +40,14 @@ const API_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:500
 
 export default function RiderDashboardPage() {
   const { user, logout, isLoading: authLoading } = useAuth();
+  const { socket, onOrderUpdate, onRiderAssigned } = useSocket();
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [stats, setStats] = useState<RiderStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChatOrderId, setActiveChatOrderId] = useState<string | null>(null);
+  const [activeChatThread, setActiveChatThread] = useState<any>('customer-rider');
   const [pools, setPools] = useState<any[]>([]);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
 
@@ -57,18 +62,25 @@ export default function RiderDashboardPage() {
     fetchStats();
     fetchPools();
 
-    // Setup location tracking interval if order is active
-    let locationInterval: NodeJS.Timeout;
-    if (stats?.currentOrder && stats.currentOrder.status === 'on_the_way') {
-      locationInterval = setInterval(() => {
-        trackLocation(stats.currentOrder!._id);
-      }, 30000); // Every 30 seconds
-    }
+    // Listen for real-time order assignments (to personal room)
+    const unsubscribeRider = onRiderAssigned((data: any) => {
+      console.log("[Socket] Rider assigned event received:", data);
+      fetchStats();
+      fetchPools();
+      toast.success("New order assigned!");
+    });
+
+    // Listen for status updates (to order rooms)
+    const unsubscribeOrder = onOrderUpdate((data: any) => {
+      console.log("[Socket] Order update received on dashboard:", data);
+      fetchStats();
+    });
 
     return () => {
-      if (locationInterval) clearInterval(locationInterval);
+      unsubscribeRider();
+      unsubscribeOrder();
     };
-  }, [user, router, authLoading, stats?.currentOrder?._id]);
+  }, [user, router, authLoading, onRiderAssigned, onOrderUpdate]);
 
   const fetchStats = async () => {
     if (!user?._id) return;
@@ -245,7 +257,7 @@ export default function RiderDashboardPage() {
 
         {/* Bottom Actions */}
         <div className="p-4 border-t border-gray-100 space-y-1">
-          <a href="#" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl transition">
+          <a href="/rider-settings" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl transition">
             <Settings className="w-5 h-5" />
             Settings
           </a>
@@ -268,10 +280,9 @@ export default function RiderDashboardPage() {
             <h2 className="text-3xl font-bold text-gray-800">Welcome back, {user.username}!</h2>
             <p className="text-gray-500 mt-1">Here's your delivery overview for today</p>
           </div>
-          <button className="relative p-3 bg-white rounded-full shadow-md hover:shadow-lg transition">
-            <Bell className="w-6 h-6 text-gray-600" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
-          </button>
+          <div className="p-2 bg-white rounded-full shadow-md hover:shadow-lg transition">
+            <NotificationCenter />
+          </div>
         </header>
 
         {loading ? (
@@ -355,13 +366,31 @@ export default function RiderDashboardPage() {
                       <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm capitalize">
                         {stats.currentOrder.status.replace('_', ' ')}
                       </span>
-                      <button
-                        onClick={() => setActiveChatOrderId(stats.currentOrder!._id)}
-                        className="p-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition border border-orange-100"
-                        title="Chat with Customer/Restaurant"
-                      >
-                        <MessageSquare className="w-5 h-5" />
-                      </button>
+                      <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-orange-100">
+                        <button
+                          onClick={() => {
+                            setActiveChatOrderId(stats.currentOrder!._id);
+                            setActiveChatThread('customer-rider');
+                          }}
+                          className="p-2 text-orange-600 hover:bg-orange-50 transition rounded-md flex items-center gap-1"
+                          title="Chat with Customer"
+                        >
+                          <MessageSquare className="w-5 h-5" />
+                          <span className="text-[10px] font-bold">User</span>
+                        </button>
+                        <div className="w-[1px] h-4 bg-orange-100 mx-1"></div>
+                        <button
+                          onClick={() => {
+                            setActiveChatOrderId(stats.currentOrder!._id);
+                            setActiveChatThread('restaurant-rider');
+                          }}
+                          className="p-2 text-orange-600 hover:bg-orange-50 transition rounded-md flex items-center gap-1"
+                          title="Chat with Restaurant"
+                        >
+                          <Store className="w-5 h-5" />
+                          <span className="text-[10px] font-bold">Store</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <p className="text-sm text-gray-600 mb-4">
@@ -479,9 +508,9 @@ export default function RiderDashboardPage() {
       {user && activeChatOrderId && stats?.currentOrder && (
         <ChatWindow
           orderId={activeChatOrderId}
-          recipientName={stats.currentOrder.customer?.username || "Customer"}
-          recipientRole="customer"
-          chatThread="customer-rider"
+          recipientName={activeChatThread === 'restaurant-rider' ? (stats.currentOrder.restaurant?.name || 'Restaurant') : (stats.currentOrder.customer?.username || "Customer")}
+          recipientRole={activeChatThread === 'restaurant-rider' ? 'restaurant' : 'customer'}
+          chatThread={activeChatThread}
           onClose={() => setActiveChatOrderId(null)}
         />
       )}

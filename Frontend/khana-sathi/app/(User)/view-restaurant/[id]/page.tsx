@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import { getRestaurantById } from "@/lib/restaurantService";
 import { getRestaurantMenu, MenuItem } from "@/lib/menuService";
-import { addToCart } from "@/lib/cartService";
+import { addToCart, clearCart } from "@/lib/cartService";
 import { formatPriceRange } from "@/lib/formatters";
 import toast from "react-hot-toast";
 
@@ -120,11 +120,17 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
   const cartTotal = cartItems.reduce((sum, item) => sum + (item.menuItem.price * item.quantity), 0);
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = async (forceReplace = false) => {
     if (cartItems.length === 0) return;
 
     try {
       setAddingToCart(true);
+
+      // If replacing, clear the old cart first
+      if (forceReplace) {
+        await clearCart();
+      }
+
       // Add each item to cart via API
       for (const item of cartItems) {
         await addToCart(item.menuItem._id, item.quantity, item.specialInstructions);
@@ -133,8 +139,23 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
       setCartItems([]);
       toast.success("Items added to cart!");
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } };
-      toast.error(error.response?.data?.message || "Failed to add items to cart");
+      const error = err as { response?: { data?: { message?: string; code?: string; existingRestaurant?: string } } };
+
+      // Handle different-restaurant conflict
+      if (error.response?.data?.code === 'DIFFERENT_RESTAURANT') {
+        const existingName = error.response.data.existingRestaurant || 'another restaurant';
+        const confirmed = window.confirm(
+          `Your cart has items from ${existingName}. Do you want to clear it and add items from ${restaurant?.name || 'this restaurant'} instead?`
+        );
+        if (confirmed) {
+          await handleAddToCart(true);
+          return;
+        } else {
+          toast("Cart was not changed.", { icon: "ℹ️" });
+        }
+      } else {
+        toast.error(error.response?.data?.message || "Failed to add items to cart");
+      }
     } finally {
       setAddingToCart(false);
     }

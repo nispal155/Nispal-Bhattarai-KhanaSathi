@@ -12,7 +12,8 @@ const {
     getRiderStats,
     getRiderEarnings,
     getRiderHistory,
-    getAvailableRiders
+    getAvailableRiders,
+    updateRiderProfile
 } = require('../controller/staffController');
 
 router.post('/add', addStaff);
@@ -23,6 +24,7 @@ router.get('/stats/:id', getRiderStats);
 router.get('/earnings/:id', getRiderEarnings);
 router.get('/history/:id', getRiderHistory);
 router.put('/update/:id', updateStaff);
+router.put('/update-profile/:id', updateRiderProfile);
 router.put('/update-profile-picture', updateProfilePicture);
 router.put('/toggle-status', toggleStatus);
 router.delete('/delete/:id', deleteStaff);

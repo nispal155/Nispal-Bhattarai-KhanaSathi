@@ -3,34 +3,37 @@
 import { ReactNode } from 'react';
 import { AuthProvider } from '@/context/AuthContext';
 import { SocketProvider } from '@/context/SocketContext';
+import { ChatProvider } from '@/context/ChatContext';
 import { Toaster } from 'react-hot-toast';
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
-      <SocketProvider>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#333',
-              color: '#fff',
-            },
-            success: {
+      <ChatProvider>
+        <SocketProvider>
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
               style: {
-                background: '#22c55e',
+                background: '#333',
+                color: '#fff',
               },
-            },
-            error: {
-              style: {
-                background: '#ef4444',
+              success: {
+                style: {
+                  background: '#22c55e',
+                },
               },
-            },
-          }}
-        />
-        {children}
-      </SocketProvider>
+              error: {
+                style: {
+                  background: '#ef4444',
+                },
+              },
+            }}
+          />
+          {children}
+        </SocketProvider>
+      </ChatProvider>
     </AuthProvider>
   );
 }

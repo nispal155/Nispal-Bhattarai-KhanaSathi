@@ -320,7 +320,7 @@ const getRiderStats = async (req, res) => {
         // Get current active order
         const currentOrder = await Order.findOne({
             deliveryRider: riderId,
-            status: { $in: ['picked_up', 'on_the_way'] }
+            status: { $in: ['picked_up', 'on_the_way', 'ready'] }
         }).populate('restaurant', 'name address').populate('customer', 'username');
 
         res.json({
@@ -542,6 +542,40 @@ const getAvailableRiders = async (req, res) => {
     }
 };
 
+// @desc    Update rider profile (self-update)
+// @route   PUT /api/staff/update-profile/:id
+// @access  Private (Delivery Staff)
+const updateRiderProfile = async (req, res) => {
+    try {
+        const { username, phone, vehicleDetails } = req.body;
+        const rider = await User.findById(req.params.id);
+
+        if (!rider || rider.role !== 'delivery_staff') {
+            return res.status(404).json({ success: false, message: 'Rider not found' });
+        }
+
+        if (username) rider.username = username;
+        if (phone) rider.phone = phone;
+        if (vehicleDetails) {
+            rider.vehicleDetails = {
+                ...rider.vehicleDetails,
+                ...vehicleDetails
+            };
+        }
+
+        await rider.save();
+
+        res.json({
+            success: true,
+            message: 'Profile updated successfully',
+            data: rider
+        });
+    } catch (error) {
+        console.error('updateRiderProfile Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     addStaff,
     getAllStaff,
@@ -554,5 +588,6 @@ module.exports = {
     getRiderStats,
     getRiderEarnings,
     getRiderHistory,
-    getAvailableRiders
+    getAvailableRiders,
+    updateRiderProfile
 };

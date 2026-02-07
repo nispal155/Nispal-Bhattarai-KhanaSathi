@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const Order = require('../models/Order');
+const MultiOrder = require('../models/MultiOrder');
 const Restaurant = require('../models/Restaurant');
 const Notification = require('../models/Notification');
 const { getIO } = require('../services/socket');
@@ -15,7 +16,7 @@ function getAvailableThreads(order) {
     if (CLOSED_STATUSES.includes(order.status)) return [];
     const threads = [];
     if (ACTIVE_STATUSES.includes(order.status)) threads.push('customer-restaurant');
-    if (order.deliveryRider && !['pending'].includes(order.status)) {
+    if ((order.deliveryRider || order.primaryRider) && !['pending'].includes(order.status)) {
         threads.push('customer-rider');
         threads.push('restaurant-rider');
     }
@@ -27,13 +28,36 @@ function getRestaurantOwnerId(order) {
     return (order.restaurant?.createdBy || order.restaurant?.owner || '').toString();
 }
 
+/** Resolve single or multi-order with full population */
+async function resolveOrder(orderId) {
+    let order = await Order.findById(orderId)
+        .populate('restaurant', 'name address contactPhone logoUrl createdBy owner')
+        .populate('customer', 'username profilePicture')
+        .populate('deliveryRider', 'username profilePicture');
+
+    if (!order) {
+        order = await MultiOrder.findById(orderId)
+            .populate('customer', 'username profilePicture')
+            .populate('primaryRider', 'username profilePicture');
+
+        if (order) {
+            // Add a flag to identify as multi-order
+            order = order.toObject();
+            order.isMultiOrder = true;
+            // Fake restaurant name for UI consistency if needed
+            order.restaurant = order.restaurant || { name: 'Multi-Restaurant' };
+        }
+    }
+    return order;
+}
+
 /** Check if user may access a given thread */
 function isAuthorizedForThread(order, userId, userRole, thread) {
     if (userRole === 'admin') return true;
     const uid = userId.toString();
     const customerId = (order.customer?._id || order.customer || '').toString();
     const ownerId = getRestaurantOwnerId(order);
-    const riderId = (order.deliveryRider?._id || order.deliveryRider || '').toString();
+    const riderId = (order.deliveryRider?._id || order.deliveryRider || order.primaryRider?._id || order.primaryRider || '').toString();
     switch (thread) {
         case 'customer-restaurant': return uid === customerId || uid === ownerId;
         case 'customer-rider': return uid === customerId || uid === riderId;
@@ -48,7 +72,7 @@ function getRecipients(order, senderId, thread) {
     const ids = [];
     const customerId = order.customer?._id || order.customer;
     const ownerId = order.restaurant?.createdBy || order.restaurant?.owner;
-    const riderId = order.deliveryRider?._id || order.deliveryRider;
+    const riderId = order.deliveryRider?._id || order.deliveryRider || order.primaryRider?._id || order.primaryRider;
     switch (thread) {
         case 'customer-restaurant':
             if (customerId && customerId.toString() !== sid) ids.push(customerId);
@@ -71,16 +95,17 @@ function threadParticipantInfo(order, userId, thread) {
     const uid = userId.toString();
     const customerId = (order.customer?._id || order.customer || '').toString();
     const ownerId = getRestaurantOwnerId(order);
+    const rider = order.deliveryRider || order.primaryRider;
 
     switch (thread) {
         case 'customer-restaurant':
             if (uid === customerId) return { participantName: order.restaurant?.name || 'Restaurant', participantRole: 'restaurant', participantAvatar: order.restaurant?.logoUrl || '' };
             return { participantName: order.customer?.username || 'Customer', participantRole: 'customer', participantAvatar: order.customer?.profilePicture || '' };
         case 'customer-rider':
-            if (uid === customerId) return { participantName: order.deliveryRider?.username || 'Rider', participantRole: 'delivery_staff', participantAvatar: order.deliveryRider?.profilePicture || '' };
+            if (uid === customerId) return { participantName: rider?.username || 'Rider', participantRole: 'delivery_staff', participantAvatar: rider?.profilePicture || '' };
             return { participantName: order.customer?.username || 'Customer', participantRole: 'customer', participantAvatar: order.customer?.profilePicture || '' };
         case 'restaurant-rider':
-            if (uid === ownerId) return { participantName: order.deliveryRider?.username || 'Rider', participantRole: 'delivery_staff', participantAvatar: order.deliveryRider?.profilePicture || '' };
+            if (uid === ownerId) return { participantName: rider?.username || 'Rider', participantRole: 'delivery_staff', participantAvatar: rider?.profilePicture || '' };
             return { participantName: order.restaurant?.name || 'Restaurant', participantRole: 'restaurant', participantAvatar: order.restaurant?.logoUrl || '' };
         default: return { participantName: '', participantRole: '', participantAvatar: '' };
     }
@@ -94,10 +119,7 @@ function threadParticipantInfo(order, userId, thread) {
  */
 exports.getChatAvailability = async (req, res) => {
     try {
-        const order = await Order.findById(req.params.orderId)
-            .populate('restaurant', 'name createdBy logoUrl owner')
-            .populate('customer', 'username profilePicture')
-            .populate('deliveryRider', 'username profilePicture');
+        const order = await resolveOrder(req.params.orderId);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
         const threads = getAvailableThreads(order)
@@ -117,9 +139,7 @@ exports.getThreadMessages = async (req, res) => {
         const { orderId, thread } = req.params;
         if (!THREAD_ENUM.includes(thread)) return res.status(400).json({ success: false, message: 'Invalid chat thread' });
 
-        const order = await Order.findById(orderId)
-            .populate('restaurant', 'name createdBy owner')
-            .populate('deliveryRider', 'username');
+        const order = await resolveOrder(orderId);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
         if (!isAuthorizedForThread(order, req.user._id, req.user.role, thread))
             return res.status(403).json({ success: false, message: 'Not authorized' });
@@ -143,10 +163,7 @@ exports.sendThreadMessage = async (req, res) => {
         if (!THREAD_ENUM.includes(thread)) return res.status(400).json({ success: false, message: 'Invalid chat thread' });
         if (!message?.trim()) return res.status(400).json({ success: false, message: 'Message content required' });
 
-        const order = await Order.findById(orderId)
-            .populate('restaurant', 'name createdBy owner')
-            .populate('customer', 'username')
-            .populate('deliveryRider', 'username');
+        const order = await resolveOrder(orderId);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
         if (!getAvailableThreads(order).includes(thread))
@@ -215,24 +232,34 @@ exports.getActiveChats = async (req, res) => {
         let orders = [];
 
         if (role === 'customer') {
-            orders = await Order.find({ customer: userId, status: { $in: ACTIVE_STATUSES } })
+            const singleOrders = await Order.find({ customer: userId, status: { $in: ACTIVE_STATUSES } })
                 .populate('restaurant', 'name createdBy owner logoUrl')
-                .populate('deliveryRider', 'username profilePicture').sort({ updatedAt: -1 });
+                .populate('deliveryRider', 'username profilePicture');
+            const multiOrders = await MultiOrder.find({ customer: userId, status: { $in: ACTIVE_STATUSES } })
+                .populate('primaryRider', 'username profilePicture');
+            orders = [...singleOrders, ...multiOrders];
         } else if (role === 'restaurant' || role === 'restaurant_admin') {
             const rIds = (await Restaurant.find({ createdBy: userId })).map(r => r._id);
             orders = await Order.find({ restaurant: { $in: rIds }, status: { $in: ACTIVE_STATUSES } })
                 .populate('restaurant', 'name createdBy owner logoUrl')
                 .populate('customer', 'username profilePicture')
-                .populate('deliveryRider', 'username profilePicture').sort({ updatedAt: -1 });
+                .populate('deliveryRider', 'username profilePicture');
         } else if (role === 'delivery_staff') {
-            orders = await Order.find({ deliveryRider: userId, status: { $in: ACTIVE_STATUSES } })
+            const singleOrders = await Order.find({ deliveryRider: userId, status: { $in: ACTIVE_STATUSES } })
                 .populate('restaurant', 'name createdBy owner logoUrl')
-                .populate('customer', 'username profilePicture').sort({ updatedAt: -1 });
+                .populate('customer', 'username profilePicture');
+            const multiOrders = await MultiOrder.find({ primaryRider: userId, status: { $in: ACTIVE_STATUSES } })
+                .populate('customer', 'username profilePicture');
+            orders = [...singleOrders, ...multiOrders];
         } else if (role === 'admin') {
-            orders = await Order.find({ status: { $in: ACTIVE_STATUSES } })
+            const singleOrders = await Order.find({ status: { $in: ACTIVE_STATUSES } })
                 .populate('restaurant', 'name createdBy owner logoUrl')
                 .populate('customer', 'username profilePicture')
-                .populate('deliveryRider', 'username profilePicture').sort({ updatedAt: -1 }).limit(50);
+                .populate('deliveryRider', 'username profilePicture').limit(50);
+            const multiOrders = await MultiOrder.find({ status: { $in: ACTIVE_STATUSES } })
+                .populate('customer', 'username profilePicture')
+                .populate('primaryRider', 'username profilePicture').limit(50);
+            orders = [...singleOrders, ...multiOrders];
         }
 
         const list = [];
@@ -288,9 +315,7 @@ exports.sendMessage = async (req, res) => {
         const { message, senderRole, attachments } = req.body;
         const senderId = req.user._id;
 
-        const order = await Order.findById(orderId)
-            .populate('restaurant', 'name createdBy owner')
-            .populate('customer', 'username').populate('deliveryRider', 'username');
+        const order = await resolveOrder(orderId);
         if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
         // Auto-detect thread

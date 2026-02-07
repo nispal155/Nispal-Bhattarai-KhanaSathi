@@ -113,18 +113,36 @@ const init = (server) => {
                 // Create notifications for other parties
                 const Notification = require('../models/Notification');
                 const Order = require('../models/Order');
-                const order = await Order.findById(orderId);
+                const MultiOrder = require('../models/MultiOrder');
+                let order = await Order.findById(orderId);
+
+                if (!order) {
+                    order = await MultiOrder.findById(orderId);
+                }
 
                 if (order) {
                     let receiverId;
-                    if (socket.user.role === 'customer') {
-                        const Restaurant = require('../models/Restaurant');
-                        const restaurant = await Restaurant.findById(order.restaurant);
-                        receiverId = restaurant?.createdBy || restaurant?.owner;
-                    } else if (socket.user.role === 'restaurant') {
-                        receiverId = order.customer;
-                    } else if (socket.user.role === 'delivery_staff') {
-                        receiverId = order.customer;
+                    if (chatThread === 'customer-restaurant') {
+                        if (socket.user.role === 'customer') {
+                            const Restaurant = require('../models/Restaurant');
+                            const restaurant = await Restaurant.findById(order.restaurant);
+                            receiverId = restaurant?.createdBy || restaurant?.owner;
+                        } else {
+                            receiverId = order.customer;
+                        }
+                    } else if (chatThread === 'customer-rider') {
+                        if (socket.user.role === 'customer') {
+                            receiverId = order.deliveryRider || order.primaryRider;
+                        } else {
+                            receiverId = order.customer;
+                        }
+                    } else if (chatThread === 'restaurant-rider') {
+                        const ownerId = order.restaurant?.createdBy || order.restaurant?.owner || order.restaurant;
+                        if (socket.user._id.toString() === (ownerId?.toString() || '')) {
+                            receiverId = order.deliveryRider || order.primaryRider;
+                        } else {
+                            receiverId = ownerId;
+                        }
                     }
 
                     if (receiverId) {
@@ -133,7 +151,7 @@ const init = (server) => {
                             type: 'chat_message',
                             title: 'New Message',
                             message: `New message regarding order #${order.orderNumber || orderId.toString().slice(-6)}`,
-                            data: { orderId, chatId: orderId }
+                            data: { orderId, chatId: orderId, thread: chatThread }
                         };
 
                         await Notification.create(notifData);
@@ -142,7 +160,8 @@ const init = (server) => {
                             type: 'chat_message',
                             title: notifData.title,
                             message: notifData.message,
-                            orderId
+                            orderId,
+                            thread: chatThread
                         });
                     }
                 }
@@ -200,8 +219,11 @@ const emitOrderUpdate = (orderId, status, data) => {
         const target = orderId.toString();
         io.to(target).emit('orderStatusUpdate', { orderId: target, status, ...data });
 
+        // If rider is assigned, notify their personal room for real-time dashboard refresh
         if (data?.rider) {
-            io.to(target).emit('riderAssigned', { orderId: target, rider: data.rider });
+            const riderId = (data.rider._id || data.rider).toString();
+            io.to(riderId).emit('riderAssigned', { orderId: target, status, ...data });
+            console.log(`[Socket] Notified rider ${riderId} about assignment to order ${target}`);
         }
     }
 };

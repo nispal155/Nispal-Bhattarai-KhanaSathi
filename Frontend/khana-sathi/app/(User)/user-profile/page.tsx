@@ -2,13 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Camera, MapPin, CreditCard, Bell, Shield, HelpCircle, LogOut, ChevronRight, Edit2, Loader2, Plus, Trash2 } from "lucide-react";
+import { Camera, Bell, LogOut, Edit2, Loader2, Trash2 } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import { getProfile, updateProfile, getAddresses, addAddress, deleteAddress, setDefaultAddress } from "@/lib/userService";
 import { getMyRestaurant, updateMyRestaurant } from "@/lib/restaurantService";
-import { getMyOrders } from "@/lib/orderService";
+import { getMyOrders, clearOrderHistory } from "@/lib/orderService";
 import toast from "react-hot-toast";
 
 interface Address {
@@ -55,6 +55,7 @@ export default function ProfilePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [newAddress, setNewAddress] = useState({
@@ -160,6 +161,31 @@ export default function ProfilePage() {
       toast.error("Failed to load profile data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!confirm("Are you sure you want to clean your order history? This will hide all completed and cancelled orders from your view.")) return;
+
+    try {
+      setClearingHistory(true);
+      const res = await clearOrderHistory();
+      if (res.data?.success) {
+        toast.success("Order history cleaned");
+        // Refresh orders
+        const ordersRes = await getMyOrders();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ordersResData = ordersRes?.data as any;
+        const ordersData = ordersResData?.data || ordersResData || [];
+        setOrders(Array.isArray(ordersData) ? ordersData : []);
+      } else {
+        toast.error(res.data?.message || "Failed to clear history");
+      }
+    } catch (error) {
+      console.error("Clear history error:", error);
+      toast.error("Failed to clear history");
+    } finally {
+      setClearingHistory(false);
     }
   };
 
@@ -302,25 +328,8 @@ export default function ProfilePage() {
     }
   };
 
-  const paymentMethods = [
-    {
-      id: "1",
-      type: "eSewa",
-      detail: "Connected",
-      icon: "💚",
-    },
-    {
-      id: "2",
-      type: "Card",
-      detail: "**** **** **** 4532",
-      icon: "💳",
-    },
-  ];
-
   const tabs = [
     { id: "personal", label: "Personal Info", icon: "👤" },
-    { id: "addresses", label: "Addresses", icon: "📍" },
-    { id: "payments", label: "Payment Methods", icon: "💳" },
     { id: "orders", label: "Order History", icon: "📦" },
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
@@ -619,198 +628,31 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Addresses Tab */}
-            {activeTab === "addresses" && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-semibold text-gray-900">Saved Addresses</h2>
-                  <button
-                    onClick={() => setShowAddAddress(true)}
-                    className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add New
-                  </button>
-                </div>
-
-                {showAddAddress && (
-                  <form onSubmit={handleAddAddress} className="mb-6 p-4 border border-gray-200 rounded-lg">
-                    <h3 className="font-medium text-gray-900 mb-4">Add New Address</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
-                        <select
-                          value={newAddress.label}
-                          onChange={(e) => setNewAddress(a => ({ ...a, label: e.target.value }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                        >
-                          <option value="Home">Home</option>
-                          <option value="Office">Office</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 1</label>
-                        <input
-                          type="text"
-                          value={newAddress.addressLine1}
-                          onChange={(e) => setNewAddress(a => ({ ...a, addressLine1: e.target.value }))}
-                          required
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2</label>
-                        <input
-                          type="text"
-                          value={newAddress.addressLine2}
-                          onChange={(e) => setNewAddress(a => ({ ...a, addressLine2: e.target.value }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                        <input
-                          type="text"
-                          value={newAddress.city}
-                          onChange={(e) => setNewAddress(a => ({ ...a, city: e.target.value }))}
-                          required
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                        <input
-                          type="text"
-                          value={newAddress.state}
-                          onChange={(e) => setNewAddress(a => ({ ...a, state: e.target.value }))}
-                          required
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Zip Code</label>
-                        <input
-                          type="text"
-                          value={newAddress.zipCode}
-                          onChange={(e) => setNewAddress(a => ({ ...a, zipCode: e.target.value }))}
-                          required
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex gap-3 mt-4">
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg disabled:opacity-50"
-                      >
-                        {saving ? "Saving..." : "Save Address"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddAddress(false)}
-                        className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                <div className="space-y-4">
-                  {addresses.length === 0 ? (
-                    <p className="text-gray-500 text-center py-8">No addresses saved yet.</p>
-                  ) : (
-                    addresses.map((address) => (
-                      <div
-                        key={address._id}
-                        className="flex items-start justify-between p-4 border border-gray-200 rounded-lg"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                            <MapPin className="w-5 h-5 text-red-500" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-medium text-gray-900">{address.label}</h3>
-                              {address.isDefault && (
-                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                                  Default
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-gray-600">
-                              {address.addressLine1}
-                              {address.addressLine2 && `, ${address.addressLine2}`}
-                            </p>
-                            <p className="text-gray-600 text-sm">
-                              {address.city}, {address.state} {address.zipCode}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!address.isDefault && (
-                            <button
-                              onClick={() => handleSetDefault(address._id)}
-                              className="text-sm text-blue-600 hover:text-blue-700"
-                            >
-                              Set Default
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteAddress(address._id)}
-                            className="text-gray-400 hover:text-red-500"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Payment Methods Tab */}
-            {activeTab === "payments" && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-semibold text-gray-900">Payment Methods</h2>
-                  <button className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors">
-                    <CreditCard className="w-4 h-4" />
-                    Add New
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  {paymentMethods.map((method) => (
-                    <div
-                      key={method.id}
-                      className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
-                          <span className="text-2xl">{method.icon}</span>
-                        </div>
-                        <div>
-                          <h3 className="font-medium text-gray-900">{method.type}</h3>
-                          <p className="text-sm text-gray-500">{method.detail}</p>
-                        </div>
-                      </div>
-                      <button className="text-gray-400 hover:text-gray-600">
-                        <ChevronRight className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Order History Tab */}
             {activeTab === "orders" && (
               <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-6">Order History</h2>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900">Order History</h2>
+                  {orders.length > 0 && (
+                    <button
+                      onClick={handleClearHistory}
+                      disabled={clearingHistory}
+                      className="text-sm font-medium text-red-500 hover:text-red-600 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {clearingHistory ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Cleaning...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4" />
+                          Clean History
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
 
                 <div className="space-y-4">
                   {orders.length === 0 ? (

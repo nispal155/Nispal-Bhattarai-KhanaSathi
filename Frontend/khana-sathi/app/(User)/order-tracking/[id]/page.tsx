@@ -57,8 +57,6 @@ interface Order {
     discount: number;
     total: number;
   };
-  multiOrder?: string | { _id: string };
-  isSubOrder?: boolean;
   isRated?: boolean;
   estimatedDeliveryTime?: Date;
   createdAt: string;
@@ -176,17 +174,6 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const responseData = response?.data as any;
       const orderData = responseData?.data || responseData;
-
-      // Auto-redirect to multi-order tracking if this is a sub-order
-      if (orderData?.isSubOrder && orderData?.multiOrder) {
-        const mid = typeof orderData.multiOrder === 'string'
-          ? orderData.multiOrder
-          : orderData.multiOrder._id;
-
-        console.log(`Redirecting sub-order ${id} to parent multi-order tracking ${mid}`);
-        router.push(`/multi-order-tracking/${mid}`);
-        return;
-      }
 
       setOrder(orderData as Order);
       setError("");

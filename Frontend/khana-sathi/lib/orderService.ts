@@ -133,14 +133,23 @@ export async function cancelOrder(orderId: string, reason?: string) {
   return put<OrderResponse>(`/orders/${orderId}/cancel`, { reason });
 }
 
+// Clear order history for user (soft-delete)
+export async function clearOrderHistory() {
+  return put<{ success: boolean; message: string; data: { modifiedCount: number } }>('/orders/clear-history', {});
+}
+
 // Restaurant: Get orders
 export async function getRestaurantOrders(options?: {
   status?: string;
   date?: string;
+  startDate?: string;
+  endDate?: string;
 }) {
   const params = new URLSearchParams();
   if (options?.status) params.append('status', options.status);
   if (options?.date) params.append('date', options.date);
+  if (options?.startDate) params.append('startDate', options.startDate);
+  if (options?.endDate) params.append('endDate', options.endDate);
 
   const query = params.toString() ? `?${params.toString()}` : '';
   return get<OrdersResponse>(`/orders/restaurant${query}`);

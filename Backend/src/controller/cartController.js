@@ -83,6 +83,22 @@ exports.addToCart = async (req, res) => {
       });
     }
 
+    // Single-restaurant rule: reject if cart already has items from a different restaurant
+    const hasOtherRestaurant = cart.restaurantGroups.length > 0 &&
+      !cart.restaurantGroups.some(
+        group => group.restaurant.toString() === menuItem.restaurant.toString()
+      );
+
+    if (hasOtherRestaurant) {
+      const existingRestaurant = await Restaurant.findById(cart.restaurantGroups[0].restaurant).select('name');
+      return res.status(409).json({
+        success: false,
+        code: 'DIFFERENT_RESTAURANT',
+        message: `Your cart already has items from ${existingRestaurant?.name || 'another restaurant'}. Clear your cart first to add items from a new restaurant.`,
+        existingRestaurant: existingRestaurant?.name || 'another restaurant'
+      });
+    }
+
     // Find if restaurant group already exists
     let groupIndex = cart.restaurantGroups.findIndex(
       group => group.restaurant.toString() === menuItem.restaurant.toString()

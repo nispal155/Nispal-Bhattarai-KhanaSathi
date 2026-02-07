@@ -26,6 +26,7 @@ router.use(protect);
 // Customer routes
 router.post('/', authorize('customer'), createOrder);
 router.get('/my-orders', authorize('customer'), getMyOrders);
+router.put('/clear-history', authorize('customer'), require('../controller/orderController').clearOrderHistory);
 router.put('/:id/cancel', cancelOrder); // Customer-only check is in controller (2-min window)
 
 // Restaurant routes

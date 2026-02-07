@@ -9,6 +9,7 @@ export interface NotificationData {
     data?: {
         orderId?: string;
         chatId?: string;
+        thread?: string;
         link?: string;
     };
     isRead: boolean;

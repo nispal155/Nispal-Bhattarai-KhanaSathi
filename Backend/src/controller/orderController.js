@@ -5,6 +5,26 @@ const User = require('../models/User');
 const Restaurant = require('../models/Restaurant');
 const MultiOrder = require('../models/MultiOrder');
 const socketService = require('../services/socket');
+
+// Helper to strip sensitive financial data for riders
+const stripFinancialsForRider = (order) => {
+  const o = order.toObject ? order.toObject() : order;
+  if (o.pricing) {
+    // Keep total for COD purposes, but hide breakdown
+    delete o.pricing.subtotal;
+    delete o.pricing.serviceFee;
+    delete o.pricing.discount;
+  }
+  if (o.items) {
+    o.items = o.items.map(item => {
+      // Hide individual item prices
+      const { price, ...rest } = item;
+      return rest;
+    });
+  }
+  return o;
+};
+
 const multiOrderController = require('./multiOrderController');
 
 /**
@@ -234,7 +254,10 @@ exports.getMyOrders = async (req, res) => {
   try {
     const { status, limit = 10, page = 1 } = req.query;
 
-    let query = { customer: req.user._id };
+    let query = {
+      customer: req.user._id,
+      isHiddenForCustomer: { $ne: true }
+    };
     if (status) query.status = status;
 
     const orders = await Order.find(query)
@@ -297,9 +320,15 @@ exports.getOrderById = async (req, res) => {
       });
     }
 
+    // Strip sensitive fields for riders
+    let orderData = order.toObject();
+    if (isRider && !isAdmin && !isRestaurant) {
+      orderData = stripFinancialsForRider(order);
+    }
+
     res.status(200).json({
       success: true,
-      data: order
+      data: orderData
     });
   } catch (error) {
     res.status(500).json({
@@ -344,10 +373,16 @@ exports.getRestaurantOrders = async (req, res) => {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
       query.createdAt = { $gte: startOfDay, $lte: endOfDay };
+    } else if (req.query.startDate && req.query.endDate) {
+      const start = new Date(req.query.startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(req.query.endDate);
+      end.setHours(23, 59, 59, 999);
+      query.createdAt = { $gte: start, $lte: end };
     }
 
     const orders = await Order.find(query)
-      .populate('customer', 'username')
+      .populate('customer', 'username phone email')
       .populate('deliveryRider', 'username')
       .sort({ createdAt: -1 });
 
@@ -484,6 +519,35 @@ exports.updateOrderStatus = async (req, res) => {
       data: { orderId: order._id }
     });
 
+    // Also notify the assigned rider (if any) about status changes
+    if (order.deliveryRider) {
+      let riderNotifTitle = 'Order Updated';
+      let riderNotifMessage = `Order #${order.orderNumber} status changed to ${status}.`;
+
+      if (status === 'ready') {
+        riderNotifTitle = 'Order Ready for Pickup';
+        riderNotifMessage = `Order #${order.orderNumber} is ready for pickup!`;
+      } else if (status === 'cancelled') {
+        riderNotifTitle = 'Order Cancelled';
+        riderNotifMessage = `Order #${order.orderNumber} has been cancelled.`;
+      }
+
+      await Notification.create({
+        user: order.deliveryRider,
+        type: 'order_status',
+        title: riderNotifTitle,
+        message: riderNotifMessage,
+        data: { orderId: order._id }
+      });
+
+      socketService.sendNotification(order.deliveryRider.toString(), {
+        type: 'order_status',
+        title: riderNotifTitle,
+        message: riderNotifMessage,
+        orderId: order._id
+      });
+    }
+
     // Emit live update via Socket.io
     socketService.emitOrderUpdate(order._id.toString(), status, { order });
 
@@ -574,6 +638,25 @@ exports.assignRider = async (req, res) => {
     rider.currentAssignment = order.orderNumber;
     await rider.save();
 
+    // Create persistent notification for the rider
+    const Notification = require('../models/Notification');
+    const restaurant = await Restaurant.findById(order.restaurant).select('name');
+    await Notification.create({
+      user: riderId,
+      type: 'order_status',
+      title: 'New Delivery Assigned',
+      message: `You have been assigned to deliver order #${order.orderNumber} from ${restaurant?.name || 'a restaurant'}.`,
+      data: { orderId: order._id }
+    });
+
+    // Send real-time notification to rider
+    socketService.sendNotification(riderId, {
+      type: 'order_status',
+      title: 'New Delivery Assigned',
+      message: `You have been assigned to deliver order #${order.orderNumber} from ${restaurant?.name || 'a restaurant'}.`,
+      orderId: order._id
+    });
+
     // Emit live update for the current order
     socketService.emitOrderUpdate(order._id.toString(), order.status, {
       rider: {
@@ -622,10 +705,12 @@ exports.getRiderOrders = async (req, res) => {
       .populate('customer', 'username')
       .sort({ createdAt: -1 });
 
+    const filteredOrders = orders.map(order => stripFinancialsForRider(order));
+
     res.status(200).json({
       success: true,
       count: orders.length,
-      data: orders
+      data: filteredOrders
     });
   } catch (error) {
     res.status(500).json({
@@ -650,10 +735,12 @@ exports.getAvailableOrders = async (req, res) => {
       .populate('restaurant', 'name address')
       .sort({ createdAt: 1 });
 
+    const filteredOrders = orders.map(order => stripFinancialsForRider(order));
+
     res.status(200).json({
       success: true,
       count: orders.length,
-      data: orders
+      data: filteredOrders
     });
   } catch (error) {
     res.status(500).json({
@@ -1073,5 +1160,38 @@ exports.getPoolableOrders = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * @desc    Clear order history for user (soft-delete)
+ * @route   PUT /api/orders/clear-history
+ * @access  Private (Customer)
+ */
+exports.clearOrderHistory = async (req, res) => {
+  try {
+    // Only clear orders that are 'delivered' or 'cancelled'
+    const result = await Order.updateMany(
+      {
+        customer: req.user._id,
+        status: { $in: ['delivered', 'cancelled'] },
+        isHiddenForCustomer: { $ne: true }
+      },
+      { $set: { isHiddenForCustomer: true } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Order history cleared successfully',
+      data: {
+        modifiedCount: result.modifiedCount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to clear order history',
+      error: error.message
+    });
   }
 };

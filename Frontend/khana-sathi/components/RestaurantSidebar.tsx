@@ -20,7 +20,6 @@ import {
     Settings,
     LogOut,
 } from "lucide-react";
-import NotificationCenter from "@/components/NotificationCenter";
 
 const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api";
 
@@ -63,7 +62,6 @@ export default function RestaurantSidebar() {
                 <div className="flex items-center gap-3 mb-8">
                     <Image src="/logo.png" alt="KhanaSathi" width={40} height={40} className="object-contain" />
                     <h1 className="text-xl font-bold text-red-600 flex-1">KhanaSathi</h1>
-                    <NotificationCenter />
                 </div>
 
                 <nav className="space-y-2">
@@ -91,8 +89,8 @@ export default function RestaurantSidebar() {
                 <Link
                     href="/settings"
                     className={`flex items-center gap-4 px-4 py-3 rounded-lg transition ${pathname === '/settings'
-                            ? "bg-red-500 text-white"
-                            : "text-gray-700 hover:bg-gray-100"
+                        ? "bg-red-500 text-white"
+                        : "text-gray-700 hover:bg-gray-100"
                         }`}
                 >
                     <Settings className="w-5 h-5" />

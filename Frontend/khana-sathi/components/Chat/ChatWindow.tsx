@@ -45,7 +45,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     const { user } = useAuth();
     const { socket, joinRoom, leaveRoom, onNewMessage, emitTyping, emitStopTyping } = useSocket();
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const typingTimeout = useRef<NodeJS.Timeout | null>(null);
+    const isAtBottom = useRef(true);
     const isMinimizedRef = useRef(isMinimized);
     const userRef = useRef(user);
 
@@ -66,15 +68,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                 if (res.data?.success) {
                     const fetchedMessages = res.data.data as Message[];
                     setMessages(prev => {
-                        // Merge fetched messages with existing (which might include new socket messages)
-                        // This handles the case where fetch completes AFTER some socket messages arrive
                         const merged = [...prev];
+                        const getStrId = (id: any) => {
+                            if (!id) return '';
+                            if (typeof id === 'string') return id;
+                            return id._id ? id._id.toString() : id.toString();
+                        };
                         fetchedMessages.forEach(fetched => {
-                            if (!merged.some(m => m._id === fetched._id)) {
+                            const fetchedId = getStrId(fetched._id);
+                            if (!merged.some(m => getStrId(m._id) === fetchedId)) {
                                 merged.push(fetched);
                             }
                         });
-                        // Sort by date to be safe
                         return merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
                     });
                     markThreadAsRead(orderId, chatThread).catch(() => { });
@@ -111,30 +116,41 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         joinRoom(chatRoom);
 
         const unsubscribe = onNewMessage((message: Message) => {
-            console.log('[Chat] New message received via socket:', message._id, message.content);
+            // Comparison helper for IDs (handles ObjectId vs string vs Object with _id)
+            const getStrId = (id: any) => {
+                if (!id) return '';
+                if (typeof id === 'string') return id;
+                if (typeof id === 'object') return id._id ? id._id.toString() : id.toString();
+                return String(id);
+            };
 
-            // Filter: only accept messages for this thread
-            if (chatThread && message.chatThread && message.chatThread !== chatThread) return;
-
-            // Comparison helper for IDs (handles ObjectId vs string)
-            const getStrId = (id: any) => (typeof id === 'object' && id?._id) ? id._id.toString() : id?.toString();
-
-            const msgOrderId = getStrId(message.order);
+            const currentThread = chatThread;
+            const msgThread = message.chatThread;
             const currentOrderId = getStrId(orderId);
+            const msgOrderId = getStrId(message.order);
 
-            if (msgOrderId && currentOrderId && msgOrderId !== currentOrderId) {
-                console.log('[Chat] Filtered out message for different order:', msgOrderId, 'expected:', currentOrderId);
+            // Filter: only accept messages for this thread (if specified)
+            if (currentThread && msgThread && msgThread !== currentThread) {
                 return;
             }
 
+            // Filter: only accept messages for this order
+            if (msgOrderId && currentOrderId && msgOrderId !== currentOrderId) {
+                return;
+            }
+
+            console.log('[Chat] Accepted socket message, updating state');
             setMessages(prev => {
-                // Remove matching optimistic (temp-*) message
+                const messageId = getStrId(message._id);
+                // Remove matching optimistic (temp-*) message by content
                 const withoutTemp = prev.filter(
-                    m => !(m._id.startsWith('temp-') && m.content === message.content)
+                    m => !(String(m._id).startsWith('temp-') && m.content.trim() === message.content.trim())
                 );
                 // Deduplicate by real _id
-                if (withoutTemp.some(m => m._id === message._id)) return withoutTemp;
-                return [...withoutTemp, message];
+                if (withoutTemp.some(m => getStrId(m._id) === messageId)) {
+                    return withoutTemp;
+                }
+                return [...withoutTemp, message].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
             });
 
             // Toast when chat is minimized and message is from the other party
@@ -161,15 +177,46 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             socket.off('typing', handleTypingEvent);
             socket.off('stopTyping', handleStopTypingEvent);
         };
-    }, [orderId, chatThread, chatRoom, socket, joinRoom, leaveRoom, onNewMessage, recipientName]);
+    }, [orderId, chatThread, chatRoom, socket, joinRoom, leaveRoom, onNewMessage, recipientName, user]);
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Unified scroll handler
+    const handleScroll = () => {
+        if (!scrollContainerRef.current) return;
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+        isAtBottom.current = distanceFromBottom < 100;
     };
+
+    const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+        if (!scrollContainerRef.current) return;
+        scrollContainerRef.current.scrollTo({
+            top: scrollContainerRef.current.scrollHeight,
+            behavior
+        });
+    };
+
+    // Scroll strategy when messages change
+    useEffect(() => {
+        const lastMsg = messages[messages.length - 1];
+        const isMine = lastMsg && (lastMsg.sender?._id || lastMsg.sender) === user?._id;
+
+        // Always scroll if I sent the message, or if I'm already at the bottom
+        if (isMine || isAtBottom.current) {
+            scrollToBottom("smooth");
+        }
+    }, [messages, user?._id]);
+
+    // Initial scroll on load
+    useEffect(() => {
+        if (!isLoading && messages.length > 0) {
+            // Use setTimeout to ensure DOM is rendered
+            const timer = setTimeout(() => {
+                scrollToBottom("auto"); // Instant snap on load
+                isAtBottom.current = true;
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [isLoading, messages.length]);
 
     const handleTyping = () => {
         if (socket?.connected && user) {
@@ -228,10 +275,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
 
             // Replace optimistic msg with real one (if socket hasn't already)
             if (savedMsg) {
+                const getStrId = (id: any) => {
+                    if (!id) return '';
+                    if (typeof id === 'string') return id;
+                    if (typeof id === 'object') return id._id ? id._id.toString() : id.toString();
+                    return String(id);
+                };
+
+                const savedId = getStrId(savedMsg._id);
                 setMessages(prev => {
                     // Replace optimistic message with the real one from DB
                     // Also deduplicate by _id in case socket message arrived first
-                    const filtered = prev.filter(m => m._id !== tempId && m._id !== savedMsg!._id);
+                    const filtered = prev.filter(m => getStrId(m._id) !== tempId && getStrId(m._id) !== savedId);
                     return [...filtered, savedMsg!].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
                 });
             }
@@ -270,7 +325,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     }
 
     return (
-        <div className="fixed bottom-6 right-6 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col z-50 overflow-hidden transform transition-all duration-300">
+        <div className="fixed bottom-6 right-6 w-80 md:w-96 max-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col z-50 overflow-hidden transform transition-all duration-300">
             {/* Header */}
             <div className="bg-red-600 p-4 text-white flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -297,7 +352,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             </div>
 
             {/* Messages */}
-            <div className="flex-1 h-80 overflow-y-auto p-4 space-y-4 bg-gray-50">
+            <div
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 min-h-[300px] overflow-y-auto p-4 space-y-4 bg-gray-50 scrollbar-thin scroll-smooth"
+                style={{
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: '#ef4444 #f9fafb',
+                    msOverflowStyle: 'none'
+                }}
+            >
+                <style jsx>{`
+                    div::-webkit-scrollbar {
+                        width: 6px;
+                    }
+                    div::-webkit-scrollbar-track {
+                        background: #f9fafb;
+                    }
+                    div::-webkit-scrollbar-thumb {
+                        background-color: #ef4444;
+                        border-radius: 20px;
+                        border: 2px solid #f9fafb;
+                    }
+                `}</style>
                 {isLoading ? (
                     <div className="h-full flex items-center justify-center">
                         <Loader2 className="w-6 h-6 animate-spin text-red-600" />
@@ -327,7 +404,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                             );
                         }
                         // User messages
-                        const isMine = msg.sender._id === user?._id;
+                        const getStrId = (id: any) => {
+                            if (!id) return '';
+                            if (typeof id === 'string') return id;
+                            if (typeof id === 'object') return id._id ? id._id.toString() : id.toString();
+                            return String(id);
+                        };
+                        const isMine = getStrId(msg.sender?._id || msg.sender) === getStrId(user?._id);
                         const isTemp = msg._id.startsWith('temp-');
                         return (
                             <div key={msg._id} className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>

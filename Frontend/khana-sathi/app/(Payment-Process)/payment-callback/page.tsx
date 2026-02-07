@@ -12,8 +12,6 @@ function PaymentCallbackContent() {
     const [status, setStatus] = useState<'verifying' | 'success' | 'failed'>('verifying');
     const [message, setMessage] = useState('Verifying your payment...');
     const [orderId, setOrderId] = useState<string | null>(null);
-    const [multiOrderId, setMultiOrderId] = useState<string | null>(null);
-    const [isMultiOrder, setIsMultiOrder] = useState(false);
 
     useEffect(() => {
         const verifyPayment = async () => {
@@ -60,8 +58,6 @@ function PaymentCallbackContent() {
                             setStatus('success');
                             setMessage('Payment successful! Your order has been placed.');
                             setOrderId(response.data.data.orderId);
-                            setMultiOrderId(response.data.data.multiOrderId || null);
-                            setIsMultiOrder(!!response.data.data.isMultiRestaurant);
                         } else {
                             setStatus('failed');
                             setMessage(response.error || 'Payment verification failed. Please contact support.');
@@ -80,8 +76,6 @@ function PaymentCallbackContent() {
                             setStatus('success');
                             setMessage('Payment successful! Your order has been placed.');
                             setOrderId(response.data.data.orderId);
-                            setMultiOrderId(response.data.data.multiOrderId || null);
-                            setIsMultiOrder(!!response.data.data.isMultiRestaurant);
                         } else {
                             setStatus('failed');
                             setMessage('Payment verification failed. Please contact support.');
@@ -105,14 +99,8 @@ function PaymentCallbackContent() {
     }, [searchParams]);
 
     const handleContinue = () => {
-        if (status === 'success') {
-            if (isMultiOrder && multiOrderId) {
-                router.push(`/multi-order-tracking/${multiOrderId}`);
-            } else if (orderId) {
-                router.push(`/order-tracking/${orderId}`);
-            } else {
-                router.push('/browse-restaurants');
-            }
+        if (status === 'success' && orderId) {
+            router.push(`/order-tracking/${orderId}`);
         } else {
             router.push('/browse-restaurants');
         }

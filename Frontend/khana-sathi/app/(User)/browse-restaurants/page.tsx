@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { getAllRestaurants, getNearbyRestaurants, Restaurant } from "@/lib/restaurantService";
 import { formatPriceRange } from "@/lib/formatters";
 import UserHeader from "@/components/layout/UserHeader";
+import { getProfile } from "@/lib/userService";
 
 interface RestaurantDisplay {
   _id: string;
@@ -22,7 +23,7 @@ interface RestaurantDisplay {
 }
 
 export default function BrowseRestaurants() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [cuisineFilters, setCuisineFilters] = useState<string[]>([]);
   const [ratingFilter, setRatingFilter] = useState("any");
   const [deliveryFilter, setDeliveryFilter] = useState("any");
@@ -34,10 +35,23 @@ export default function BrowseRestaurants() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    const syncProfile = async () => {
+      try {
+        const response = await getProfile();
+        if (response.data?.success && response.data?.data) {
+          updateUser(response.data.data as any);
+        }
+      } catch (err) {
+        console.error("Error syncing profile:", err);
+      }
+    };
+
+    syncProfile();
+
     // Try to fetch based on user's city if available
     const userCity = (user as any)?.address?.city || (user as any)?.city;
     fetchRestaurants(userCity);
-  }, [user]);
+  }, [user?._id]);
 
   const fetchRestaurants = async (city?: string) => {
     try {
@@ -105,15 +119,27 @@ export default function BrowseRestaurants() {
     return true;
   });
 
+  // Helper: extract first number from delivery time string like "30-45 min"
+  const parseDeliveryTime = (dt: string) => {
+    const match = dt.match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 999;
+  };
+
+  // Helper: count "Rs." occurrences to gauge price level (Rs. = 1, Rs.Rs. = 2, etc.)
+  const parsePriceLevel = (pr: string) => {
+    const matches = pr.match(/Rs\./g);
+    return matches ? matches.length : 0;
+  };
+
   // Sort restaurants
   const sortedRestaurants = [...filteredRestaurants].sort((a, b) => {
     switch (sortBy) {
       case "rating":
         return b.rating - a.rating;
       case "deliveryTime":
-        return parseInt(a.deliveryTime) - parseInt(b.deliveryTime);
+        return parseDeliveryTime(a.deliveryTime) - parseDeliveryTime(b.deliveryTime);
       case "priceAsc":
-        return a.priceRange.length - b.priceRange.length;
+        return parsePriceLevel(a.priceRange) - parsePriceLevel(b.priceRange);
       default:
         return 0;
     }
@@ -284,7 +310,7 @@ export default function BrowseRestaurants() {
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 rounded-lg">
                   <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-                  <span className="font-semibold">1,250 Points</span>
+                  <span className="font-semibold">{user?.loyaltyPoints?.toLocaleString() || 0} Points</span>
                 </div>
                 <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
                   Today&apos;s Deals

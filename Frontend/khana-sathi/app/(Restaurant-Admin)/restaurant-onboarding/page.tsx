@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import toast from 'react-hot-toast';
 import { onboardRestaurant as onboardRestaurantApi } from '@/lib/restaurantService';
+import { Store, MapPin, Clock, FileText, Send, Building2, Utensils, Loader2 } from 'lucide-react';
 
 export default function RestaurantOnboardingPage() {
     const router = useRouter();
@@ -35,19 +36,15 @@ export default function RestaurantOnboardingPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Basic validation
         const requiredFields = ['name', 'addressLine1', 'city', 'state', 'zipCode', 'cuisineType', 'openingHour', 'closingHour', 'contactPhone', 'contactEmail', 'businessLicense'];
         for (const field of requiredFields) {
             if (!formData[field as keyof typeof formData]) {
-                toast.error(`Please fill in ${field}`);
+                toast.error(`Required: ${field.replace(/([A-Z])/g, ' $1').toLowerCase()}`);
                 return;
             }
         }
 
-        if (!user?._id) {
-            toast.error("User session not found. Please login again.");
-            return;
-        }
+        if (!user?._id) return;
 
         setIsLoading(true);
 
@@ -61,7 +58,7 @@ export default function RestaurantOnboardingPage() {
                     state: formData.state,
                     zipCode: formData.zipCode
                 },
-                cuisineType: formData.cuisineType, // Service handles array conversion if needed? No, controller does.
+                cuisineType: formData.cuisineType,
                 openingHour: formData.openingHour,
                 closingHour: formData.closingHour,
                 contactPhone: formData.contactPhone,
@@ -79,233 +76,205 @@ export default function RestaurantOnboardingPage() {
             if (response.error) {
                 toast.error(response.error);
             } else {
-                toast.success("Onboarding details submitted successfully!");
+                toast.success("Application submitted!");
                 router.push('/waiting-approval');
             }
         } catch (error: any) {
-            console.error(error);
-            toast.error("Failed to submit onboarding details");
+            toast.error("Failed to submit details");
         } finally {
             setIsLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col items-center py-12 px-4">
-            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
-                <div className="bg-yellow-500 p-8 text-center text-white">
-                    <h1 className="text-4xl font-bold">Restaurant Onboarding</h1>
-                    <p className="mt-2 text-yellow-100 text-lg">Tell us about your restaurant to get started.</p>
+        <div className="p-8">
+            <div className="max-w-4xl mx-auto">
+                {/* Header Area */}
+                <div className="mb-12 text-center sm:text-left">
+                    <h1 className="text-4xl font-extrabold text-gray-800 tracking-tight mb-2">Partner Onboarding</h1>
+                    <p className="text-gray-500 font-medium">Configure your establishment credentials for administrative review.</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-10 space-y-8">
-                    {/* Basic Info Section */}
-                    <section>
-                        <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b-2 border-yellow-500 inline-block">Restaurant Information</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="md:col-span-2">
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Restaurant Name</label>
+                <form onSubmit={handleSubmit} className="space-y-10">
+                    {/* Basic Context */}
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 p-8 sm:p-12 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-50/50 rounded-full blur-3xl -z-10 translate-x-12 -translate-y-12" />
+
+                        <div className="flex items-center gap-4 mb-10">
+                            <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center">
+                                <Store className="w-6 h-6 text-orange-500" />
+                            </div>
+                            <h3 className="text-xl font-black text-gray-800">General Identity</h3>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-8">
+                            <div className="md:col-span-2 space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Restaurant Legal Name</label>
                                 <input
                                     type="text"
                                     name="name"
                                     value={formData.name}
                                     onChange={handleChange}
-                                    placeholder="e.g. The Gourmet Hub"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    placeholder="The Grand Palace, etc."
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Cuisine Types (comma separated)</label>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Cuisine Specialities</label>
                                 <input
                                     type="text"
                                     name="cuisineType"
                                     value={formData.cuisineType}
                                     onChange={handleChange}
-                                    placeholder="e.g. Italian, Mexican, Asian"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    placeholder="Nepali, Continental, Chinese..."
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Logo URL (Optional)</label>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Asset Branding (URL)</label>
                                 <input
                                     type="text"
                                     name="logoUrl"
                                     value={formData.logoUrl}
                                     onChange={handleChange}
-                                    placeholder="https://example.com/logo.png"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    placeholder="Link to square logo..."
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
                         </div>
-                    </section>
+                    </div>
 
-                    {/* Contact Section */}
-                    <section>
-                        <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b-2 border-yellow-500 inline-block">Contact & Hours</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Contact Phone</label>
+                    {/* Operational Window */}
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 p-8 sm:p-12">
+                        <div className="flex items-center gap-4 mb-10">
+                            <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center">
+                                <Clock className="w-6 h-6 text-blue-500" />
+                            </div>
+                            <h3 className="text-xl font-black text-gray-800">Logistics & Communication</h3>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-8">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Official Hotline</label>
                                 <input
                                     type="text"
                                     name="contactPhone"
                                     value={formData.contactPhone}
                                     onChange={handleChange}
-                                    placeholder="+1 234 567 890"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Contact Email</label>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Business Support Email</label>
                                 <input
                                     type="email"
                                     name="contactEmail"
                                     value={formData.contactEmail}
                                     onChange={handleChange}
-                                    placeholder="contact@restaurant.com"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Opening Hour</label>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Shift Start</label>
                                 <input
                                     type="time"
                                     name="openingHour"
                                     value={formData.openingHour}
                                     onChange={handleChange}
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Closing Hour</label>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Shift End</label>
                                 <input
                                     type="time"
                                     name="closingHour"
                                     value={formData.closingHour}
                                     onChange={handleChange}
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
                         </div>
-                    </section>
+                    </div>
 
-                    {/* Address Section */}
-                    <section>
-                        <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b-2 border-yellow-500 inline-block">Location</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="md:col-span-2">
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Address Line 1</label>
+                    {/* Geographical Location */}
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 p-8 sm:p-12">
+                        <div className="flex items-center gap-4 mb-10">
+                            <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center">
+                                <MapPin className="w-6 h-6 text-green-500" />
+                            </div>
+                            <h3 className="text-xl font-black text-gray-800">Physical Location</h3>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <div className="md:col-span-2 space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Address Entry</label>
                                 <input
                                     type="text"
                                     name="addressLine1"
                                     value={formData.addressLine1}
                                     onChange={handleChange}
-                                    placeholder="123 Street Name"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
+                                    placeholder="Street, Block, Landmark..."
+                                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition"
                                 />
                             </div>
-
-                            <div className="md:col-span-2">
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Address Line 2 (Optional)</label>
-                                <input
-                                    type="text"
-                                    name="addressLine2"
-                                    value={formData.addressLine2}
-                                    onChange={handleChange}
-                                    placeholder="Suite, Apartment, etc."
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">City</label>
+                                <input type="text" name="city" value={formData.city} onChange={handleChange} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition" />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">City</label>
-                                <input
-                                    type="text"
-                                    name="city"
-                                    value={formData.city}
-                                    onChange={handleChange}
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">State / Province</label>
+                                <input type="text" name="state" value={formData.state} onChange={handleChange} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition" />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">State</label>
-                                <input
-                                    type="text"
-                                    name="state"
-                                    value={formData.state}
-                                    onChange={handleChange}
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Zip Code</label>
-                                <input
-                                    type="text"
-                                    name="zipCode"
-                                    value={formData.zipCode}
-                                    onChange={handleChange}
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Zip / Postal</label>
+                                <input type="text" name="zipCode" value={formData.zipCode} onChange={handleChange} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition" />
                             </div>
                         </div>
-                    </section>
+                    </div>
 
-                    {/* Documents Section */}
-                    <section>
-                        <h3 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b-2 border-yellow-500 inline-block">Verification Documents</h3>
-                        <div className="grid grid-cols-1 gap-6">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Business License / Registration Number</label>
-                                <input
-                                    type="text"
-                                    name="businessLicense"
-                                    value={formData.businessLicense}
-                                    onChange={handleChange}
-                                    placeholder="Enter license number"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
+                    {/* Regulatory Verification */}
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 p-8 sm:p-12 relative overflow-hidden">
+                        <div className="absolute bottom-0 left-0 w-32 h-32 bg-orange-50/50 rounded-full blur-3xl -z-10 -translate-x-12 translate-y-12" />
+
+                        <div className="flex items-center gap-4 mb-10">
+                            <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center">
+                                <FileText className="w-6 h-6 text-gray-500" />
                             </div>
+                            <h3 className="text-xl font-black text-gray-800">Credentials & KYC</h3>
+                        </div>
 
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Health Permit Number</label>
-                                <input
-                                    type="text"
-                                    name="healthPermit"
-                                    value={formData.healthPermit}
-                                    onChange={handleChange}
-                                    placeholder="Enter health permit number"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
+                        <div className="grid gap-6">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Business Registration (PAN/VAT)</label>
+                                <input type="text" name="businessLicense" value={formData.businessLicense} onChange={handleChange} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition" />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Tax ID / PAN Number</label>
-                                <input
-                                    type="text"
-                                    name="taxId"
-                                    value={formData.taxId}
-                                    onChange={handleChange}
-                                    placeholder="Enter tax identification number"
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-500 focus:outline-none text-black transition"
-                                />
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sanitation & Health Permit</label>
+                                <input type="text" name="healthPermit" value={formData.healthPermit} onChange={handleChange} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition" />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Additional Tax Reference</label>
+                                <input type="text" name="taxId" value={formData.taxId} onChange={handleChange} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition" />
                             </div>
                         </div>
-                    </section>
+                    </div>
 
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full bg-yellow-500 text-white font-bold text-xl py-5 rounded-2xl hover:bg-yellow-600 transition shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed transform hover:scale-[1.01] active:scale-[0.99]"
+                        className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-black text-xl py-6 rounded-[2rem] transition shadow-xl hover:shadow-orange-200 disabled:opacity-50 active:scale-[0.98] flex items-center justify-center gap-3"
                     >
-                        {isLoading ? 'Processing...' : 'Submit for Approval'}
+                        {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
+                        {isLoading ? 'Processing Request...' : 'Finalize & Submit Application'}
                     </button>
                 </form>
+
+                <p className="mt-12 text-center text-gray-400 text-[10px] font-black uppercase tracking-[0.2em] max-w-sm mx-auto leading-loose">
+                    By submitting, you agree to the KhanaSathi Partner Terms of Service and Merchant Compliance Policy.
+                </p>
             </div>
         </div>
     );

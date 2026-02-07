@@ -59,19 +59,19 @@ export default function PaymentPage() {
     {
       id: "esewa",
       name: "eSewa",
-      icon: "💚",
+      icon: "esewa",
       description: "Pay with your eSewa wallet",
     },
     {
       id: "khalti",
       name: "Khalti",
-      icon: "💜",
+      icon: "khalti",
       description: "Pay with your Khalti wallet",
     },
     {
       id: "cod",
       name: "Cash on Delivery",
-      icon: "💵",
+      icon: "cod",
       description: "Pay when your order arrives",
     },
   ];
@@ -292,8 +292,14 @@ export default function PaymentPage() {
                       onChange={() => setSelectedPayment(method.id)}
                       className="w-5 h-5 text-red-500 focus:ring-red-500"
                     />
-                    <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                      <span className="text-2xl">{method.icon}</span>
+                    <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+                      {method.icon === "esewa" ? (
+                        <Image src="/Esewa.svg" alt="eSewa" width={40} height={40} className="object-contain" />
+                      ) : method.icon === "khalti" ? (
+                        <Image src="/Khalti.svg" alt="Khalti" width={40} height={40} className="object-contain" />
+                      ) : (
+                        <span className="text-2xl">💵</span>
+                      )}
                     </div>
                     <div className="flex-1">
                       <h3 className="font-medium text-gray-900">{method.name}</h3>

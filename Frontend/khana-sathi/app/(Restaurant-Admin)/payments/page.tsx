@@ -13,7 +13,6 @@ import {
     Calendar,
     DollarSign
 } from 'lucide-react';
-import RestaurantSidebar from '@/components/RestaurantSidebar';
 import { getRestaurantOrders } from '@/lib/orderService';
 
 interface Settlement {
@@ -84,21 +83,18 @@ export default function PaymentsPage() {
             const response = await getRestaurantOrders();
             const orders = (response.data as any)?.data || [];
 
-            // Filter completed orders
             const completedOrders = orders.filter((o: any) => o.status === 'delivered');
-            
-            // Calculate total earnings (all time)
+
             const totalEarnings = completedOrders.reduce((sum: number, o: any) => {
                 const orderTotal = o.pricing?.total || 0;
-                const commission = orderTotal * 0.15; // 15% commission
+                const commission = orderTotal * 0.15;
                 return sum + (orderTotal - commission);
             }, 0);
 
-            // Calculate this month earnings
             const thisMonthStart = new Date();
             thisMonthStart.setDate(1);
             thisMonthStart.setHours(0, 0, 0, 0);
-            
+
             const thisMonthOrders = completedOrders.filter((o: any) => new Date(o.createdAt) >= thisMonthStart);
             const thisMonth = thisMonthOrders.reduce((sum: number, o: any) => {
                 const orderTotal = o.pricing?.total || 0;
@@ -106,8 +102,7 @@ export default function PaymentsPage() {
                 return sum + (orderTotal - commission);
             }, 0);
 
-            // Pending amount: COD orders that are delivered but not yet settled
-            const pendingOrders = completedOrders.filter((o: any) => 
+            const pendingOrders = completedOrders.filter((o: any) =>
                 o.paymentMethod === 'cod' && o.paymentStatus !== 'settled'
             );
             const pendingAmount = pendingOrders.reduce((sum: number, o: any) => {
@@ -118,12 +113,11 @@ export default function PaymentsPage() {
 
             setStats({
                 pendingAmount: Math.round(pendingAmount),
-                lastPayout: 0, // Would need actual payout records
+                lastPayout: 0,
                 totalEarnings: Math.round(totalEarnings),
                 thisMonth: Math.round(thisMonth)
             });
 
-            // Generate weekly settlements from order data
             const weeklySettlements: Settlement[] = [];
             const weekMap = new Map<string, { orders: any[], grossAmount: number }>();
 
@@ -133,9 +127,9 @@ export default function PaymentsPage() {
                 weekStart.setDate(weekStart.getDate() - weekStart.getDay());
                 const weekEnd = new Date(weekStart);
                 weekEnd.setDate(weekEnd.getDate() + 6);
-                
+
                 const periodKey = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-                
+
                 const existing = weekMap.get(periodKey) || { orders: [], grossAmount: 0 };
                 weekMap.set(periodKey, {
                     orders: [...existing.orders, order],
@@ -152,18 +146,17 @@ export default function PaymentsPage() {
                     grossAmount: Math.round(data.grossAmount),
                     commission,
                     netAmount: Math.round(data.grossAmount - commission),
-                    status: 'completed' // Simplified
+                    status: 'completed'
                 });
             });
 
-            // Sort by period (most recent first)
             weeklySettlements.sort((a, b) => {
                 const dateA = new Date(a.period.split(' - ')[0]);
                 const dateB = new Date(b.period.split(' - ')[0]);
                 return dateB.getTime() - dateA.getTime();
             });
 
-            setSettlements(weeklySettlements.slice(0, 10)); // Last 10 weeks
+            setSettlements(weeklySettlements.slice(0, 10));
         } catch (error) {
             console.error("Error fetching payments:", error);
         } finally {
@@ -173,139 +166,147 @@ export default function PaymentsPage() {
 
     if (authLoading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="flex items-center justify-center min-h-[60vh]">
                 <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 flex">
-            <RestaurantSidebar />
-            <div className="flex-1 p-6">
-                <div className="max-w-6xl mx-auto">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-8">
-                        <div>
-                            <h1 className="text-2xl font-bold text-gray-800">Payments & Settlements</h1>
-                            <p className="text-gray-500">Track your earnings and payouts</p>
-                        </div>
-                        <button
-                            onClick={handleExport}
-                            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition"
-                        >
-                            <Download className="w-5 h-5 text-gray-600" />
-                            Export Statement
-                        </button>
+        <div className="p-8">
+            <div className="max-w-6xl mx-auto">
+                {/* Header Section */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-800">Payments & Earnings</h1>
+                        <p className="text-gray-500">Track your settlements and financial performance</p>
                     </div>
+                    <button
+                        onClick={handleExport}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold text-gray-700 hover:bg-gray-50 transition shadow-sm"
+                    >
+                        <Download className="w-5 h-5" />
+                        Download Report
+                    </button>
+                </div>
 
-                    {loading ? (
-                        <div className="flex items-center justify-center py-20">
-                            <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
-                        </div>
-                    ) : (
-                        <>
-                            {/* Stats Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <p className="text-gray-500 text-sm">Pending Settlement</p>
-                                        <Clock className="w-5 h-5 text-yellow-500" />
-                                    </div>
-                                    <p className="text-3xl font-bold text-gray-800">Rs. {stats.pendingAmount}</p>
-                                    <p className="text-xs text-yellow-600 mt-2">Will be settled soon</p>
+                {loading ? (
+                    <div className="flex items-center justify-center py-20">
+                        <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
+                    </div>
+                ) : (
+                    <>
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+                                <div className="w-10 h-10 bg-yellow-50 rounded-full flex items-center justify-center mb-4">
+                                    <Clock className="w-5 h-5 text-yellow-600" />
                                 </div>
-                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <p className="text-gray-500 text-sm">Last Payout</p>
-                                        <CheckCircle className="w-5 h-5 text-green-500" />
-                                    </div>
-                                    <p className="text-3xl font-bold text-gray-800">Rs. {stats.lastPayout}</p>
-                                    <p className="text-xs text-gray-400 mt-2">-</p>
-                                </div>
-                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <p className="text-gray-500 text-sm">This Month</p>
-                                        <Calendar className="w-5 h-5 text-blue-500" />
-                                    </div>
-                                    <p className="text-3xl font-bold text-gray-800">Rs. {stats.thisMonth}</p>
-                                    <p className="text-xs text-gray-400 mt-2">Current period</p>
-                                </div>
-                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <p className="text-gray-500 text-sm">Total Earnings</p>
-                                        <TrendingUp className="w-5 h-5 text-green-500" />
-                                    </div>
-                                    <p className="text-3xl font-bold text-gray-800">Rs. {stats.totalEarnings}</p>
-                                    <p className="text-xs text-green-500 mt-2">All time</p>
-                                </div>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">In Pipeline</p>
+                                <p className="text-2xl font-black text-gray-800">Rs. {stats.pendingAmount.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-yellow-600 mt-1 uppercase">Pending Settlement</p>
                             </div>
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+                                <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                                    <Calendar className="w-5 h-5 text-blue-600" />
+                                </div>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">This Month</p>
+                                <p className="text-2xl font-black text-gray-800">Rs. {stats.thisMonth.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">Feb 2026</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+                                <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center mb-4">
+                                    <CheckCircle className="w-5 h-5 text-green-600" />
+                                </div>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Last Payout</p>
+                                <p className="text-2xl font-black text-gray-800">Rs. {stats.lastPayout.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-green-600 mt-1 uppercase">Successfully Paid</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+                                <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center mb-4">
+                                    <TrendingUp className="w-5 h-5 text-orange-600" />
+                                </div>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Total Earned</p>
+                                <p className="text-2xl font-black text-gray-800">Rs. {stats.totalEarnings.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-orange-600 mt-1 uppercase">All-time Revenue</p>
+                            </div>
+                        </div>
 
-                            {/* Settlements Table */}
-                            <div className="bg-white rounded-2xl shadow-sm p-6">
-                                <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        {/* Settlement History */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                                     <Wallet className="w-5 h-5 text-orange-500" />
                                     Settlement History
                                 </h3>
-
-                                {settlements.length === 0 ? (
-                                    <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-xl">
-                                        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                            <DollarSign className="w-10 h-10 text-gray-300" />
-                                        </div>
-                                        <h4 className="text-xl font-bold text-gray-800 mb-2">No Settlements Yet</h4>
-                                        <p className="text-gray-500 max-w-md mx-auto">
-                                            Your settlement history will appear here once you start receiving orders.
-                                            Settlements are processed weekly.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full">
-                                            <thead>
-                                                <tr className="border-b border-gray-100">
-                                                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Period</th>
-                                                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Orders</th>
-                                                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Gross</th>
-                                                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Commission</th>
-                                                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Net Amount</th>
-                                                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {settlements.map((settlement) => (
-                                                    <tr key={settlement._id} className="border-b border-gray-50 hover:bg-gray-50">
-                                                        <td className="py-4 px-4 font-medium text-gray-800">{settlement.period}</td>
-                                                        <td className="py-4 px-4 text-gray-600">{settlement.totalOrders}</td>
-                                                        <td className="py-4 px-4 text-gray-600">Rs. {settlement.grossAmount}</td>
-                                                        <td className="py-4 px-4 text-red-500">- Rs. {settlement.commission}</td>
-                                                        <td className="py-4 px-4 font-bold text-green-600">Rs. {settlement.netAmount}</td>
-                                                        <td className="py-4 px-4">
-                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${settlement.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                                                settlement.status === 'processing' ? 'bg-blue-100 text-blue-700' :
-                                                                    'bg-yellow-100 text-yellow-700'
-                                                                }`}>
-                                                                {settlement.status.charAt(0).toUpperCase() + settlement.status.slice(1)}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
+                                <span className="text-[10px] font-bold text-gray-400 uppercase bg-gray-50 px-2 py-1 rounded">15% Commission Applied</span>
                             </div>
 
-                            {/* Payment Info */}
-                            <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                                <p className="text-sm text-blue-800">
-                                    <strong>Note:</strong> Settlements are processed weekly. Commission rate is 15% on all orders.
-                                    For payment-related queries, please contact support.
+                            {settlements.length === 0 ? (
+                                <div className="p-16 text-center">
+                                    <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <DollarSign className="w-10 h-10 text-gray-200" />
+                                    </div>
+                                    <h4 className="text-lg font-bold text-gray-800 mb-1">No Payout Records</h4>
+                                    <p className="text-gray-400 text-sm max-w-sm mx-auto">Once your orders are delivered and settled, they will appear here as weekly statements.</p>
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr className="bg-gray-50/50">
+                                                <th className="text-left py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Billing Period</th>
+                                                <th className="text-center py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Order Count</th>
+                                                <th className="text-right py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Gross Sale</th>
+                                                <th className="text-right py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Commission</th>
+                                                <th className="text-right py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Your Net</th>
+                                                <th className="text-center py-4 px-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                            {settlements.map((settlement) => (
+                                                <tr key={settlement._id} className="hover:bg-gray-50/50 transition">
+                                                    <td className="py-4 px-6">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                                                                <Calendar className="w-4 h-4 text-gray-400" />
+                                                            </div>
+                                                            <span className="font-bold text-gray-800 text-sm">{settlement.period}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-4 px-6 text-center text-sm font-semibold text-gray-600">{settlement.totalOrders}</td>
+                                                    <td className="py-4 px-6 text-right text-sm font-semibold text-gray-600">Rs. {settlement.grossAmount.toLocaleString()}</td>
+                                                    <td className="py-4 px-6 text-right text-sm font-bold text-red-500">-{settlement.commission.toLocaleString()}</td>
+                                                    <td className="py-4 px-6 text-right">
+                                                        <span className="text-sm font-black text-green-600">Rs. {settlement.netAmount.toLocaleString()}</span>
+                                                    </td>
+                                                    <td className="py-4 px-6 text-center">
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight ${settlement.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                            {settlement.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Alert / Info */}
+                        <div className="mt-8 p-4 bg-orange-50/50 border border-orange-100 rounded-2xl flex items-start gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shrink-0">
+                                <DollarSign className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-bold text-orange-800">Payment Policy & Auto-Settlements</h4>
+                                <p className="text-xs text-orange-700 mt-1 leading-relaxed">
+                                    KhanaSathi platform fee of 15% is automatically deducted from the gross order amount. Settlements are calculated every Sunday and credited to your verified bank account within 2-3 business days. COD orders are cleared through your weekly balance.
                                 </p>
                             </div>
-                        </>
-                    )}
-                </div>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, Trash2, ArrowLeft, Loader2, Users, Share2, Clipboard, UserPlus } from "lucide-react";
+import { Minus, Plus, Trash2, ArrowLeft, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   getCart,
@@ -11,16 +11,10 @@ import {
   clearCart,
   applyPromoCode,
   removePromoCode,
-  shareCart,
-  joinCart as apiJoinCart
 } from "@/lib/cartService";
-import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/context/AuthContext";
-import { useSocket } from "@/context/SocketContext";
 import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
-
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
 
 interface CartItem {
   _id: string;
@@ -36,10 +30,6 @@ interface CartItem {
   image?: string;
   quantity: number;
   specialInstructions?: string;
-  addedBy?: {
-    _id: string;
-    username: string;
-  };
 }
 
 interface RestaurantGroup {
@@ -56,13 +46,6 @@ interface CartData {
   restaurantGroups: RestaurantGroup[];
   promoCode?: string;
   promoDiscount?: number;
-  isShared: boolean;
-  shareCode?: string;
-  collaborators: {
-    _id: string;
-    username: string;
-    profilePicture?: string;
-  }[];
   user: {
     _id: string;
     username: string;
@@ -76,42 +59,11 @@ export default function CartPage() {
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState("");
   const [promoSuccess, setPromoSuccess] = useState("");
-  const [joinCode, setJoinCode] = useState("");
   const { user: authUser } = useAuth();
-  const { socket, joinRoom, leaveRoom } = useSocket();
 
   useEffect(() => {
     fetchCart();
-
-    if (!socket) return;
-
-    const handleCartUpdated = (updatedCart: CartData) => {
-      setCart(updatedCart);
-      toast.success("Cart updated by collaborator", { id: "cart-update" });
-    };
-
-    const handleUserJoined = ({ user, cart }: { user: any, cart: CartData }) => {
-      setCart(cart);
-      toast.success(`${user.username} joined the cart!`);
-    };
-
-    socket.on("cartUpdated", handleCartUpdated);
-    socket.on("userJoinedCart", handleUserJoined);
-
-    return () => {
-      socket.off("cartUpdated", handleCartUpdated);
-      socket.off("userJoinedCart", handleUserJoined);
-    };
-  }, [socket]);
-
-  useEffect(() => {
-    if (cart?.isShared && cart.shareCode && socket) {
-      joinRoom(cart.shareCode);
-      return () => {
-        if (cart.shareCode) leaveRoom(cart.shareCode);
-      };
-    }
-  }, [cart?.isShared, cart?.shareCode, socket, joinRoom, leaveRoom]);
+  }, []);
 
   const fetchCart = async () => {
     try {
@@ -177,41 +129,6 @@ export default function CartPage() {
     }
   };
 
-  const handleShareCart = async () => {
-    try {
-      const response = await shareCart();
-      if (response.data?.success) {
-        setCart(response.data.data as any);
-        toast.success("Group ordering enabled!");
-      }
-    } catch (err) {
-      toast.error("Failed to enable group ordering");
-    }
-  };
-
-  const handleJoinCart = async () => {
-    if (!joinCode.trim()) return;
-    try {
-      const response = await apiJoinCart(joinCode);
-      if (response.data?.success) {
-        setCart(response.data.data as any);
-        setJoinCode("");
-        toast.success("Joined group cart!");
-      } else {
-        toast.error(response.data?.message || "Failed to join cart");
-      }
-    } catch (err) {
-      toast.error("Invalid share code");
-    }
-  };
-
-  const copyShareCode = () => {
-    if (cart?.shareCode) {
-      navigator.clipboard.writeText(cart.shareCode);
-      toast.success("Code copied to clipboard!");
-    }
-  };
-
   // Calculate subtotal across all groups
   const subtotal = cart?.restaurantGroups.reduce((acc, group) => {
     return acc + group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -254,30 +171,10 @@ export default function CartPage() {
             <p className="text-gray-600 mb-6">Add some delicious food to get started!</p>
             <Link
               href="/browse-restaurants"
-              className="inline-block bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors mb-8"
+              className="inline-block bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
             >
               Browse Restaurants
             </Link>
-
-            <div className="mt-12 max-w-sm mx-auto p-6 bg-white rounded-xl border border-gray-200">
-              <p className="text-gray-900 font-semibold mb-2">Join a friend's cart</p>
-              <p className="text-gray-500 text-sm mb-4">Enter the 8-character code to start ordering together.</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter share code"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-red-500 uppercase font-mono tracking-widest"
-                />
-                <button
-                  onClick={handleJoinCart}
-                  className="bg-gray-900 text-white px-6 py-2 rounded-lg hover:bg-black transition"
-                >
-                  Join
-                </button>
-              </div>
-            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -309,16 +206,9 @@ export default function CartPage() {
                             <div className="flex items-start justify-between">
                               <div>
                                 <h3 className="font-medium text-gray-900">{item.name}</h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                  {item.specialInstructions && (
-                                    <p className="text-xs text-orange-600">Note: {item.specialInstructions}</p>
-                                  )}
-                                  {cart.isShared && (
-                                    <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">
-                                      Added by {item.addedBy?.username || "Guest"}
-                                    </span>
-                                  )}
-                                </div>
+                                {item.specialInstructions && (
+                                  <p className="text-xs text-orange-600 mt-1">Note: {item.specialInstructions}</p>
+                                )}
                               </div>
                               <button
                                 onClick={() => removeItem(item.menuItem._id)}
@@ -359,46 +249,6 @@ export default function CartPage() {
                   </div>
                 </div>
               ))}
-
-              {/* Shared Cart Header Info */}
-              {cart && cart.isShared ? (
-                <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl border border-red-100 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">
-                      <Users className="w-6 h-6 text-red-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-gray-900">Group Order Active</h3>
-                      <p className="text-sm text-gray-600">{(cart.collaborators?.length || 0) + 1} people in this cart</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="bg-white border border-gray-200 px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm">
-                      <span className="text-sm font-mono font-bold tracking-widest">{cart.shareCode}</span>
-                      <button onClick={copyShareCode} className="text-gray-400 hover:text-red-500 transition">
-                        <Clipboard className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <button onClick={copyShareCode} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-md flex items-center gap-2">
-                      <Share2 className="w-4 h-4" /> Share Link
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 text-center">
-                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <UserPlus className="w-8 h-8 text-gray-300" />
-                  </div>
-                  <h3 className="font-bold text-gray-900 mb-1">Order with Friends</h3>
-                  <p className="text-sm text-gray-500 mb-6">Split the bill and share delivery fees by ordering together.</p>
-                  <button
-                    onClick={handleShareCart}
-                    className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-2 rounded-lg font-medium transition"
-                  >
-                    <Users className="w-4 h-4" /> Start Group Order
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="lg:col-span-1">
@@ -475,34 +325,6 @@ export default function CartPage() {
                 >
                   Proceed to Checkout
                 </Link>
-
-                {cart.isShared && (
-                  <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                    <p className="text-xs text-blue-800 font-medium flex items-center gap-1">
-                      <Users className="w-3 h-3" /> Split Bill Preview
-                    </p>
-                    <div className="mt-2 space-y-1">
-                      {/* Subtotal by user */}
-                      {(() => {
-                        const userTotals: Record<string, { username: string, total: number }> = {};
-                        cart.restaurantGroups.forEach(group => {
-                          group.items.forEach(item => {
-                            const uid = item.addedBy?._id || 'guest';
-                            const uname = item.addedBy?.username || 'Guest';
-                            if (!userTotals[uid]) userTotals[uid] = { username: uname, total: 0 };
-                            userTotals[uid].total += item.price * item.quantity;
-                          });
-                        });
-                        return Object.entries(userTotals).map(([id, ut]) => (
-                          <div key={id} className="flex justify-between text-[11px] text-blue-700">
-                            <span>{ut.username}</span>
-                            <span>Rs. {ut.total}</span>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

@@ -5,6 +5,7 @@ import { Bell, Check, Trash2, X, Info, ShoppingBag, MessageSquare, AlertTriangle
 import { getNotifications, markRead, markAllRead, deleteNotification, NotificationData } from '@/lib/notificationService';
 import { useAuth } from '@/context/AuthContext';
 import { useSocket } from '@/context/SocketContext';
+import { useChat } from '@/context/ChatContext';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 
@@ -16,6 +17,7 @@ const NotificationCenter: React.FC = () => {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const { user } = useAuth();
     const { onNotification } = useSocket();
+    const { openChat } = useChat();
 
     useEffect(() => {
         if (user) {
@@ -63,8 +65,8 @@ const NotificationCenter: React.FC = () => {
         }
     };
 
-    const handleMarkRead = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
+    const handleMarkRead = async (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
         try {
             await markRead(id);
             setNotifications(prev =>
@@ -142,64 +144,106 @@ const NotificationCenter: React.FC = () => {
                     <div className="max-h-[70vh] overflow-y-auto">
                         {notifications.length > 0 ? (
                             <div className="divide-y divide-gray-50">
-                                {notifications.map((notif) => (
-                                    <div
-                                        key={notif._id}
-                                        className={`p-4 hover:bg-gray-50 transition-colors flex gap-3 ${!notif.isRead ? 'bg-red-50/30' : ''}`}
-                                    >
-                                        <div className="mt-1 shrink-0">
-                                            {getTypeIcon(notif.type)}
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="flex justify-between items-start">
-                                                <p className={`text-sm font-semibold ${!notif.isRead ? 'text-gray-900' : 'text-gray-600'}`}>
-                                                    {notif.title}
-                                                </p>
-                                                <div className="flex gap-1 ml-2 shrink-0">
-                                                    {!notif.isRead && (
+                                {notifications.map((notif) => {
+                                    const isChat = notif.type === 'chat_message';
+                                    const handleClick = (e: React.MouseEvent) => {
+                                        if (isChat && notif.data?.orderId) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+
+                                            const thread = (notif.data.thread as any) || 'customer-restaurant';
+                                            let recipientRole: 'restaurant' | 'delivery_staff' | 'customer' = 'restaurant';
+                                            let recipientName = "Support";
+
+                                            if (thread === 'customer-restaurant') {
+                                                recipientRole = user.role === 'customer' ? 'restaurant' : 'customer';
+                                                recipientName = user.role === 'customer' ? 'Restaurant' : 'Customer';
+                                            } else if (thread === 'customer-rider') {
+                                                recipientRole = user.role === 'customer' ? 'delivery_staff' : 'customer';
+                                                recipientName = user.role === 'customer' ? 'Rider' : 'Customer';
+                                            } else if (thread === 'restaurant-rider') {
+                                                recipientRole = (user.role === 'restaurant' || user.role === 'restaurant_admin') ? 'delivery_staff' : 'restaurant';
+                                                recipientName = (user.role === 'restaurant' || user.role === 'restaurant_admin') ? 'Rider' : 'Restaurant';
+                                            }
+
+                                            openChat({
+                                                orderId: notif.data.orderId,
+                                                recipientName,
+                                                recipientRole,
+                                                chatThread: thread
+                                            });
+                                            setIsOpen(false);
+                                            if (!notif.isRead) handleMarkRead(notif._id);
+                                        }
+                                    };
+
+                                    return (
+                                        <div
+                                            key={notif._id}
+                                            onClick={handleClick}
+                                            className={`p-4 hover:bg-gray-50 transition-colors flex gap-3 cursor-pointer ${!notif.isRead ? 'bg-red-50/30' : ''}`}
+                                        >
+                                            <div className="mt-1 shrink-0">
+                                                {getTypeIcon(notif.type)}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between items-start">
+                                                    <p className={`text-sm font-semibold ${!notif.isRead ? 'text-gray-900' : 'text-gray-600'}`}>
+                                                        {notif.title}
+                                                    </p>
+                                                    <div className="flex gap-1 ml-2 shrink-0">
+                                                        {!notif.isRead && (
+                                                            <button
+                                                                onClick={(e) => handleMarkRead(notif._id, e)}
+                                                                className="p-1 text-gray-400 hover:text-blue-500 transition"
+                                                                title="Mark as read"
+                                                            >
+                                                                <Check className="w-3 h-3" />
+                                                            </button>
+                                                        )}
                                                         <button
-                                                            onClick={(e) => handleMarkRead(notif._id, e)}
-                                                            className="p-1 text-gray-400 hover:text-blue-500 transition"
-                                                            title="Mark as read"
+                                                            onClick={(e) => handleDelete(notif._id, e)}
+                                                            className="p-1 text-gray-400 hover:text-red-500 transition"
+                                                            title="Delete"
                                                         >
-                                                            <Check className="w-3 h-3" />
+                                                            <Trash2 className="w-3 h-3" />
                                                         </button>
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                                                    {notif.message}
+                                                </p>
+                                                <div className="flex items-center justify-between mt-2">
+                                                    <span className="text-[10px] text-gray-400 uppercase tracking-tighter">
+                                                        {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                    {notif.data?.orderId && (
+                                                        <Link
+                                                            href={
+                                                                user.role === 'restaurant_admin' || user.role === 'restaurant'
+                                                                    ? '/orders-board'
+                                                                    : user.role === 'delivery_staff'
+                                                                        ? '/my-deliveries'
+                                                                        : `/order-tracking/${notif.data.orderId}`
+                                                            }
+                                                            className="text-[10px] text-red-500 font-bold flex items-center gap-0.5 hover:underline"
+                                                            onClick={(e) => {
+                                                                if (isChat) {
+                                                                    e.preventDefault();
+                                                                    handleClick(e as any);
+                                                                } else {
+                                                                    setIsOpen(false);
+                                                                }
+                                                            }}
+                                                        >
+                                                            {isChat ? 'Open Chat' : 'View Order'} <ExternalLink className="w-2 h-2" />
+                                                        </Link>
                                                     )}
-                                                    <button
-                                                        onClick={(e) => handleDelete(notif._id, e)}
-                                                        className="p-1 text-gray-400 hover:text-red-500 transition"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 className="w-3 h-3" />
-                                                    </button>
                                                 </div>
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
-                                                {notif.message}
-                                            </p>
-                                            <div className="flex items-center justify-between mt-2">
-                                                <span className="text-[10px] text-gray-400 uppercase tracking-tighter">
-                                                    {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                                {notif.data?.orderId && (
-                                                    <Link
-                                                        href={
-                                                            user.role === 'restaurant_admin' || user.role === 'restaurant'
-                                                                ? '/orders-board'
-                                                                : user.role === 'delivery_staff'
-                                                                    ? '/my-deliveries'
-                                                                    : `/order-tracking/${notif.data.orderId}`
-                                                        }
-                                                        className="text-[10px] text-red-500 font-bold flex items-center gap-0.5 hover:underline"
-                                                        onClick={() => setIsOpen(false)}
-                                                    >
-                                                        View Order <ExternalLink className="w-2 h-2" />
-                                                    </Link>
-                                                )}
-                                            </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div className="py-12 text-center text-gray-400">

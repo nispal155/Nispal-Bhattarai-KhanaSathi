@@ -38,10 +38,11 @@ export default function OrderMonitoringPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [searchTrigger, setSearchTrigger] = useState(0);
 
     useEffect(() => {
         fetchData();
-    }, [statusFilter, currentPage]);
+    }, [statusFilter, currentPage, searchTrigger]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -69,7 +70,7 @@ export default function OrderMonitoringPage() {
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         setCurrentPage(1);
-        fetchData();
+        setSearchTrigger(prev => prev + 1);
     };
 
     const getStatusStyles = (status: string) => {
