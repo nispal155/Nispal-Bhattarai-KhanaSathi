@@ -33,7 +33,7 @@ import {
 import ChatWindow from '@/components/Chat/ChatWindow';
 import { MessageSquare } from 'lucide-react';
 
-const API_URL = "http://localhost:5003/api/auth";
+const API_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api"}/auth`;
 
 export default function RiderDashboardPage() {
   const { user, logout, isLoading: authLoading } = useAuth();
@@ -148,7 +148,7 @@ export default function RiderDashboardPage() {
   const toggleOnlineStatus = async () => {
     const newStatus = !isOnline;
     try {
-      await axios.put('http://localhost:5003/api/staff/toggle-status', {
+      await axios.put(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api'}/staff/toggle-status`, {
         userId: user?._id,
         isOnline: newStatus
       });

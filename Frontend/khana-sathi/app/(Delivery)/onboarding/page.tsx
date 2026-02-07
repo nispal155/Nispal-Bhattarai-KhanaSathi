@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 
 // Update with correct port if needed
-const API_URL = "http://localhost:5003/api/staff";
+const API_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api"}/staff`;
 
 export default function OnboardingPage() {
     const router = useRouter();

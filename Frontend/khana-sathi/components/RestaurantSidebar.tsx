@@ -19,8 +19,9 @@ import {
     Settings,
     LogOut,
 } from "lucide-react";
+import NotificationCenter from "@/components/NotificationCenter";
 
-const API_URL = "http://localhost:5003/api";
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api";
 
 const navItems = [
     { href: "/RM-Dashboard", icon: Home, label: "Dashboard" },
@@ -59,7 +60,8 @@ export default function RestaurantSidebar() {
             <div className="p-6 border-b border-gray-200">
                 <div className="flex items-center gap-3 mb-8">
                     <Image src="/logo.png" alt="KhanaSathi" width={40} height={40} className="object-contain" />
-                    <h1 className="text-xl font-bold text-red-600">KhanaSathi</h1>
+                    <h1 className="text-xl font-bold text-red-600 flex-1">KhanaSathi</h1>
+                    <NotificationCenter />
                 </div>
 
                 <nav className="space-y-2">

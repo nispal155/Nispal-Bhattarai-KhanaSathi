@@ -19,8 +19,8 @@ const ESEWA_CONFIG = {
 const KHALTI_CONFIG = {
     secretKey: process.env.KHALTI_SECRET_KEY || 'test_secret_key_placeholder',
     publicKey: process.env.KHALTI_PUBLIC_KEY || 'test_public_key_placeholder',
-    initiateUrl: process.env.KHALTI_INITIATE_URL || 'https://a.khalti.com/api/v2/epayment/initiate/',
-    lookupUrl: process.env.KHALTI_LOOKUP_URL || 'https://a.khalti.com/api/v2/epayment/lookup/'
+    initiateUrl: process.env.KHALTI_INITIATE_URL || 'https://dev.khalti.com/api/v2/epayment/initiate/',
+    lookupUrl: process.env.KHALTI_LOOKUP_URL || 'https://dev.khalti.com/api/v2/epayment/lookup/'
 };
 
 /**
@@ -146,17 +146,32 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
     // Clear the user's cart
     await Cart.findOneAndDelete({ user: pendingPayment.user });
 
-    // Create notifications for restaurants
+    // Create notifications for restaurant owners (not the restaurant doc)
     const Notification = require('../models/Notification');
+    const Restaurant = require('../models/Restaurant');
     for (const order of createdOrders) {
         try {
-            await Notification.create({
-                user: order.restaurant,
-                type: 'order_status',
-                title: 'New Order Received',
-                message: `You have a new order #${order.orderNumber}`,
-                data: { orderId: order._id }
-            });
+            const restaurant = await Restaurant.findById(order.restaurant);
+            const ownerId = restaurant?.createdBy || restaurant?.owner;
+            if (ownerId) {
+                await Notification.create({
+                    user: ownerId,
+                    type: 'order_status',
+                    title: 'New Order Received',
+                    message: `You have a new order #${order.orderNumber}`,
+                    data: { orderId: order._id }
+                });
+                // Push real-time notification via socket
+                try {
+                    const { getIO } = require('../services/socket');
+                    getIO().to(ownerId.toString()).emit('notification', {
+                        type: 'order_status',
+                        title: 'New Order Received',
+                        message: `You have a new order #${order.orderNumber}`,
+                        orderId: order._id
+                    });
+                } catch (socketErr) { /* socket not critical */ }
+            }
         } catch (notifError) {
             console.error(`Failed to create notification for order ${order._id}:`, notifError.message);
         }

@@ -3,6 +3,10 @@
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import { Loader2, MessageSquare, User, Star, Bike } from "lucide-react";
+import { io } from "socket.io-client";
+import toast from "react-hot-toast";
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
 import { getRestaurantOrders, updateOrderStatus, assignRider } from "@/lib/orderService";
 import { getAvailableRiders, AvailableRider } from "@/lib/riderService";
 import RestaurantSidebar from "@/components/RestaurantSidebar";
@@ -46,10 +50,41 @@ export default function OrdersBoard() {
 
   useEffect(() => {
     fetchOrders();
-    // Poll for new orders every 30 seconds
+
+    // Socket for real-time updates
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      auth: { token: localStorage.getItem("token") }
+    });
+
+    socket.on("connect", () => {
+      // Join personal room so we receive order notifications pushed to our user ID
+      if (authUser?._id) socket.emit("join", authUser._id);
+    });
+
+    socket.on("notification", (data: { type: string; message?: string }) => {
+      if (data.type === "order_status" || data.type === "chat_message") {
+        fetchOrders(); // Refresh the board
+        if (data.type === "order_status") {
+          toast.success(data.message || "New order received!", { icon: "🔔" });
+        }
+      }
+    });
+
+    // Also listen for direct order status changes
+    socket.on("orderStatusUpdate", () => {
+      fetchOrders();
+    });
+
+    // Fallback polling every 30 seconds
     const interval = setInterval(fetchOrders, 30000);
-    return () => clearInterval(interval);
-  }, []);
+
+    return () => {
+      clearInterval(interval);
+      socket.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
 
   const fetchOrders = async () => {
     try {

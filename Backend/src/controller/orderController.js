@@ -173,20 +173,34 @@ exports.createOrder = async (req, res) => {
     // Clear the cart
     await Cart.findByIdAndDelete(cart._id);
 
-    // Create Notification for Restaurant
+    // Create Notification for Restaurant Owner (not the restaurant doc)
     const Notification = require('../models/Notification');
+    const Restaurant = require('../models/Restaurant');
     for (const order of createdOrders) {
       try {
-        await Notification.create({
-          user: order.restaurant,
-          type: 'order_status',
-          title: 'New Order Received',
-          message: `You have a new order #${order.orderNumber}`,
-          data: { orderId: order._id }
-        });
+        const restaurant = await Restaurant.findById(order.restaurant);
+        const ownerId = restaurant?.createdBy || restaurant?.owner;
+        if (ownerId) {
+          await Notification.create({
+            user: ownerId,
+            type: 'order_status',
+            title: 'New Order Received',
+            message: `You have a new order #${order.orderNumber}`,
+            data: { orderId: order._id }
+          });
+          // Push real-time notification via socket
+          try {
+            const { getIO } = require('../services/socket');
+            getIO().to(ownerId.toString()).emit('notification', {
+              type: 'order_status',
+              title: 'New Order Received',
+              message: `You have a new order #${order.orderNumber}`,
+              orderId: order._id
+            });
+          } catch (socketErr) { /* socket not critical */ }
+        }
       } catch (notifError) {
         console.error(`Failed to create notification for order ${order._id}:`, notifError.message);
-        // Continue with other notifications even if one fails
       }
     }
 

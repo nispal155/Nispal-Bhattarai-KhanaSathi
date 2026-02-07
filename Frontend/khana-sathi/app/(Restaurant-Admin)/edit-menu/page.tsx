@@ -14,7 +14,7 @@ import { updateMenuItem } from "@/lib/menuService";
 import RestaurantSidebar from "@/components/RestaurantSidebar";
 import axios from "axios";
 
-const API_URL = "http://localhost:5003/api";
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api";
 
 interface MenuItem {
   _id: string;
