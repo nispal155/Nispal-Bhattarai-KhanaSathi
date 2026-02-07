@@ -64,7 +64,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             if (chatThread) {
                 const res = await getThreadMessages(orderId, chatThread);
                 if (res.data?.success) {
-                    setMessages(res.data.data);
+                    const fetchedMessages = res.data.data as Message[];
+                    setMessages(prev => {
+                        // Merge fetched messages with existing (which might include new socket messages)
+                        // This handles the case where fetch completes AFTER some socket messages arrive
+                        const merged = [...prev];
+                        fetchedMessages.forEach(fetched => {
+                            if (!merged.some(m => m._id === fetched._id)) {
+                                merged.push(fetched);
+                            }
+                        });
+                        // Sort by date to be safe
+                        return merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                    });
                     markThreadAsRead(orderId, chatThread).catch(() => { });
                 } else if (res.error) {
                     setChatError(res.error);
@@ -99,6 +111,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         joinRoom(chatRoom);
 
         const unsubscribe = onNewMessage((message: Message) => {
+            console.log('[Chat] New message received via socket:', message._id, message.content);
             // Filter: only accept messages for this thread
             if (chatThread && message.chatThread && message.chatThread !== chatThread) return;
             // Also filter by orderId if message has it (though room should handle this)
@@ -183,6 +196,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         setMessages(prev => [...prev, optimisticMsg]);
 
         try {
+            console.log('[Chat] Sending message:', messageContent);
             let savedMsg: Message | null = null;
             if (chatThread) {
                 const res = await sendThreadMessage(orderId, chatThread, messageContent);

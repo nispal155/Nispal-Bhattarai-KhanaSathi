@@ -25,19 +25,19 @@ interface SocketContextType {
 const SocketContext = createContext<SocketContextType>({
   socket: null,
   isConnected: false,
-  joinRoom: () => {},
-  leaveRoom: () => {},
-  joinOrder: () => {},
-  leaveOrder: () => {},
-  sendMessage: () => {},
-  onOrderUpdate: () => () => {},
-  onRiderAssigned: () => () => {},
-  onRiderLocation: () => () => {},
-  onNewMessage: () => () => {},
-  onNotification: () => () => {},
-  emitTyping: () => {},
-  emitStopTyping: () => {},
-  markMessagesRead: () => {},
+  joinRoom: () => { },
+  leaveRoom: () => { },
+  joinOrder: () => { },
+  leaveOrder: () => { },
+  sendMessage: () => { },
+  onOrderUpdate: () => () => { },
+  onRiderAssigned: () => () => { },
+  onRiderLocation: () => () => { },
+  onNewMessage: () => () => { },
+  onNotification: () => () => { },
+  emitTyping: () => { },
+  emitStopTyping: () => { },
+  markMessagesRead: () => { },
 });
 
 export const useSocket = () => useContext(SocketContext);
@@ -46,12 +46,11 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC
 
 export function SocketProvider({ children }: { children: ReactNode }) {
   const { user, token } = useAuth();
-  const socketRef = useRef<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    // Create socket connection
-    const socket = io(SOCKET_URL, {
+    const newSocket = io(SOCKET_URL, {
       auth: token ? { token } : undefined,
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -60,99 +59,94 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       reconnectionDelay: 1000,
     });
 
-    socketRef.current = socket;
+    setSocket(newSocket);
 
-    socket.on('connect', () => {
-      console.log('Socket connected:', socket.id);
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
       setIsConnected(true);
     });
 
-    socket.on('disconnect', (reason) => {
+    newSocket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
     });
 
-    socket.on('connect_error', (err) => {
+    newSocket.on('connect_error', (err) => {
       console.warn('Socket connection error:', err.message);
     });
 
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      newSocket.disconnect();
+      setSocket(null);
       setIsConnected(false);
     };
   }, [token]);
 
   const joinRoom = useCallback((roomId: string) => {
-    socketRef.current?.emit('join', roomId);
-  }, []);
+    socket?.emit('join', roomId);
+  }, [socket]);
 
   const leaveRoom = useCallback((roomId: string) => {
-    socketRef.current?.emit('leave', roomId);
-  }, []);
+    socket?.emit('leave', roomId);
+  }, [socket]);
 
   const joinOrder = useCallback((orderId: string) => {
-    socketRef.current?.emit('joinOrder', orderId);
-  }, []);
+    socket?.emit('joinOrder', orderId);
+  }, [socket]);
 
   const leaveOrder = useCallback((orderId: string) => {
-    socketRef.current?.emit('leave', orderId);
-  }, []);
+    socket?.emit('leaveOrder', orderId);
+  }, [socket]);
 
   const sendMessage = useCallback((data: { orderId: string; content: string; thread?: string; attachments?: string[] }) => {
-    socketRef.current?.emit('sendMessage', data);
-  }, []);
+    socket?.emit('sendMessage', data);
+  }, [socket]);
 
   const onOrderUpdate = useCallback((callback: (data: any) => void) => {
-    const socket = socketRef.current;
-    if (!socket) return () => {};
+    if (!socket) return () => { };
     socket.on('orderStatusUpdate', callback);
     return () => { socket.off('orderStatusUpdate', callback); };
-  }, []);
+  }, [socket]);
 
   const onRiderAssigned = useCallback((callback: (data: any) => void) => {
-    const socket = socketRef.current;
-    if (!socket) return () => {};
+    if (!socket) return () => { };
     socket.on('riderAssigned', callback);
     return () => { socket.off('riderAssigned', callback); };
-  }, []);
+  }, [socket]);
 
   const onRiderLocation = useCallback((callback: (data: any) => void) => {
-    const socket = socketRef.current;
-    if (!socket) return () => {};
+    if (!socket) return () => { };
     socket.on('riderLocation', callback);
     return () => { socket.off('riderLocation', callback); };
-  }, []);
+  }, [socket]);
 
   const onNewMessage = useCallback((callback: (data: any) => void) => {
-    const socket = socketRef.current;
-    if (!socket) return () => {};
+    if (!socket) return () => { };
     socket.on('newMessage', callback);
     return () => { socket.off('newMessage', callback); };
-  }, []);
+  }, [socket]);
 
   const onNotification = useCallback((callback: (data: any) => void) => {
-    const socket = socketRef.current;
-    if (!socket) return () => {};
+    if (!socket) return () => { };
     socket.on('notification', callback);
     return () => { socket.off('notification', callback); };
-  }, []);
+  }, [socket]);
 
   const emitTyping = useCallback((roomId: string) => {
-    socketRef.current?.emit('typing', { roomId });
-  }, []);
+    socket?.emit('typing', { roomId });
+  }, [socket]);
 
   const emitStopTyping = useCallback((roomId: string) => {
-    socketRef.current?.emit('stopTyping', { roomId });
-  }, []);
+    socket?.emit('stopTyping', { roomId });
+  }, [socket]);
 
   const markMessagesRead = useCallback((orderId: string, thread?: string) => {
-    socketRef.current?.emit('markRead', { orderId, thread });
-  }, []);
+    socket?.emit('markRead', { orderId, thread });
+  }, [socket]);
 
   return (
     <SocketContext.Provider value={{
-      socket: socketRef.current,
+      socket,
       isConnected,
       joinRoom,
       leaveRoom,
