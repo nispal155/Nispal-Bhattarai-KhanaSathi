@@ -4,11 +4,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bell, Check, Trash2, X, Info, ShoppingBag, MessageSquare, AlertTriangle, ExternalLink } from 'lucide-react';
 import { getNotifications, markRead, markAllRead, deleteNotification, NotificationData } from '@/lib/notificationService';
 import { useAuth } from '@/context/AuthContext';
-import { io, Socket } from 'socket.io-client';
+import { useSocket } from '@/context/SocketContext';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
 
 const NotificationCenter: React.FC = () => {
     const [notifications, setNotifications] = useState<NotificationData[]>([]);
@@ -17,23 +15,14 @@ const NotificationCenter: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const { user } = useAuth();
-    const [socket, setSocket] = useState<Socket | null>(null);
+    const { onNotification } = useSocket();
 
     useEffect(() => {
         if (user) {
             fetchNotifications();
 
-            const newSocket = io(SOCKET_URL, {
-                transports: ["websocket", "polling"],
-                auth: { token: localStorage.getItem("token") }
-            });
-
-            newSocket.on('connect', () => {
-                // Join user's personal room so backend can push notifications
-                newSocket.emit('join', user._id);
-            });
-
-            newSocket.on('notification', (data: any) => {
+            // Listen for real-time notifications via shared socket
+            const unsubscribe = onNotification((data: any) => {
                 setUnreadCount(prev => prev + 1);
                 fetchNotifications(); // Refresh list
                 toast.success(data.message || "New notification received", {
@@ -42,13 +31,11 @@ const NotificationCenter: React.FC = () => {
                 });
             });
 
-            setSocket(newSocket);
-
             return () => {
-                newSocket.disconnect();
+                unsubscribe();
             };
         }
-    }, [user]);
+    }, [user, onNotification]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {

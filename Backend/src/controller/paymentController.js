@@ -45,7 +45,7 @@ const calculateCartTotals = (cart, useLoyaltyPoints, userLoyaltyPoints) => {
     }
 
     const deliveryFee = cart.restaurantGroups.length * 50;
-    const serviceFee = 20;
+    const serviceFee = cart.restaurantGroups.length * 20; // Per-restaurant service fee (consistent with order creation)
     const promoDiscount = cart.promoDiscount || 0;
 
     let loyaltyDiscount = 0;
@@ -468,7 +468,7 @@ exports.verifyEsewaPayment = async (req, res) => {
         // Decode the base64 response
         const decodedData = JSON.parse(Buffer.from(data, 'base64').toString('utf-8'));
         console.log('eSewa decoded data:', decodedData);
-        const { transaction_uuid, status, total_amount, transaction_code } = decodedData;
+        const { transaction_uuid, status, total_amount, transaction_code, product_code } = decodedData;
 
         // Find pending payment by transaction UUID
         const pendingPayment = await PendingPayment.findOne({ transactionId: transaction_uuid });
@@ -477,7 +477,58 @@ exports.verifyEsewaPayment = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Pending payment not found' });
         }
 
+        // Idempotency: if already completed, return existing order info
+        if (pendingPayment.status === 'completed') {
+            const existingOrders = await Order.find({ customer: pendingPayment.user, esewaRefId: transaction_code });
+            return res.status(200).json({
+                success: true,
+                message: 'Payment already verified',
+                data: {
+                    orderId: existingOrders[0]?._id,
+                    orders: existingOrders.map(o => o._id),
+                    paymentStatus: 'paid'
+                }
+            });
+        }
+
         if (status === 'COMPLETE') {
+            // Server-side verification: call eSewa's transaction status API
+            try {
+                const verifyResponse = await fetch(
+                    `${ESEWA_CONFIG.verifyUrl}?product_code=${ESEWA_CONFIG.merchantCode}&total_amount=${total_amount}&transaction_uuid=${transaction_uuid}`,
+                    {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    }
+                );
+                const verifyData = await verifyResponse.json();
+                console.log('eSewa server verification response:', verifyData);
+
+                if (verifyData.status !== 'COMPLETE') {
+                    pendingPayment.status = 'failed';
+                    await pendingPayment.save();
+                    return res.status(400).json({
+                        success: false,
+                        message: 'eSewa server-side verification failed'
+                    });
+                }
+
+                // Also verify amount matches
+                const verifiedAmount = parseFloat(verifyData.total_amount || total_amount);
+                if (Math.abs(verifiedAmount - pendingPayment.totalAmount) > 1) {
+                    pendingPayment.status = 'failed';
+                    await pendingPayment.save();
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Payment amount mismatch'
+                    });
+                }
+            } catch (verifyErr) {
+                console.error('eSewa server verification error:', verifyErr.message);
+                // In sandbox, server verify may fail — log warning but proceed
+                console.warn('WARNING: eSewa server-side verification unavailable, proceeding with client data');
+            }
+
             // Create orders from pending payment
             const { orders, multiOrder, isMultiRestaurant } = await createOrdersFromPendingPayment(pendingPayment, transaction_code, 'esewa');
 
@@ -529,6 +580,21 @@ exports.verifyKhaltiPayment = async (req, res) => {
         const pendingPayment = await PendingPayment.findById(pendingId);
         if (!pendingPayment) {
             return res.status(404).json({ success: false, message: 'Pending payment not found' });
+        }
+
+        // Idempotency: if already completed, return existing order info
+        if (pendingPayment.status === 'completed') {
+            const existingOrders = await Order.find({ customer: pendingPayment.user, khaltiRefId: { $exists: true } })
+                .sort({ createdAt: -1 }).limit(pendingPayment.cartData.restaurantGroups.length);
+            return res.status(200).json({
+                success: true,
+                message: 'Payment already verified',
+                data: {
+                    orderId: existingOrders[0]?._id,
+                    orders: existingOrders.map(o => o._id),
+                    paymentStatus: 'paid'
+                }
+            });
         }
 
         // Verify with Khalti

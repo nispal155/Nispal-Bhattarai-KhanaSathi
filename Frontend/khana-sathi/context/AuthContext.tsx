@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-interface User {
+export interface User {
     _id: string;
     username: string;
     email: string;
@@ -10,6 +10,8 @@ interface User {
     profilePicture?: string;
     allergyPreferences?: string[];
     notifications?: { push: boolean; email: boolean; sms: boolean };
+    loyaltyPoints?: number;
+    phone?: string;
 }
 
 interface AuthContextType {

@@ -39,6 +39,7 @@ export interface InitiatePaymentFromCartRequest {
     };
     specialInstructions?: string;
     useLoyaltyPoints?: boolean;
+    promoCode?: string;
 }
 
 /**

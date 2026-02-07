@@ -62,18 +62,27 @@ export default function MultiOrderTrackingPage({ params }: { params: Promise<{ i
             fetchTracking();
 
             // Connect to socket for real-time updates
-            const newSocket = io(SOCKET_URL);
+            const newSocket = io(SOCKET_URL, {
+                transports: ["websocket", "polling"],
+                auth: { token: localStorage.getItem("token") }
+            });
             setSocket(newSocket);
 
-            newSocket.emit("joinOrder", multiOrderId);
+            newSocket.on("connect", () => {
+                newSocket.emit("joinOrder", multiOrderId);
+            });
 
-            newSocket.on("orderUpdate", (data) => {
+            newSocket.on("orderStatusUpdate", (data) => {
                 console.log("Multi-order update received:", data);
                 fetchTracking();
             });
 
+            // Polling as fallback
+            const interval = setInterval(fetchTracking, 60000);
+
             return () => {
-                newSocket.emit("leaveOrder", multiOrderId);
+                clearInterval(interval);
+                newSocket.emit("leave", multiOrderId);
                 newSocket.disconnect();
             };
         }

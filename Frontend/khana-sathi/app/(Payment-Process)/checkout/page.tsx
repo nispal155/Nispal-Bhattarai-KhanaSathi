@@ -127,7 +127,8 @@ export default function CheckoutPage() {
           const esewaRes = await initiateEsewaFromCart({
             deliveryAddress,
             specialInstructions,
-            useLoyaltyPoints
+            useLoyaltyPoints,
+            promoCode: cart.promoCode
           });
           console.log("eSewa response:", JSON.stringify(esewaRes, null, 2));
           
@@ -162,7 +163,8 @@ export default function CheckoutPage() {
           const khaltiRes = await initiateKhaltiFromCart({
             deliveryAddress,
             specialInstructions,
-            useLoyaltyPoints
+            useLoyaltyPoints,
+            promoCode: cart.promoCode
           });
           console.log("Khalti response:", JSON.stringify(khaltiRes, null, 2));
           
@@ -203,7 +205,7 @@ export default function CheckoutPage() {
   }, 0) || 0;
 
   const deliveryFee = (cart?.restaurantGroups.length || 0) * 50;
-  const serviceFee = 20;
+  const serviceFee = (cart?.restaurantGroups.length || 0) * 20;
   const discount = (cart?.promoDiscount || 0) + (useLoyaltyPoints ? Math.min(profile?.loyaltyPoints || 0, subtotal + deliveryFee + serviceFee - (cart?.promoDiscount || 0)) : 0);
   const total = Math.max(0, subtotal + deliveryFee + serviceFee - discount);
 

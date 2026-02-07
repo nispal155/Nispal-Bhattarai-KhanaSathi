@@ -103,6 +103,7 @@ export async function createOrder(orderData: {
   paymentMethod: string;
   specialInstructions?: string;
   promoCode?: string;
+  useLoyaltyPoints?: boolean;
 }) {
   return post<OrderResponse>('/orders', orderData);
 }

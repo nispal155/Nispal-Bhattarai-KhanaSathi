@@ -14,20 +14,22 @@ const {
     getAvailableMultiOrders
 } = require('../controller/multiOrderController');
 
-// Customer routes
+// Customer routes (static paths first)
 router.get('/my-orders', protect, getMyMultiOrders);
+
+// Rider routes (static paths - must be before /:id)
+router.get('/rider/orders', protect, authorize('delivery_staff'), getRiderMultiOrders);
+router.get('/available', protect, authorize('delivery_staff'), getAvailableMultiOrders);
+
+// Parameterized routes
 router.get('/:id', protect, getMultiOrderById);
 router.get('/:id/tracking', protect, getMultiOrderTracking);
 router.put('/:id/cancel', protect, cancelMultiOrder);
-
-// Rider routes
-router.get('/rider/orders', protect, authorize('delivery_staff'), getRiderMultiOrders);
-router.get('/available', protect, authorize('delivery_staff'), getAvailableMultiOrders);
 router.put('/:id/pickup/:subOrderId', protect, authorize('delivery_staff'), markSubOrderPickedUp);
 router.put('/:id/delivery-status', protect, authorize('delivery_staff'), updateMultiOrderDeliveryStatus);
 router.post('/:id/location', protect, authorize('delivery_staff'), updateRiderLocation);
 
 // Admin/Restaurant routes
-router.put('/:id/assign-rider', protect, authorize('admin', 'restaurant_manager'), assignRiderToMultiOrder);
+router.put('/:id/assign-rider', protect, authorize('admin', 'restaurant'), assignRiderToMultiOrder);
 
 module.exports = router;
