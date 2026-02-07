@@ -2,14 +2,16 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, User, MessageSquare, Minimize2, Loader2, Info, AlertCircle } from 'lucide-react';
-import { io, Socket } from 'socket.io-client';
 import { useAuth } from '@/context/AuthContext';
+import { useSocket } from '@/context/SocketContext';
 import { getThreadMessages, sendThreadMessage, markThreadAsRead, getChatMessages, sendMessage, markAsRead } from '@/lib/chatService';
 import type { ChatThread } from '@/lib/chatService';
 import toast from 'react-hot-toast';
 
 interface Message {
     _id: string;
+    order?: string;
+    chatThread?: string;
     sender: {
         _id: string;
         username?: string;
@@ -29,8 +31,6 @@ interface ChatWindowProps {
     onClose?: () => void;
 }
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
-
 const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipientRole, chatThread, onClose }) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState("");
@@ -38,9 +38,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
     const [chatError, setChatError] = useState<string | null>(null);
-    const [socket, setSocket] = useState<Socket | null>(null);
     const [typingUser, setTypingUser] = useState<string | null>(null);
     const { user } = useAuth();
+    const { socket, isConnected } = useSocket();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const typingTimeout = useRef<NodeJS.Timeout | null>(null);
     const isMinimizedRef = useRef(isMinimized);
@@ -80,55 +80,62 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         }
     }, [orderId, chatThread]);
 
+    // Join chat room and set up real-time listeners via shared socket
     useEffect(() => {
-        if (!orderId || !user) return;
+        if (!socket || !isConnected || !orderId || !user) return;
 
+        // Join only the specific chat room (thread-specific or legacy)
+        const chatRoomId = chatThread ? `${orderId}:${chatThread}` : orderId;
+        socket.emit('join', chatRoomId);
+
+        // Fetch / re-fetch messages on (re)connect
         fetchMessages();
 
-        const newSocket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            auth: { token: localStorage.getItem("token") }
-        });
+        const handleNewMessage = (message: Message) => {
+            // Filter: only accept messages for this order
+            const msgOrderId = typeof message.order === 'object'
+                ? (message.order as any)?._id
+                : message.order;
+            if (msgOrderId && msgOrderId !== orderId) return;
 
-        newSocket.on('connect', () => {
-            // Join thread room + legacy room + personal room
-            newSocket.emit('join', roomId);
-            if (chatThread) newSocket.emit('join', orderId);
-            newSocket.emit('join', user._id);
-        });
+            // Filter: only accept messages for this thread
+            if (chatThread && message.chatThread && message.chatThread !== chatThread) return;
 
-        newSocket.on('newMessage', (message: Message) => {
             setMessages(prev => {
                 // Deduplicate (socket echo + optimistic msg)
-                const withoutTemp = prev.filter(m => !m._id.startsWith('temp-') || m.content !== message.content);
+                const withoutTemp = prev.filter(
+                    m => !m._id.startsWith('temp-') || m.content !== message.content
+                );
                 if (withoutTemp.some(m => m._id === message._id)) return withoutTemp;
                 return [...withoutTemp, message];
             });
 
             if (message.sender._id !== user?._id && isMinimizedRef.current) {
-                toast.success(`New message from ${message.sender.name || message.sender.username || recipientName}`);
+                toast.success(
+                    `New message from ${message.sender.name || message.sender.username || recipientName}`
+                );
             }
-        });
+        };
 
-        newSocket.on('typing', ({ username }: { userId: string; username: string }) => {
+        const handleTyping = ({ username }: { userId: string; username: string }) => {
             setTypingUser(username || 'Someone');
-        });
+        };
 
-        newSocket.on('stopTyping', () => {
+        const handleStopTyping = () => {
             setTypingUser(null);
-        });
+        };
 
-        newSocket.on('connect_error', (error) => {
-            console.error('Socket connection error:', error);
-        });
-
-        setSocket(newSocket);
+        socket.on('newMessage', handleNewMessage);
+        socket.on('typing', handleTyping);
+        socket.on('stopTyping', handleStopTyping);
 
         return () => {
-            newSocket.emit('leave', roomId);
-            newSocket.disconnect();
+            socket.emit('leave', chatRoomId);
+            socket.off('newMessage', handleNewMessage);
+            socket.off('typing', handleTyping);
+            socket.off('stopTyping', handleStopTyping);
         };
-    }, [orderId, user, roomId, chatThread, fetchMessages, recipientName]);
+    }, [socket, isConnected, orderId, user, chatThread, fetchMessages, recipientName]);
 
     useEffect(() => {
         scrollToBottom();

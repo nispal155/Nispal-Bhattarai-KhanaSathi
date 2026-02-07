@@ -7,6 +7,8 @@ import { useAuth } from './AuthContext';
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
+  joinRoom: (roomId: string) => void;
+  leaveRoom: (roomId: string) => void;
   joinOrder: (orderId: string) => void;
   leaveOrder: (orderId: string) => void;
   sendMessage: (data: { orderId: string; content: string; thread?: string; attachments?: string[] }) => void;
@@ -23,6 +25,8 @@ interface SocketContextType {
 const SocketContext = createContext<SocketContextType>({
   socket: null,
   isConnected: false,
+  joinRoom: () => {},
+  leaveRoom: () => {},
   joinOrder: () => {},
   leaveOrder: () => {},
   sendMessage: () => {},
@@ -78,6 +82,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setIsConnected(false);
     };
   }, [token]);
+
+  const joinRoom = useCallback((roomId: string) => {
+    socketRef.current?.emit('join', roomId);
+  }, []);
+
+  const leaveRoom = useCallback((roomId: string) => {
+    socketRef.current?.emit('leave', roomId);
+  }, []);
 
   const joinOrder = useCallback((orderId: string) => {
     socketRef.current?.emit('joinOrder', orderId);
@@ -142,6 +154,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     <SocketContext.Provider value={{
       socket: socketRef.current,
       isConnected,
+      joinRoom,
+      leaveRoom,
       joinOrder,
       leaveOrder,
       sendMessage,
