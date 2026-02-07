@@ -112,10 +112,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
 
         const unsubscribe = onNewMessage((message: Message) => {
             console.log('[Chat] New message received via socket:', message._id, message.content);
+
             // Filter: only accept messages for this thread
             if (chatThread && message.chatThread && message.chatThread !== chatThread) return;
-            // Also filter by orderId if message has it (though room should handle this)
-            if (message.order && message.order !== orderId) return;
+
+            // Comparison helper for IDs (handles ObjectId vs string)
+            const getStrId = (id: any) => (typeof id === 'object' && id?._id) ? id._id.toString() : id?.toString();
+
+            const msgOrderId = getStrId(message.order);
+            const currentOrderId = getStrId(orderId);
+
+            if (msgOrderId && currentOrderId && msgOrderId !== currentOrderId) {
+                console.log('[Chat] Filtered out message for different order:', msgOrderId, 'expected:', currentOrderId);
+                return;
+            }
 
             setMessages(prev => {
                 // Remove matching optimistic (temp-*) message
@@ -219,11 +229,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             // Replace optimistic msg with real one (if socket hasn't already)
             if (savedMsg) {
                 setMessages(prev => {
-                    const filtered = prev.filter(m => m._id !== tempId);
-                    if (!filtered.some(m => m._id === savedMsg!._id)) {
-                        return [...filtered, savedMsg!];
-                    }
-                    return filtered;
+                    // Replace optimistic message with the real one from DB
+                    // Also deduplicate by _id in case socket message arrived first
+                    const filtered = prev.filter(m => m._id !== tempId && m._id !== savedMsg!._id);
+                    return [...filtered, savedMsg!].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
                 });
             }
         } catch {

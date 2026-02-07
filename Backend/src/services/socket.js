@@ -49,15 +49,17 @@ const init = (server) => {
         // Join a room – supports orderId, `orderId:thread`, or userId
         socket.on('join', (roomId) => {
             if (!roomId) return;
-            socket.join(roomId);
-            console.log(`Socket ${socket.id} joined room ${roomId}`);
+            const target = roomId.toString();
+            socket.join(target);
+            console.log(`Socket ${socket.id} joined room ${target}`);
         });
 
         // Alias: joinOrder (used by order-tracking page)
         socket.on('joinOrder', (orderId) => {
             if (!orderId) return;
-            socket.join(orderId);
-            console.log(`Socket ${socket.id} joined order room ${orderId}`);
+            const target = orderId.toString();
+            socket.join(target);
+            console.log(`Socket ${socket.id} joined order room ${target}`);
         });
 
         // Leave a room
@@ -104,9 +106,9 @@ const init = (server) => {
                 const populatedMessage = await Message.findById(message._id)
                     .populate('sender', 'username profilePicture role');
 
-                const room = `${orderId}:${chatThread}`;
+                const room = `${orderId.toString()}:${chatThread}`;
                 io.to(room).emit('newMessage', populatedMessage);
-                io.to(orderId).emit('newMessage', populatedMessage);
+                io.to(orderId.toString()).emit('newMessage', populatedMessage);
 
                 // Create notifications for other parties
                 const Notification = require('../models/Notification');
@@ -194,11 +196,12 @@ const getIO = () => {
 
 // Helper to emit order updates
 const emitOrderUpdate = (orderId, status, data) => {
-    if (io) {
-        io.to(orderId).emit('orderStatusUpdate', { orderId, status, ...data });
+    if (io && orderId) {
+        const target = orderId.toString();
+        io.to(target).emit('orderStatusUpdate', { orderId: target, status, ...data });
 
         if (data?.rider) {
-            io.to(orderId).emit('riderAssigned', { orderId, rider: data.rider });
+            io.to(target).emit('riderAssigned', { orderId: target, rider: data.rider });
         }
     }
 };

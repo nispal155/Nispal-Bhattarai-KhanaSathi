@@ -48,6 +48,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const { user, token } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const joinedRooms = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const newSocket = io(SOCKET_URL, {
@@ -64,6 +65,24 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
       setIsConnected(true);
+
+      // Re-join all rooms on reconnection
+      joinedRooms.current.forEach(roomId => {
+        newSocket.emit('join', roomId);
+        console.log(`Socket re-joined room on connect: ${roomId}`);
+      });
+
+      // Also join personal user room if available
+      const storedUserString = localStorage.getItem('user');
+      if (storedUserString) {
+        try {
+          const storedUser = JSON.parse(storedUserString);
+          if (storedUser?._id) {
+            newSocket.emit('join', storedUser._id);
+            console.log(`Socket joined personal room: ${storedUser._id}`);
+          }
+        } catch (e) { }
+      }
     });
 
     newSocket.on('disconnect', (reason) => {
@@ -83,18 +102,26 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const joinRoom = useCallback((roomId: string) => {
+    if (!roomId) return;
+    joinedRooms.current.add(roomId);
     socket?.emit('join', roomId);
   }, [socket]);
 
   const leaveRoom = useCallback((roomId: string) => {
+    if (!roomId) return;
+    joinedRooms.current.delete(roomId);
     socket?.emit('leave', roomId);
   }, [socket]);
 
   const joinOrder = useCallback((orderId: string) => {
+    if (!orderId) return;
+    joinedRooms.current.add(orderId);
     socket?.emit('joinOrder', orderId);
   }, [socket]);
 
   const leaveOrder = useCallback((orderId: string) => {
+    if (!orderId) return;
+    joinedRooms.current.delete(orderId);
     socket?.emit('leaveOrder', orderId);
   }, [socket]);
 
