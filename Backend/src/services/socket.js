@@ -104,10 +104,9 @@ const init = (server) => {
                 const populatedMessage = await Message.findById(message._id)
                     .populate('sender', 'username profilePicture role');
 
+                const room = `${orderId}:${chatThread}`;
+                io.to(room).emit('newMessage', populatedMessage);
                 io.to(orderId).emit('newMessage', populatedMessage);
-                if (thread) {
-                    io.to(`${orderId}:${thread}`).emit('newMessage', populatedMessage);
-                }
 
                 // Create notifications for other parties
                 const Notification = require('../models/Notification');

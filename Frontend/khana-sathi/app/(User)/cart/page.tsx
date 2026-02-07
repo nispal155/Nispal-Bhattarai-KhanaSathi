@@ -16,6 +16,7 @@ import {
 } from "@/lib/cartService";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/context/AuthContext";
+import { useSocket } from "@/context/SocketContext";
 import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
 
@@ -76,40 +77,41 @@ export default function CartPage() {
   const [promoError, setPromoError] = useState("");
   const [promoSuccess, setPromoSuccess] = useState("");
   const [joinCode, setJoinCode] = useState("");
-  const [socket, setSocket] = useState<Socket | null>(null);
   const { user: authUser } = useAuth();
+  const { socket, joinRoom, leaveRoom } = useSocket();
 
   useEffect(() => {
     fetchCart();
 
-    // Initialize socket
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket"],
-      auth: { token: localStorage.getItem("token") }
-    });
+    if (!socket) return;
 
-    newSocket.on("cartUpdated", (updatedCart: CartData) => {
+    const handleCartUpdated = (updatedCart: CartData) => {
       setCart(updatedCart);
       toast.success("Cart updated by collaborator", { id: "cart-update" });
-    });
+    };
 
-    newSocket.on("userJoinedCart", ({ user, cart }: { user: any, cart: CartData }) => {
+    const handleUserJoined = ({ user, cart }: { user: any, cart: CartData }) => {
       setCart(cart);
       toast.success(`${user.username} joined the cart!`);
-    });
+    };
 
-    setSocket(newSocket);
+    socket.on("cartUpdated", handleCartUpdated);
+    socket.on("userJoinedCart", handleUserJoined);
 
     return () => {
-      newSocket.disconnect();
+      socket.off("cartUpdated", handleCartUpdated);
+      socket.off("userJoinedCart", handleUserJoined);
     };
-  }, []);
+  }, [socket]);
 
   useEffect(() => {
     if (cart?.isShared && cart.shareCode && socket) {
-      socket.emit("join", cart.shareCode);
+      joinRoom(cart.shareCode);
+      return () => {
+        if (cart.shareCode) leaveRoom(cart.shareCode);
+      };
     }
-  }, [cart?.isShared, cart?.shareCode, socket]);
+  }, [cart?.isShared, cart?.shareCode, socket, joinRoom, leaveRoom]);
 
   const fetchCart = async () => {
     try {

@@ -36,8 +36,8 @@ function isAuthorizedForThread(order, userId, userRole, thread) {
     const riderId = (order.deliveryRider?._id || order.deliveryRider || '').toString();
     switch (thread) {
         case 'customer-restaurant': return uid === customerId || uid === ownerId;
-        case 'customer-rider':      return uid === customerId || uid === riderId;
-        case 'restaurant-rider':    return uid === ownerId    || uid === riderId;
+        case 'customer-rider': return uid === customerId || uid === riderId;
+        case 'restaurant-rider': return uid === ownerId || uid === riderId;
         default: return false;
     }
 }
@@ -52,15 +52,15 @@ function getRecipients(order, senderId, thread) {
     switch (thread) {
         case 'customer-restaurant':
             if (customerId && customerId.toString() !== sid) ids.push(customerId);
-            if (ownerId && ownerId.toString() !== sid)      ids.push(ownerId);
+            if (ownerId && ownerId.toString() !== sid) ids.push(ownerId);
             break;
         case 'customer-rider':
             if (customerId && customerId.toString() !== sid) ids.push(customerId);
-            if (riderId && riderId.toString() !== sid)       ids.push(riderId);
+            if (riderId && riderId.toString() !== sid) ids.push(riderId);
             break;
         case 'restaurant-rider':
             if (ownerId && ownerId.toString() !== sid) ids.push(ownerId);
-            if (riderId && riderId.toString() !== sid)  ids.push(riderId);
+            if (riderId && riderId.toString() !== sid) ids.push(riderId);
             break;
     }
     return ids;
@@ -166,7 +166,14 @@ exports.sendThreadMessage = async (req, res) => {
         await newMsg.populate('sender', 'username profilePicture');
 
         // Emit to thread room + legacy room
-        try { const io = getIO(); io.to(`${orderId}:${thread}`).emit('newMessage', newMsg); io.to(orderId).emit('newMessage', newMsg); } catch (e) {}
+        try {
+            const io = getIO();
+            const room = `${orderId}:${thread}`;
+            io.to(room).emit('newMessage', newMsg);
+            io.to(orderId).emit('newMessage', newMsg);
+        } catch (e) {
+            console.error('Socket emission error:', e);
+        }
 
         // Notifications
         const orderNum = order.orderNumber || orderId.toString().slice(-6);
@@ -174,7 +181,7 @@ exports.sendThreadMessage = async (req, res) => {
             try {
                 await Notification.create({ user: rid, type: 'chat_message', title: 'New Message', message: `Message on order #${orderNum}`, data: { orderId, thread } });
                 const io = getIO(); io.to(rid.toString()).emit('notification', { type: 'chat_message', orderId, thread });
-            } catch (e) {}
+            } catch (e) { }
         }
 
         res.status(201).json({ success: true, data: newMsg });
@@ -192,7 +199,7 @@ exports.markThreadAsRead = async (req, res) => {
             { order: orderId, chatThread: thread, readBy: { $ne: req.user._id } },
             { $addToSet: { readBy: req.user._id } }
         );
-        try { const io = getIO(); io.to(`${orderId}:${thread}`).emit('messagesRead', { userId: req.user._id.toString(), thread }); } catch (e) {}
+        try { const io = getIO(); io.to(`${orderId}:${thread}`).emit('messagesRead', { userId: req.user._id.toString(), thread }); } catch (e) { }
         res.json({ success: true, message: 'Marked as read' });
     } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -255,7 +262,7 @@ exports.getActiveChats = async (req, res) => {
 exports.createSystemMessage = async (orderId, thread, content) => {
     try {
         const msg = await Message.create({ order: orderId, chatThread: thread, sender: orderId, senderRole: 'admin', messageType: 'system', content, readBy: [] });
-        try { const io = getIO(); io.to(`${orderId}:${thread}`).emit('newMessage', { ...msg.toObject(), sender: { _id: 'system', username: 'System' } }); } catch (e) {}
+        try { const io = getIO(); io.to(`${orderId}:${thread}`).emit('newMessage', { ...msg.toObject(), sender: { _id: 'system', username: 'System' } }); } catch (e) { }
         return msg;
     } catch (err) { console.error('createSystemMessage', err); }
 };
@@ -314,13 +321,13 @@ exports.sendMessage = async (req, res) => {
         });
         await newMsg.populate('sender', 'name username profilePicture');
 
-        try { const io = getIO(); io.to(orderId).emit('newMessage', newMsg); io.to(`${orderId}:${thread}`).emit('newMessage', newMsg); } catch (e) {}
+        try { const io = getIO(); io.to(orderId).emit('newMessage', newMsg); io.to(`${orderId}:${thread}`).emit('newMessage', newMsg); } catch (e) { }
 
         for (const rid of getRecipients(order, senderId, thread)) {
             try {
                 await Notification.create({ user: rid, type: 'chat_message', title: 'New Message', message: `Message on order #${order.orderNumber || orderId.toString().slice(-6)}`, data: { orderId, thread } });
-                try { const io = getIO(); io.to(rid.toString()).emit('notification', { type: 'chat_message', orderId, thread }); } catch (e) {}
-            } catch (e) {}
+                try { const io = getIO(); io.to(rid.toString()).emit('notification', { type: 'chat_message', orderId, thread }); } catch (e) { }
+            } catch (e) { }
         }
 
         res.status(201).json({ success: true, data: newMsg });

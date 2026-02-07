@@ -9,6 +9,7 @@ import { getOrderById, cancelOrder } from "@/lib/orderService";
 import { createReview } from "@/lib/reviewService";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/context/AuthContext";
+import { useSocket } from "@/context/SocketContext";
 import UserHeader from "@/components/layout/UserHeader";
 import ChatWindow from "@/components/Chat/ChatWindow";
 
@@ -86,7 +87,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const { socket, joinOrder, leaveOrder, onOrderUpdate, onRiderAssigned } = useSocket();
   const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
   const { user: authUser } = useAuth();
 
@@ -104,20 +105,12 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     fetchOrder();
 
-    // Socket initialization
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      auth: {
-        token: localStorage.getItem("token")
-      }
-    });
+    if (!socket) return;
 
-    newSocket.on("connect", () => {
-      console.log("Connected to tracking socket");
-      newSocket.emit("joinOrder", id);
-    });
+    console.log("Joining order room via global socket:", id);
+    joinOrder(id);
 
-    newSocket.on("orderStatusUpdate", (data: { orderId: string; status: string }) => {
+    const unsubscribeOrderUpdate = onOrderUpdate((data: { orderId: string; status: string }) => {
       if (data.orderId === id) {
         setOrder(prev => prev ? { ...prev, status: data.status } : null);
         // Re-fetch full order to get updated rider info etc.
@@ -125,8 +118,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       }
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    newSocket.on("riderAssigned", (data: { orderId: string; rider: any }) => {
+    const unsubscribeRiderAssigned = onRiderAssigned((data: { orderId: string; rider: any }) => {
       if (data.orderId === id && data.rider) {
         setOrder(prev => prev ? {
           ...prev,
@@ -139,17 +131,17 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       }
     });
 
-    setSocket(newSocket);
-
     // Polling as fallback
     const interval = setInterval(fetchOrder, 60000);
 
     return () => {
       clearInterval(interval);
-      newSocket.disconnect();
+      leaveOrder(id);
+      unsubscribeOrderUpdate();
+      unsubscribeRiderAssigned();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, socket, joinOrder, leaveOrder, onOrderUpdate, onRiderAssigned]);
 
   // Cancellation timer logic
   useEffect(() => {
@@ -320,11 +312,10 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                 {statusSteps.slice(0, 5).map((step) => (
                   <div key={step.id} className="flex flex-col items-center flex-1">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${
-                        step.id <= currentStep
-                        ? "bg-red-500 text-white"
-                        : "bg-gray-200 text-gray-500"
-                      }`}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.id <= currentStep
+                          ? "bg-red-500 text-white"
+                          : "bg-gray-200 text-gray-500"
+                        }`}
                     >
                       {step.id < currentStep ? (
                         <span>&#10003;</span>
@@ -333,11 +324,10 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                       )}
                     </div>
                     <span
-                      className={`text-xs mt-2 text-center ${
-                        step.id <= currentStep
-                        ? "text-red-500 font-medium"
-                        : "text-gray-500"
-                      }`}
+                      className={`text-xs mt-2 text-center ${step.id <= currentStep
+                          ? "text-red-500 font-medium"
+                          : "text-gray-500"
+                        }`}
                     >
                       {step.title}
                     </span>

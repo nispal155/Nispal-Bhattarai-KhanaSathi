@@ -3,7 +3,9 @@
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import { Loader2, MessageSquare, User, Star, Bike } from "lucide-react";
-import { io } from "socket.io-client";
+import { io, Socket } from "socket.io-client";
+import { useAuth } from "@/context/AuthContext";
+import { useSocket } from "@/context/SocketContext";
 import toast from "react-hot-toast";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
@@ -11,7 +13,6 @@ import { getRestaurantOrders, updateOrderStatus, assignRider } from "@/lib/order
 import { getAvailableRiders, AvailableRider } from "@/lib/riderService";
 import RestaurantSidebar from "@/components/RestaurantSidebar";
 import ChatWindow from "@/components/Chat/ChatWindow";
-import { useAuth } from "@/context/AuthContext";
 
 interface OrderItem {
   name: string;
@@ -47,22 +48,17 @@ export default function OrdersBoard() {
   const [selectedOrderForRider, setSelectedOrderForRider] = useState<string | null>(null);
   const [assigningRider, setAssigningRider] = useState(false);
   const { user: authUser } = useAuth();
+  const { socket, joinRoom, onOrderUpdate, onNotification } = useSocket();
 
   useEffect(() => {
     fetchOrders();
 
-    // Socket for real-time updates
-    const socket = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      auth: { token: localStorage.getItem("token") }
-    });
+    if (!socket || !authUser?._id) return;
 
-    socket.on("connect", () => {
-      // Join personal room so we receive order notifications pushed to our user ID
-      if (authUser?._id) socket.emit("join", authUser._id);
-    });
+    console.log("Joined restaurant room via global socket:", authUser._id);
+    joinRoom(authUser._id);
 
-    socket.on("notification", (data: { type: string; message?: string }) => {
+    const unsubscribeNotification = onNotification((data: { type: string; message?: string }) => {
       if (data.type === "order_status" || data.type === "chat_message") {
         fetchOrders(); // Refresh the board
         if (data.type === "order_status") {
@@ -71,8 +67,7 @@ export default function OrdersBoard() {
       }
     });
 
-    // Also listen for direct order status changes
-    socket.on("orderStatusUpdate", () => {
+    const unsubscribeOrderUpdate = onOrderUpdate(() => {
       fetchOrders();
     });
 
@@ -81,10 +76,13 @@ export default function OrdersBoard() {
 
     return () => {
       clearInterval(interval);
-      socket.disconnect();
+      // We don't necessarily want to leave the personal room if the component unmounts 
+      // but the user is still logged in, however SocketContext handles the master connection.
+      unsubscribeNotification();
+      unsubscribeOrderUpdate();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authUser]);
+  }, [authUser, socket, joinRoom, onNotification, onOrderUpdate]);
 
   const fetchOrders = async () => {
     try {
@@ -294,7 +292,7 @@ export default function OrdersBoard() {
                           <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">Ready</span>
                         </div>
                         <p className="text-sm text-gray-700 mb-2">Items: {getItemsString(order.items)}</p>
-                        
+
                         {/* Rider Assignment Section */}
                         {order.deliveryRider ? (
                           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">

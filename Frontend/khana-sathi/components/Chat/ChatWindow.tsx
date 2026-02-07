@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, User, MessageSquare, Minimize2, Loader2, Info, AlertCircle } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '@/context/AuthContext';
+import { useSocket } from '@/context/SocketContext';
 import { getThreadMessages, sendThreadMessage, markThreadAsRead, getChatMessages, sendMessage, markAsRead } from '@/lib/chatService';
 import type { ChatThread } from '@/lib/chatService';
 import toast from 'react-hot-toast';
@@ -42,7 +43,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     const [chatError, setChatError] = useState<string | null>(null);
     const [typingUser, setTypingUser] = useState<string | null>(null);
     const { user } = useAuth();
-    const socketRef = useRef<Socket | null>(null);
+    const { socket, joinRoom, leaveRoom, onNewMessage, emitTyping, emitStopTyping } = useSocket();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const typingTimeout = useRef<NodeJS.Timeout | null>(null);
     const isMinimizedRef = useRef(isMinimized);
@@ -64,7 +65,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                 const res = await getThreadMessages(orderId, chatThread);
                 if (res.data?.success) {
                     setMessages(res.data.data);
-                    markThreadAsRead(orderId, chatThread).catch(() => {});
+                    markThreadAsRead(orderId, chatThread).catch(() => { });
                 } else if (res.error) {
                     setChatError(res.error);
                 }
@@ -72,7 +73,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
                 const res = await getChatMessages(orderId);
                 if (res.data?.success) {
                     setMessages(res.data.data);
-                    markAsRead(orderId).catch(() => {});
+                    markAsRead(orderId).catch(() => { });
                 } else if (res.error) {
                     setChatError(res.error);
                 }
@@ -90,31 +91,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         fetchMessages();
     }, [fetchMessages]);
 
-    // ── 2. Own dedicated socket for real-time chat ──
+    // ── 2. Unified socket for real-time chat ──
     useEffect(() => {
-        if (!orderId) return;
+        if (!orderId || !socket) return;
 
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        console.log('[Chat] Using global socket for room:', chatRoom);
+        joinRoom(chatRoom);
 
-        const sock = io(SOCKET_URL, {
-            auth: token ? { token } : undefined,
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: Infinity,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-        });
-
-        socketRef.current = sock;
-
-        sock.on('connect', () => {
-            console.log('[Chat] Socket connected:', sock.id);
-            sock.emit('join', chatRoom);
-        });
-
-        sock.on('newMessage', (message: Message) => {
+        const unsubscribe = onNewMessage((message: Message) => {
             // Filter: only accept messages for this thread
             if (chatThread && message.chatThread && message.chatThread !== chatThread) return;
+            // Also filter by orderId if message has it (though room should handle this)
+            if (message.order && message.order !== orderId) return;
 
             setMessages(prev => {
                 // Remove matching optimistic (temp-*) message
@@ -133,29 +121,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             }
         });
 
-        sock.on('typing', ({ username }: { userId?: string; username?: string }) => {
+        const handleTypingEvent = ({ username }: { userId?: string; username?: string }) => {
             setTypingUser(username || 'Someone');
-        });
+        };
 
-        sock.on('stopTyping', () => {
+        const handleStopTypingEvent = () => {
             setTypingUser(null);
-        });
+        };
 
-        sock.on('disconnect', (reason) => {
-            console.log('[Chat] Socket disconnected:', reason);
-        });
-
-        sock.on('connect_error', (err) => {
-            console.warn('[Chat] Connection error:', err.message);
-        });
+        socket.on('typing', handleTypingEvent);
+        socket.on('stopTyping', handleStopTypingEvent);
 
         return () => {
-            sock.emit('leave', chatRoom);
-            sock.removeAllListeners();
-            sock.disconnect();
-            socketRef.current = null;
+            leaveRoom(chatRoom);
+            unsubscribe();
+            socket.off('typing', handleTypingEvent);
+            socket.off('stopTyping', handleStopTypingEvent);
         };
-    }, [orderId, chatThread, chatRoom, recipientName]);
+    }, [orderId, chatThread, chatRoom, socket, joinRoom, leaveRoom, onNewMessage, recipientName]);
 
     useEffect(() => {
         scrollToBottom();
@@ -166,12 +149,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
     };
 
     const handleTyping = () => {
-        const sock = socketRef.current;
-        if (sock?.connected && user) {
-            sock.emit('typing', { roomId: chatRoom, userId: user._id, username: user.username });
+        if (socket?.connected && user) {
+            emitTyping(chatRoom);
             if (typingTimeout.current) clearTimeout(typingTimeout.current);
             typingTimeout.current = setTimeout(() => {
-                sock.emit('stopTyping', { roomId: chatRoom, userId: user._id });
+                emitStopTyping(chatRoom);
             }, 2000);
         }
     };
@@ -186,14 +168,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         setChatError(null);
 
         // Stop typing indicator
-        const sock = socketRef.current;
-        if (sock?.connected) sock.emit('stopTyping', { roomId: chatRoom, userId: user._id });
+        if (socket?.connected) emitStopTyping(chatRoom);
 
         // Optimistic message – show immediately
         const tempId = `temp-${Date.now()}`;
         const optimisticMsg: Message = {
             _id: tempId,
-            sender: { _id: user._id, username: user.username, name: user.name },
+            sender: { _id: user._id, username: user.username },
             content: messageContent,
             senderRole: user.role || 'customer',
             messageType: 'user',

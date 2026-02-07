@@ -6,10 +6,11 @@ import { Phone, MessageSquare, MapPin, Clock, Loader2, ChevronRight, CheckCircle
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
+import { useAuth } from "@/context/AuthContext";
+import { useSocket } from "@/context/SocketContext";
 import { getMultiOrderTracking, getMultiOrderStatusText, getMultiOrderStatusColor } from "@/lib/multiOrderService";
 import { cancelMultiOrder } from "@/lib/multiOrderService";
 import type { MultiOrderTrackingData, SubOrderTracking } from "@/lib/multiOrderService";
-import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
 
@@ -54,25 +55,19 @@ export default function MultiOrderTrackingPage({ params }: { params: Promise<{ i
     const [tracking, setTracking] = useState<MultiOrderTrackingData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [socket, setSocket] = useState<Socket | null>(null);
+    const { socket, joinOrder, leaveOrder, onOrderUpdate } = useSocket();
     const [cancelling, setCancelling] = useState(false);
 
     useEffect(() => {
         if (!authLoading && isAuthenticated) {
             fetchTracking();
 
-            // Connect to socket for real-time updates
-            const newSocket = io(SOCKET_URL, {
-                transports: ["websocket", "polling"],
-                auth: { token: localStorage.getItem("token") }
-            });
-            setSocket(newSocket);
+            if (!socket) return;
 
-            newSocket.on("connect", () => {
-                newSocket.emit("joinOrder", multiOrderId);
-            });
+            console.log("Joining multi-order room via global socket:", multiOrderId);
+            joinOrder(multiOrderId);
 
-            newSocket.on("orderStatusUpdate", (data) => {
+            const unsubscribeOrderUpdate = onOrderUpdate((data) => {
                 console.log("Multi-order update received:", data);
                 fetchTracking();
             });
@@ -82,11 +77,11 @@ export default function MultiOrderTrackingPage({ params }: { params: Promise<{ i
 
             return () => {
                 clearInterval(interval);
-                newSocket.emit("leave", multiOrderId);
-                newSocket.disconnect();
+                leaveOrder(multiOrderId);
+                unsubscribeOrderUpdate();
             };
         }
-    }, [authLoading, isAuthenticated, multiOrderId]);
+    }, [authLoading, isAuthenticated, multiOrderId, socket, joinOrder, leaveOrder, onOrderUpdate]);
 
     const fetchTracking = async () => {
         try {
