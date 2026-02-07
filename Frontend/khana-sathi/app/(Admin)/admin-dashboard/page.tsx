@@ -1,8 +1,8 @@
 "use client";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Eye, Edit, Trash2, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Eye, Edit, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { useAuth } from "@/context/AuthContext";
 import { getAllOrders } from "@/lib/orderService";
@@ -14,31 +14,51 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const [loadingStats, setLoadingStats] = useState(true);
   const [stats, setStats] = useState<any>(null);
+  const [statsError, setStatsError] = useState("");
+  const [ordersError, setOrdersError] = useState("");
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoadingStats(true);
+      setStatsError("");
+      const statsRes = await getOverviewStats(30);
+      if (statsRes?.success && statsRes.data) {
+        setStats(statsRes.data);
+      } else {
+        setStatsError(statsRes?.error || "Failed to load stats");
+      }
+    } catch (error) {
+      console.error("Failed to load stats:", error);
+      setStatsError("Failed to load stats");
+    } finally {
+      setLoadingStats(false);
+    }
+  }, []);
+
+  const fetchOrders = useCallback(async () => {
+    try {
+      setLoadingOrders(true);
+      setOrdersError("");
+      const ordersRes = await getAllOrders({ limit: 10, page: 1 });
+      if (ordersRes.data?.success) {
+        setRecentOrders(ordersRes.data.data);
+      } else {
+        setOrdersError(ordersRes.error || "Failed to load orders");
+      }
+    } catch (error) {
+      console.error("Failed to load orders:", error);
+      setOrdersError("Failed to load orders");
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [ordersRes, statsRes] = await Promise.all([
-          getAllOrders({ limit: 10, page: 1 }),
-          getOverviewStats(30)
-        ]);
-
-        if (ordersRes.data?.success) {
-          setRecentOrders(ordersRes.data.data);
-        }
-        if (statsRes?.success) {
-          setStats(statsRes.data);
-        }
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error);
-      } finally {
-        setLoadingOrders(false);
-      }
-    };
-
-    loadData();
-  }, []);
+    fetchStats();
+    fetchOrders();
+  }, [fetchStats, fetchOrders]);
   return (
 
     <div className="min-h-screen bg-gray-50 flex">
@@ -69,28 +89,59 @@ export default function AdminDashboard() {
         <div className="p-8">
           {/* Key Metrics */}
           <div className="mb-10">
-            <h3 className="text-xl font-semibold text-gray-800 mb-6">Key Metrics</h3>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-800">Key Metrics</h3>
+              {(statsError || ordersError) && (
+                <button
+                  onClick={() => { fetchStats(); fetchOrders(); }}
+                  className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 font-medium"
+                >
+                  <RefreshCw className="w-4 h-4" /> Retry
+                </button>
+              )}
+            </div>
+            {loadingStats ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="bg-white rounded-2xl p-6 border border-gray-200 animate-pulse">
+                    <div className="h-4 bg-gray-200 rounded w-24 mb-4"></div>
+                    <div className="h-10 bg-gray-200 rounded w-20"></div>
+                  </div>
+                ))}
+              </div>
+            ) : statsError ? (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+                <p className="text-red-600 mb-2">{statsError}</p>
+                <button
+                  onClick={fetchStats}
+                  className="text-sm text-red-500 hover:text-red-700 font-medium flex items-center gap-1 mx-auto"
+                >
+                  <RefreshCw className="w-4 h-4" /> Try Again
+                </button>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Total Orders</p>
-                <p className="text-4xl font-bold text-gray-900">{stats?.totalOrders?.value ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.totalOrders?.value ?? 0}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-sm text-gray-500 font-medium">Total Revenue</p>
-                <p className="text-4xl font-bold text-gray-900">NPR {stats?.totalRevenue?.value?.toLocaleString() ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">NPR {stats?.totalRevenue?.value?.toLocaleString() ?? 0}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Active Restaurants</p>
-                <p className="text-4xl font-bold text-gray-900">{stats?.activeRestaurants?.value ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.activeRestaurants?.value ?? 0}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Active Delivery Staff</p>
-                <p className="text-4xl font-bold text-gray-900">{stats?.activeStaff?.value ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.activeStaff?.value ?? 0}</p>
               </div>
             </div>
+            )}
           </div>
 
           {/* Recent Orders */}
@@ -114,6 +165,15 @@ export default function AdminDashboard() {
                       <tr>
                         <td colSpan={6} className="text-center py-10">
                           <Loader2 className="w-8 h-8 animate-spin text-red-500 mx-auto" />
+                        </td>
+                      </tr>
+                    ) : ordersError ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-10">
+                          <p className="text-red-500 mb-2">{ordersError}</p>
+                          <button onClick={fetchOrders} className="text-sm text-red-500 hover:text-red-700 font-medium">
+                            Retry
+                          </button>
                         </td>
                       </tr>
                     ) : recentOrders.length === 0 ? (
