@@ -31,7 +31,7 @@ const navItems = [
     { href: "/offers", icon: Tag, label: "Offers" },
     { href: "/staff", icon: Users, label: "Staff" },
     { href: "/payments", icon: Wallet, label: "Payments" },
-    { href: "/reviews", icon: Star, label: "Reviews" },
+    { href: "/restaurant-reviews", icon: Star, label: "Reviews" },
     { href: "/analytics", icon: FileText, label: "Analytics" },
     { href: "/rm-profile", icon: User, label: "Profile" },
 ];
@@ -75,8 +75,8 @@ export default function RestaurantSidebar() {
                                 key={item.href}
                                 href={item.href}
                                 className={`flex items-center gap-4 px-4 py-3 rounded-lg font-medium transition ${isActive
-                                        ? "bg-red-500 text-white"
-                                        : "text-gray-700 hover:bg-gray-100"
+                                    ? "bg-red-500 text-white"
+                                    : "text-gray-700 hover:bg-gray-100"
                                     }`}
                             >
                                 <item.icon className="w-5 h-5" />
@@ -88,13 +88,12 @@ export default function RestaurantSidebar() {
             </div>
 
             <div className="mt-auto p-6 space-y-3">
-                <Link 
-                    href="/settings" 
-                    className={`flex items-center gap-4 px-4 py-3 rounded-lg transition ${
-                        pathname === '/settings' 
-                            ? "bg-red-500 text-white" 
+                <Link
+                    href="/settings"
+                    className={`flex items-center gap-4 px-4 py-3 rounded-lg transition ${pathname === '/settings'
+                            ? "bg-red-500 text-white"
                             : "text-gray-700 hover:bg-gray-100"
-                    }`}
+                        }`}
                 >
                     <Settings className="w-5 h-5" />
                     Settings

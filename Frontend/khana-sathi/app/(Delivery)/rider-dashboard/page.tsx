@@ -233,7 +233,7 @@ export default function RiderDashboardPage() {
             <Wallet className="w-5 h-5" />
             Earnings
           </a>
-          <a href="/reviews" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl transition">
+          <a href="/rider-reviews" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl transition">
             <Star className="w-5 h-5" />
             Reviews
           </a>
@@ -424,8 +424,8 @@ export default function RiderDashboardPage() {
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 mb-3 flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> 
-                        {typeof pool._id.address === 'object' 
+                        <MapPin className="w-3 h-3" />
+                        {typeof pool._id.address === 'object'
                           ? `${pool._id.address?.addressLine1 || ''}, ${pool._id.address?.city || ''}`.replace(/^,\s*|,\s*$/g, '')
                           : pool._id.address || 'No address'}
                       </p>
@@ -462,7 +462,7 @@ export default function RiderDashboardPage() {
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400" />
                 </a>
-                <a href="/reviews" className="p-4 bg-yellow-50 rounded-xl hover:bg-yellow-100 transition flex items-center justify-between">
+                <a href="/rider-reviews" className="p-4 bg-yellow-50 rounded-xl hover:bg-yellow-100 transition flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Star className="w-6 h-6 text-yellow-600" />
                     <span className="font-medium text-gray-800">My Reviews</span>
