@@ -16,6 +16,7 @@ import {
     Users,
     Wallet,
     User,
+    Star,
     Settings,
     LogOut,
 } from "lucide-react";
@@ -30,6 +31,7 @@ const navItems = [
     { href: "/offers", icon: Tag, label: "Offers" },
     { href: "/staff", icon: Users, label: "Staff" },
     { href: "/payments", icon: Wallet, label: "Payments" },
+    { href: "/reviews", icon: Star, label: "Reviews" },
     { href: "/analytics", icon: FileText, label: "Analytics" },
     { href: "/rm-profile", icon: User, label: "Profile" },
 ];

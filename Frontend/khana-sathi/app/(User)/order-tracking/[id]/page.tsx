@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Phone, MessageSquare, MapPin, Clock, Loader2, Store } from "lucide-react";
+import { Phone, MessageSquare, MapPin, Clock, Loader2, Store, Star } from "lucide-react";
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { getOrderById, cancelOrder } from "@/lib/orderService";
+import { createReview } from "@/lib/reviewService";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
@@ -57,6 +58,7 @@ interface Order {
   };
   multiOrder?: string | { _id: string };
   isSubOrder?: boolean;
+  isRated?: boolean;
   estimatedDeliveryTime?: Date;
   createdAt: string;
 }
@@ -87,6 +89,17 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   const [socket, setSocket] = useState<Socket | null>(null);
   const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
   const { user: authUser } = useAuth();
+
+  // Review state
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [restaurantRating, setRestaurantRating] = useState(0);
+  const [foodRating, setFoodRating] = useState(0);
+  const [restaurantReview, setRestaurantReview] = useState("");
+  const [deliveryRating, setDeliveryRating] = useState(0);
+  const [deliveryReview, setDeliveryReview] = useState("");
+  const [overallRating, setOverallRating] = useState(0);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
 
   useEffect(() => {
     fetchOrder();
@@ -205,6 +218,35 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       alert(error.response?.data?.message || "Failed to cancel order");
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (overallRating === 0) {
+      alert("Please provide an overall rating");
+      return;
+    }
+    try {
+      setSubmittingReview(true);
+      await createReview({
+        orderId: id,
+        restaurantRating: restaurantRating || undefined,
+        foodRating: foodRating || undefined,
+        restaurantReview: restaurantReview || undefined,
+        deliveryRating: deliveryRating || undefined,
+        deliveryReview: deliveryReview || undefined,
+        overallRating,
+        comment: restaurantReview || undefined,
+      });
+      setReviewSubmitted(true);
+      setShowReviewForm(false);
+      // Update order locally so the form doesn't show again
+      setOrder(prev => prev ? { ...prev, isRated: true } : null);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      alert(error.response?.data?.message || "Failed to submit review");
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -438,6 +480,132 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
         </div>
+
+        {/* Review & Rating Section */}
+        {order.status === "delivered" && !order.isRated && !reviewSubmitted && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
+            {!showReviewForm ? (
+              <div className="text-center py-4">
+                <h2 className="font-semibold text-gray-900 text-lg mb-2">How was your experience?</h2>
+                <p className="text-gray-500 text-sm mb-4">Rate your order to help others and improve service</p>
+                <button
+                  onClick={() => setShowReviewForm(true)}
+                  className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors"
+                >
+                  Write a Review
+                </button>
+              </div>
+            ) : (
+              <div>
+                <h2 className="font-semibold text-gray-900 text-lg mb-6">Rate Your Order</h2>
+
+                {/* Overall Rating */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Overall Experience *</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button key={star} onClick={() => setOverallRating(star)} className="focus:outline-none">
+                        <Star
+                          className={`w-8 h-8 transition-colors ${star <= overallRating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Restaurant Rating */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <h3 className="font-medium text-gray-800 mb-3">Restaurant - {order.restaurant.name}</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Restaurant Rating</label>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button key={star} onClick={() => setRestaurantRating(star)} className="focus:outline-none">
+                            <Star
+                              className={`w-6 h-6 transition-colors ${star <= restaurantRating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Food Quality</label>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button key={star} onClick={() => setFoodRating(star)} className="focus:outline-none">
+                            <Star
+                              className={`w-6 h-6 transition-colors ${star <= foodRating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <textarea
+                    value={restaurantReview}
+                    onChange={(e) => setRestaurantReview(e.target.value)}
+                    placeholder="Share your experience with the restaurant..."
+                    className="w-full p-3 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-500"
+                    rows={3}
+                  />
+                </div>
+
+                {/* Delivery Rider Rating */}
+                {order.deliveryRider && (
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-medium text-gray-800 mb-3">Delivery - {order.deliveryRider.name}</h3>
+                    <div className="mb-3">
+                      <label className="block text-sm text-gray-600 mb-1">Delivery Rating</label>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button key={star} onClick={() => setDeliveryRating(star)} className="focus:outline-none">
+                            <Star
+                              className={`w-6 h-6 transition-colors ${star <= deliveryRating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      value={deliveryReview}
+                      onChange={(e) => setDeliveryReview(e.target.value)}
+                      placeholder="How was your delivery experience?"
+                      className="w-full p-3 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-500"
+                      rows={2}
+                    />
+                  </div>
+                )}
+
+                {/* Submit */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleSubmitReview}
+                    disabled={submittingReview || overallRating === 0}
+                    className="flex-1 py-3 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+                  >
+                    {submittingReview ? "Submitting..." : "Submit Review"}
+                  </button>
+                  <button
+                    onClick={() => setShowReviewForm(false)}
+                    className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Review Submitted Confirmation */}
+        {(order.status === "delivered" && (order.isRated || reviewSubmitted)) && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-6 mt-6 text-center">
+            <div className="text-3xl mb-2">🎉</div>
+            <h3 className="font-semibold text-green-800">Thank you for your review!</h3>
+            <p className="text-green-600 text-sm mt-1">Your feedback helps improve the service</p>
+          </div>
+        )}
 
         {/* Help Section */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
