@@ -1,28 +1,50 @@
 const PromoCode = require('../models/PromoCode');
 const User = require('../models/User');
+const Restaurant = require('../models/Restaurant');
 const Notification = require('../models/Notification');
 const { getIO } = require('../services/socket');
+
+// ============================================================
+// HELPER: Check if user can modify a promo code
+// ============================================================
+const canModifyPromo = (promo, user) => {
+  // Super Admin can modify anything
+  if (user.role === 'admin') return true;
+
+  // Restaurant Manager can modify only their own offers
+  if (user.role === 'restaurant') {
+    if (promo.createdByRole === 'admin') return false;
+    return promo.createdBy && promo.createdBy.toString() === user._id.toString();
+  }
+
+  return false;
+};
+
+// ============================================================
+// HELPER: Add audit log entry
+// ============================================================
+const addAuditLog = (promo, action, user, changes = null) => {
+  promo.auditLog.push({
+    action,
+    performedBy: user._id,
+    performedByRole: user.role,
+    changes,
+    timestamp: new Date()
+  });
+};
 
 /**
  * @desc    Create a new promo code
  * @route   POST /api/promo
- * @access  Private (Admin)
+ * @access  Private (Admin or Restaurant Manager)
  */
 exports.createPromoCode = async (req, res) => {
   try {
     const {
-      code,
-      description,
-      discountType,
-      discountValue,
-      minOrderAmount,
-      maxDiscount,
-      validFrom,
-      validUntil,
-      usageLimit,
-      perUserLimit,
-      applicableRestaurants,
-      applicableCategories
+      code, description, discountType, discountValue,
+      minOrderAmount, maxDiscount, validFrom, validUntil,
+      usageLimit, perUserLimit, applicableRestaurants,
+      applicableCategories, scope
     } = req.body;
 
     // Check if code already exists
@@ -34,7 +56,30 @@ exports.createPromoCode = async (req, res) => {
       });
     }
 
-    const promoCode = await PromoCode.create({
+    // Determine scope and restaurant based on role
+    let offerScope = 'global';
+    let restaurantId = null;
+    let restaurants = applicableRestaurants || [];
+
+    if (req.user.role === 'admin') {
+      offerScope = scope || 'global';
+      if (offerScope === 'restaurant' && restaurants.length > 0) {
+        restaurantId = restaurants[0];
+      }
+    } else if (req.user.role === 'restaurant') {
+      const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+      if (!restaurant) {
+        return res.status(404).json({
+          success: false,
+          message: 'Restaurant not found for this user'
+        });
+      }
+      offerScope = 'restaurant';
+      restaurantId = restaurant._id;
+      restaurants = [restaurant._id];
+    }
+
+    const promoCode = new PromoCode({
       code: code.toUpperCase(),
       description,
       discountType,
@@ -45,10 +90,17 @@ exports.createPromoCode = async (req, res) => {
       validUntil,
       usageLimit,
       perUserLimit,
-      applicableRestaurants,
+      scope: offerScope,
+      restaurant: restaurantId,
+      applicableRestaurants: restaurants,
       applicableCategories,
-      createdBy: req.user._id
+      isActive: true,
+      createdBy: req.user._id,
+      createdByRole: req.user.role
     });
+
+    addAuditLog(promoCode, 'created', req.user);
+    await promoCode.save();
 
     res.status(201).json({
       success: true,
@@ -65,13 +117,13 @@ exports.createPromoCode = async (req, res) => {
 };
 
 /**
- * @desc    Get all promo codes
+ * @desc    Get all promo codes (role-aware)
  * @route   GET /api/promo
- * @access  Private (Admin)
+ * @access  Private (Admin or Restaurant Manager)
  */
 exports.getAllPromoCodes = async (req, res) => {
   try {
-    const { active, expired, mine } = req.query;
+    const { active, expired } = req.query;
     const now = new Date();
 
     let query = {};
@@ -85,13 +137,23 @@ exports.getAllPromoCodes = async (req, res) => {
       query.validUntil = { $lt: now };
     }
 
-    // Filter by creator if mine=true
-    if (mine === 'true' && req.user) {
-      query.createdBy = req.user._id;
+    if (req.user.role === 'admin') {
+      // Admin sees everything
+    } else if (req.user.role === 'restaurant') {
+      const restaurant = await Restaurant.findOne({ createdBy: req.user._id });
+      const restaurantId = restaurant ? restaurant._id : null;
+
+      query.$or = [
+        { scope: 'global' },
+        { createdBy: req.user._id },
+        ...(restaurantId ? [{ restaurant: restaurantId }] : [])
+      ];
     }
 
     const promoCodes = await PromoCode.find(query)
       .populate('createdBy', 'username email role')
+      .populate('restaurant', 'name')
+      .populate('applicableRestaurants', 'name')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -116,8 +178,9 @@ exports.getAllPromoCodes = async (req, res) => {
 exports.getActivePromoCodes = async (req, res) => {
   try {
     const now = new Date();
+    const { restaurantId } = req.query;
 
-    const promoCodes = await PromoCode.find({
+    let query = {
       isActive: true,
       validFrom: { $lte: now },
       validUntil: { $gte: now },
@@ -125,7 +188,25 @@ exports.getActivePromoCodes = async (req, res) => {
         { usageLimit: null },
         { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
       ]
-    }).select('code description discountType discountValue minOrderAmount maxDiscount validUntil');
+    };
+
+    if (restaurantId) {
+      query.$and = [
+        query.$or ? { $or: query.$or } : {},
+        {
+          $or: [
+            { scope: 'global', applicableRestaurants: { $size: 0 } },
+            { scope: 'global', applicableRestaurants: restaurantId },
+            { restaurant: restaurantId }
+          ]
+        }
+      ];
+      delete query.$or;
+    }
+
+    const promoCodes = await PromoCode.find(query)
+      .select('code description discountType discountValue minOrderAmount maxDiscount validUntil scope restaurant')
+      .populate('restaurant', 'name');
 
     res.status(200).json({
       success: true,
@@ -190,9 +271,9 @@ exports.validatePromoCode = async (req, res) => {
 };
 
 /**
- * @desc    Update promo code
+ * @desc    Update promo code (RBAC enforced)
  * @route   PUT /api/promo/:id
- * @access  Private (Admin)
+ * @access  Private (Admin or owning Restaurant Manager)
  */
 exports.updatePromoCode = async (req, res) => {
   try {
@@ -205,15 +286,43 @@ exports.updatePromoCode = async (req, res) => {
       });
     }
 
-    // Only the creator can update
-    if (promoCode.createdBy && promoCode.createdBy.toString() !== req.user._id.toString()) {
+    // RBAC check
+    if (!canModifyPromo(promoCode, req.user)) {
       return res.status(403).json({
         success: false,
-        message: 'You can only edit promo codes you created'
+        message: 'You do not have permission to modify this offer'
       });
     }
 
-    Object.assign(promoCode, req.body);
+    // Prevent RM from setting global scope
+    if (req.user.role === 'restaurant' && req.body.scope === 'global') {
+      return res.status(403).json({
+        success: false,
+        message: 'Restaurant managers cannot create global offers'
+      });
+    }
+
+    // Track changes for audit log
+    const changes = {};
+    const allowedFields = [
+      'description', 'discountType', 'discountValue', 'minOrderAmount',
+      'maxDiscount', 'validFrom', 'validUntil', 'usageLimit', 'perUserLimit',
+      'applicableRestaurants', 'applicableCategories', 'isActive', 'scope', 'code'
+    ];
+
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined && JSON.stringify(promoCode[field]) !== JSON.stringify(req.body[field])) {
+        changes[field] = { from: promoCode[field], to: req.body[field] };
+      }
+    });
+
+    Object.keys(req.body).forEach(key => {
+      if (allowedFields.includes(key)) {
+        promoCode[key] = req.body[key];
+      }
+    });
+
+    addAuditLog(promoCode, 'updated', req.user, changes);
     await promoCode.save();
 
     res.status(200).json({
@@ -231,9 +340,9 @@ exports.updatePromoCode = async (req, res) => {
 };
 
 /**
- * @desc    Delete promo code
+ * @desc    Delete promo code (RBAC enforced)
  * @route   DELETE /api/promo/:id
- * @access  Private (Admin)
+ * @access  Private (Admin or owning Restaurant Manager)
  */
 exports.deletePromoCode = async (req, res) => {
   try {
@@ -246,11 +355,10 @@ exports.deletePromoCode = async (req, res) => {
       });
     }
 
-    // Only the creator can delete
-    if (promoCode.createdBy && promoCode.createdBy.toString() !== req.user._id.toString()) {
+    if (!canModifyPromo(promoCode, req.user)) {
       return res.status(403).json({
         success: false,
-        message: 'You can only delete promo codes you created'
+        message: 'You do not have permission to delete this offer'
       });
     }
 
@@ -270,9 +378,9 @@ exports.deletePromoCode = async (req, res) => {
 };
 
 /**
- * @desc    Toggle promo code status
+ * @desc    Toggle promo code status (RBAC enforced)
  * @route   PUT /api/promo/:id/toggle
- * @access  Private (Admin)
+ * @access  Private (Admin or owning Restaurant Manager)
  */
 exports.togglePromoCodeStatus = async (req, res) => {
   try {
@@ -285,7 +393,19 @@ exports.togglePromoCodeStatus = async (req, res) => {
       });
     }
 
+    if (!canModifyPromo(promoCode, req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to toggle this offer'
+      });
+    }
+
     promoCode.isActive = !promoCode.isActive;
+
+    addAuditLog(promoCode, 'toggled', req.user, {
+      isActive: { from: !promoCode.isActive, to: promoCode.isActive }
+    });
+
     await promoCode.save();
 
     res.status(200).json({
@@ -305,7 +425,7 @@ exports.togglePromoCodeStatus = async (req, res) => {
 /**
  * @desc    Broadcast a promo code notification to all customers
  * @route   POST /api/promo/broadcast/:id
- * @access  Private (Admin)
+ * @access  Private (Admin only)
  */
 exports.broadcastPromoNotification = async (req, res) => {
   try {
@@ -318,7 +438,13 @@ exports.broadcastPromoNotification = async (req, res) => {
       });
     }
 
-    // Find all customers
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Super Admin can broadcast offers'
+      });
+    }
+
     const customers = await User.find({ role: 'customer' });
 
     if (customers.length === 0) {
@@ -329,9 +455,9 @@ exports.broadcastPromoNotification = async (req, res) => {
     }
 
     const notificationTitle = `Special Offer: ${promoCode.code}`;
-    const notificationMessage = promoCode.description || `Use code ${promoCode.code} to get ${promoCode.discountValue}${promoCode.discountType === 'percentage' ? '%' : ' Rs.'} off your next order!`;
+    const notificationMessage = promoCode.description ||
+      `Use code ${promoCode.code} to get ${promoCode.discountValue}${promoCode.discountType === 'percentage' ? '%' : ' Rs.'} off your next order!`;
 
-    // Create notifications for all customers
     const notificationPromises = customers.map(customer => {
       return Notification.create({
         user: customer._id,
@@ -347,7 +473,9 @@ exports.broadcastPromoNotification = async (req, res) => {
 
     await Promise.all(notificationPromises);
 
-    // Broadcast via socket.io
+    addAuditLog(promoCode, 'broadcasted', req.user, { customerCount: customers.length });
+    await promoCode.save();
+
     const io = getIO();
     io.emit('notification', {
       type: 'promotion',
@@ -368,6 +496,40 @@ exports.broadcastPromoNotification = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to broadcast promo notification',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get audit log for a promo code
+ * @route   GET /api/promo/:id/audit
+ * @access  Private (Admin only)
+ */
+exports.getPromoAuditLog = async (req, res) => {
+  try {
+    const promoCode = await PromoCode.findById(req.params.id)
+      .select('code auditLog')
+      .populate('auditLog.performedBy', 'username email role');
+
+    if (!promoCode) {
+      return res.status(404).json({
+        success: false,
+        message: 'Promo code not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        code: promoCode.code,
+        auditLog: promoCode.auditLog.sort((a, b) => b.timestamp - a.timestamp)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit log',
       error: error.message
     });
   }

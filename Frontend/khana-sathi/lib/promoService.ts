@@ -1,6 +1,14 @@
 import { get, post, put, del } from './api';
 
 // Types
+export interface AuditLogEntry {
+    action: string;
+    performedBy: { _id: string; username: string; email: string; role: string } | string;
+    performedByRole: string;
+    changes: Record<string, { from: unknown; to: unknown }> | null;
+    timestamp: string;
+}
+
 export interface PromoCode {
     _id: string;
     code: string;
@@ -15,7 +23,13 @@ export interface PromoCode {
     perUserLimit?: number;
     usedCount: number;
     isActive: boolean;
+    scope: 'global' | 'restaurant';
+    restaurant?: { _id: string; name: string } | string | null;
     createdBy?: { _id: string; username: string; email: string; role: string } | string;
+    createdByRole?: 'admin' | 'restaurant';
+    applicableRestaurants?: { _id: string; name: string }[] | string[];
+    applicableCategories?: string[];
+    auditLog?: AuditLogEntry[];
     createdAt: string;
 }
 
@@ -30,19 +44,25 @@ export interface CreatePromoInput {
     validUntil: string;
     usageLimit?: number;
     perUserLimit?: number;
+    scope?: 'global' | 'restaurant';
+    applicableRestaurants?: string[];
 }
 
-// Get all promo codes (Admin/Restaurant)
-export async function getPromoCodes(options?: { mine?: boolean }) {
+// Get all promo codes (Admin/Restaurant — role-aware filtering on backend)
+export async function getPromoCodes(options?: { active?: boolean; expired?: boolean }) {
     const params = new URLSearchParams();
-    if (options?.mine) params.append('mine', 'true');
+    if (options?.active) params.append('active', 'true');
+    if (options?.expired) params.append('expired', 'true');
     const query = params.toString() ? `?${params.toString()}` : '';
     return get<{ success: boolean; count: number; data: PromoCode[] }>(`/promo${query}`);
 }
 
 // Get active promo codes (for customers)
-export async function getActivePromoCodes() {
-    return get<{ success: boolean; count: number; data: PromoCode[] }>('/promo/active');
+export async function getActivePromoCodes(restaurantId?: string) {
+    const params = new URLSearchParams();
+    if (restaurantId) params.append('restaurantId', restaurantId);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return get<{ success: boolean; count: number; data: PromoCode[] }>(`/promo/active${query}`);
 }
 
 // Create new promo code
@@ -70,7 +90,12 @@ export async function validatePromoCode(code: string, orderAmount: number, resta
     return post<{ success: boolean; data: { code: string; discountType: string; discountValue: number; calculatedDiscount: number; description: string } }>('/promo/validate', { code, orderAmount, restaurantId });
 }
 
-// Broadcast promo code notification
+// Broadcast promo code notification (Admin only)
 export async function broadcastPromo(id: string) {
     return post<{ success: boolean; message: string }>(`/promo/broadcast/${id}`, {});
+}
+
+// Get audit log for a promo code (Admin only)
+export async function getPromoAuditLog(id: string) {
+    return get<{ success: boolean; data: { code: string; auditLog: AuditLogEntry[] } }>(`/promo/${id}/audit`);
 }

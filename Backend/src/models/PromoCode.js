@@ -1,5 +1,30 @@
 const mongoose = require('mongoose');
 
+const auditLogEntrySchema = new mongoose.Schema({
+  action: {
+    type: String,
+    enum: ['created', 'updated', 'deleted', 'toggled', 'broadcasted'],
+    required: true
+  },
+  performedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  performedByRole: {
+    type: String,
+    enum: ['admin', 'restaurant'],
+    required: true
+  },
+  changes: {
+    type: mongoose.Schema.Types.Mixed
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now
+  }
+}, { _id: false });
+
 const promoCodeSchema = new mongoose.Schema({
   code: {
     type: String,
@@ -48,10 +73,21 @@ const promoCodeSchema = new mongoose.Schema({
     type: Number,
     default: 1
   },
+  // === OFFER SCOPE & OWNERSHIP ===
+  scope: {
+    type: String,
+    enum: ['global', 'restaurant'],
+    default: 'global'
+  },
   applicableRestaurants: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Restaurant'
   }],
+  restaurant: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Restaurant',
+    default: null // null for global offers
+  },
   applicableCategories: [{
     type: String
   }],
@@ -59,10 +95,18 @@ const promoCodeSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // === CREATOR TRACKING ===
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
-  }
+  },
+  createdByRole: {
+    type: String,
+    enum: ['admin', 'restaurant'],
+    required: true
+  },
+  // === AUDIT LOG ===
+  auditLog: [auditLogEntrySchema]
 }, {
   timestamps: true
 });
@@ -80,8 +124,20 @@ promoCodeSchema.methods.isValid = function(orderAmount, restaurantId) {
   if (orderAmount < this.minOrderAmount) {
     return { valid: false, message: `Minimum order amount is Rs. ${this.minOrderAmount}` };
   }
-  if (this.applicableRestaurants.length > 0 && !this.applicableRestaurants.includes(restaurantId)) {
-    return { valid: false, message: 'Promo code not valid for this restaurant' };
+
+  // For restaurant-specific offers, check restaurant match
+  if (this.scope === 'restaurant' && this.restaurant) {
+    if (restaurantId && this.restaurant.toString() !== restaurantId.toString()) {
+      return { valid: false, message: 'Promo code not valid for this restaurant' };
+    }
+  }
+
+  // For global offers with selected restaurants
+  if (this.applicableRestaurants.length > 0 && restaurantId) {
+    const applicable = this.applicableRestaurants.map(r => r.toString());
+    if (!applicable.includes(restaurantId.toString())) {
+      return { valid: false, message: 'Promo code not valid for this restaurant' };
+    }
   }
   
   return { valid: true };
@@ -103,8 +159,9 @@ promoCodeSchema.methods.calculateDiscount = function(orderAmount) {
   return Math.min(discount, orderAmount);
 };
 
-// Note: code index is already created by unique: true
 promoCodeSchema.index({ validUntil: 1 });
+promoCodeSchema.index({ scope: 1, restaurant: 1 });
+promoCodeSchema.index({ createdBy: 1, createdByRole: 1 });
 
 const PromoCode = mongoose.model('PromoCode', promoCodeSchema);
 

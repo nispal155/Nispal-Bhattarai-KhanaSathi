@@ -8,23 +8,27 @@ const {
   updatePromoCode,
   deletePromoCode,
   togglePromoCodeStatus,
-  broadcastPromoNotification
+  broadcastPromoNotification,
+  getPromoAuditLog
 } = require('../controller/promoController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, admin, restaurantManager } = require('../middleware/authMiddleware');
 
-// Protected routes
+// All routes require authentication
 router.use(protect);
 
-// Customer routes
+// Customer routes (any authenticated user)
 router.get('/active', getActivePromoCodes);
 router.post('/validate', validatePromoCode);
 
-// Admin routes
+// Admin & Restaurant Manager routes (RBAC enforced in controller)
 router.post('/', createPromoCode);
 router.get('/', getAllPromoCodes);
 router.put('/:id', updatePromoCode);
 router.put('/:id/toggle', togglePromoCodeStatus);
 router.delete('/:id', deletePromoCode);
-router.post('/broadcast/:id', broadcastPromoNotification);
+
+// Admin-only routes
+router.post('/broadcast/:id', admin, broadcastPromoNotification);
+router.get('/:id/audit', admin, getPromoAuditLog);
 
 module.exports = router;
