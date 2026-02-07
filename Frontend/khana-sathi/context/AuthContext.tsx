@@ -48,7 +48,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('user', JSON.stringify(user));
     };
 
-    const logout = () => {
+    const logout = async () => {
+        // Call backend to set rider offline before clearing local state
+        try {
+            const storedUser = user || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!) : null);
+            const storedToken = token || localStorage.getItem('token');
+            if (storedUser?._id && storedToken) {
+                const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api';
+                await fetch(`${apiUrl}/auth/logout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${storedToken}` },
+                    body: JSON.stringify({ userId: storedUser._id })
+                });
+            }
+        } catch (err) {
+            console.error('Logout API error:', err);
+        }
         setUser(null);
         setToken(null);
         localStorage.removeItem('token');

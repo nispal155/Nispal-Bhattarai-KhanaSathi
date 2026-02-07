@@ -32,7 +32,7 @@ export default function Restaurants() {
         setLoading(true);
         const res = await getAllRestaurants({
           search: appliedSearch || undefined,
-          status: statusFilter || undefined,
+          status: statusFilter || 'all',
           cuisine: cuisineFilter || undefined,
           page: currentPage,
           limit: 15,

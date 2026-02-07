@@ -59,6 +59,9 @@ exports.getOverviewStats = async (req, res) => {
             isOnline: true
         });
 
+        // Active restaurants
+        const activeRestaurants = await Restaurant.countDocuments({ isActive: true });
+
         const current = currentStats[0] || { totalOrders: 0, totalRevenue: 0, avgOrderValue: 0 };
         const previous = prevStats[0] || { totalOrders: 0, totalRevenue: 0 };
 
@@ -86,6 +89,10 @@ exports.getOverviewStats = async (req, res) => {
                 activeStaff: {
                     value: activeStaff,
                     change: 0 // Simplification
+                },
+                activeRestaurants: {
+                    value: activeRestaurants,
+                    change: 0
                 }
             }
         });

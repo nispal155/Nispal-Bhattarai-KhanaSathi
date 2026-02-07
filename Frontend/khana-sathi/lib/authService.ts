@@ -41,8 +41,22 @@ export async function resetPassword(email: string, otp: string, newPassword: str
     return post<MessageResponse>('/auth/reset-password', { email, otp, newPassword });
 }
 
-export function logout() {
+export async function logout() {
     if (typeof window !== 'undefined') {
+        try {
+            const storedUser = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!) : null;
+            const storedToken = localStorage.getItem('token');
+            if (storedUser?._id && storedToken) {
+                const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api';
+                await fetch(`${apiUrl}/auth/logout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${storedToken}` },
+                    body: JSON.stringify({ userId: storedUser._id })
+                });
+            }
+        } catch (err) {
+            console.error('Logout API error:', err);
+        }
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/login';

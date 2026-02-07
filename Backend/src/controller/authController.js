@@ -85,9 +85,6 @@ const verifyOTP = async (req, res) => {
         user.isVerified = true;
         user.otp = undefined;
         user.otpExpires = undefined;
-        if (user.role === 'delivery_staff') {
-            user.isOnline = true;
-        }
         await user.save();
 
         res.json({
@@ -161,12 +158,6 @@ const authUser = async (req, res) => {
         }
 
         if (await user.matchPassword(password)) {
-            // Update online status for delivery staff
-            if (user.role === 'delivery_staff') {
-                user.isOnline = true;
-                await user.save();
-            }
-
             res.json({
                 _id: user._id,
                 username: user.username,

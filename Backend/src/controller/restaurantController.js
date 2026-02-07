@@ -307,13 +307,17 @@ exports.getAllRestaurants = async (req, res) => {
 
     let query = {};
 
-    // Status filter: 'active', 'deactivated', or all
+    // Status filter: 'active', 'deactivated', or 'all'
     if (status === 'active') {
       query.isActive = true;
     } else if (status === 'deactivated') {
       query.isActive = false;
+    } else if (status === 'all') {
+      // Admin explicitly wants all — no filter
+    } else {
+      // Default: only show active restaurants (public/user requests)
+      query.isActive = true;
     }
-    // If no status specified from admin, show all; for public use, default active only
 
     // Search by name, contact email, or contact phone
     if (search) {

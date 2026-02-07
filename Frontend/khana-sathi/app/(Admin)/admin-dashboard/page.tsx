@@ -73,22 +73,22 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Total Orders</p>
-                <p className="text-4xl font-bold text-gray-900">{stats?.totalOrders ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.totalOrders?.value ?? '—'}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-sm text-gray-500 font-medium">Total Revenue</p>
-                <p className="text-4xl font-bold text-gray-900">NPR {stats?.totalRevenue?.toLocaleString() ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">NPR {stats?.totalRevenue?.value?.toLocaleString() ?? '—'}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Active Restaurants</p>
-                <p className="text-4xl font-bold text-gray-900">{stats?.activeRestaurants ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.activeRestaurants?.value ?? '—'}</p>
               </div>
 
               <div className="bg-white rounded-2xl  p-6 border border-gray-200">
                 <p className="text-gray-600 mb-2">Active Delivery Staff</p>
-                <p className="text-4xl font-bold text-gray-900">{stats?.activeDeliveryStaff ?? '—'}</p>
+                <p className="text-4xl font-bold text-gray-900">{stats?.activeStaff?.value ?? '—'}</p>
               </div>
             </div>
           </div>
