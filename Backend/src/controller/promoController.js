@@ -4,9 +4,9 @@ const Restaurant = require('../models/Restaurant');
 const Notification = require('../models/Notification');
 const { getIO } = require('../services/socket');
 
-// ============================================================
-// HELPER: Check if user can modify a promo code
-// ============================================================
+
+// Check if user can modify a promo code
+
 const canModifyPromo = (promo, user) => {
   // Super Admin can modify anything
   if (user.role === 'admin') return true;
@@ -20,9 +20,9 @@ const canModifyPromo = (promo, user) => {
   return false;
 };
 
-// ============================================================
-// HELPER: Add audit log entry
-// ============================================================
+
+// Add audit log entry
+
 const addAuditLog = (promo, action, user, changes = null) => {
   promo.auditLog.push({
     action,

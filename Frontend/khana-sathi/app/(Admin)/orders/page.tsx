@@ -90,7 +90,7 @@ export default function OrderMonitoringPage() {
     return (
         <div className="min-h-screen bg-gray-50 flex">
             <AdminSidebar />
-            <main className="flex-1 p-8 overflow-auto">
+            <main className="flex-1 p-8 overflow-y-auto h-screen">
                 <header className="mb-8">
                     <h2 className="text-3xl font-bold text-gray-800">Order Monitoring</h2>
                     <p className="text-gray-500 mt-2">Track and manage all orders in real-time</p>
@@ -261,8 +261,8 @@ export default function OrderMonitoringPage() {
 
                 {/* Order Detail Modal */}
                 {selectedOrder && (
-                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={() => setSelectedOrder(null)}>
+                        <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                             <div className="p-6 border-b border-gray-100">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-xl font-bold text-gray-800">Order #{selectedOrder.orderNumber}</h3>
@@ -285,7 +285,7 @@ export default function OrderMonitoringPage() {
                                 <div>
                                     <p className="text-sm text-gray-500 mb-2">Items</p>
                                     <ul className="space-y-2">
-                                        {selectedOrder.items.map((item, i) => (
+                                        {(selectedOrder.items ?? []).map((item, i) => (
                                             <li key={i} className="flex justify-between text-gray-800">
                                                 <span>{item.quantity}x {item.name}</span>
                                                 <span>{formatCurrency(item.price * item.quantity)}</span>
@@ -321,26 +321,28 @@ export default function OrderMonitoringPage() {
                                 </div>
 
                                 {/* Delivery Address */}
-                                <div>
-                                    <p className="text-sm text-gray-500 mb-2">Delivery Address</p>
-                                    <p className="text-gray-800">
-                                        {selectedOrder.deliveryAddress?.addressLine1}
-                                        {selectedOrder.deliveryAddress?.addressLine2 && `, ${selectedOrder.deliveryAddress.addressLine2}`}
-                                        , {selectedOrder.deliveryAddress?.city}
-                                    </p>
-                                </div>
+                                {selectedOrder.deliveryAddress && (
+                                    <div>
+                                        <p className="text-sm text-gray-500 mb-2">Delivery Address</p>
+                                        <p className="text-gray-800">
+                                            {selectedOrder.deliveryAddress?.addressLine1 || 'N/A'}
+                                            {selectedOrder.deliveryAddress?.addressLine2 && `, ${selectedOrder.deliveryAddress.addressLine2}`}
+                                            {selectedOrder.deliveryAddress?.city && `, ${selectedOrder.deliveryAddress.city}`}
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Rider */}
                                 {selectedOrder.deliveryRider && (
                                     <div>
                                         <p className="text-sm text-gray-500 mb-2">Delivery Rider</p>
                                         <div className="flex items-center gap-3">
-                                            <Image
+                                            <img
                                                 src={selectedOrder.deliveryRider.profilePicture || `https://ui-avatars.com/api/?name=${selectedOrder.deliveryRider.username}&background=random`}
                                                 alt={selectedOrder.deliveryRider.username}
                                                 width={40}
                                                 height={40}
-                                                className="rounded-full"
+                                                className="rounded-full w-10 h-10 object-cover"
                                             />
                                             <span className="font-medium text-gray-800">{selectedOrder.deliveryRider.username}</span>
                                         </div>
