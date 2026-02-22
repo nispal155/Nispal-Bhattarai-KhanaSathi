@@ -41,6 +41,11 @@ const pendingPaymentSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Group cart reference (if this is a group order payment)
+  groupCartId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'GroupCart'
+  },
   // Payment tracking
   transactionId: String, // eSewa transaction UUID or Khalti pidx
   totalAmount: Number,

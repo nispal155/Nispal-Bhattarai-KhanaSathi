@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Store, FileText, Users, Shield, Settings, LogOut, User, Package, Tag, MessageSquare } from "lucide-react";
+import { Home, Store, FileText, Users, Shield, Settings, LogOut, User, Package, Tag } from "lucide-react";
 import { logout } from "@/lib/authService";
 import { useAuth } from "@/context/AuthContext";
 
@@ -17,7 +17,6 @@ export default function AdminSidebar() {
         { name: "Orders", href: "/orders", icon: Package },
         { name: "Restaurants", href: "/Restaurants", icon: Store },
         { name: "Promos", href: "/promos", icon: Tag },
-        { name: "Feedback", href: "/feedback", icon: MessageSquare },
         { name: "Reports", href: "/Reports", icon: FileText },
         { name: "Delivery Staff", href: "/delivery-staff", icon: Users },
         { name: "Parental Control", href: "/parental-control", icon: Shield },

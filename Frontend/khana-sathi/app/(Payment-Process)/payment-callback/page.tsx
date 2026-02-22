@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { verifyEsewaPayment, verifyKhaltiPayment } from '@/lib/paymentService';
+import { verifyGroupEsewa, verifyGroupKhalti } from '@/lib/groupCartService';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 import Image from 'next/image';
 
@@ -12,6 +13,7 @@ function PaymentCallbackContent() {
     const [status, setStatus] = useState<'verifying' | 'success' | 'failed'>('verifying');
     const [message, setMessage] = useState('Verifying your payment...');
     const [orderId, setOrderId] = useState<string | null>(null);
+    const [groupCartId, setGroupCartId] = useState<string | null>(null);
 
     useEffect(() => {
         const verifyPayment = async () => {
@@ -36,10 +38,75 @@ function PaymentCallbackContent() {
             const pidx = searchParams.get('pidx'); // Khalti callback
             const pendingId = searchParams.get('pendingId'); // Pending payment ID for Khalti
             const esewaStatus = searchParams.get('status'); // eSewa status param
+            const paymentType = searchParams.get('type'); // 'group' for group payments
+            // eSewa appends ?data=... to the success URL, which can pollute groupCartId
+            // e.g. groupCartId=abc123?data=eyJ... — strip everything after ? or &
+            const rawGcId = searchParams.get('groupCartId');
+            const gcId = rawGcId ? rawGcId.split('?')[0].split('&')[0] : null;
 
-            console.log('Payment callback params:', { method, data: data ? 'present' : 'null', pidx, pendingId, esewaStatus });
+            if (gcId) setGroupCartId(gcId);
+
+            console.log('Payment callback params:', { method, data: data ? 'present' : 'null', pidx, pendingId, esewaStatus, paymentType, gcId });
 
             try {
+                // ── GROUP PAYMENT FLOW ──
+                if (paymentType === 'group' && gcId) {
+                    // eSewa group payment
+                    if (data || method === 'esewa') {
+                        if (esewaStatus === 'failure') {
+                            setStatus('failed');
+                            setMessage('Payment was cancelled or failed.');
+                            return;
+                        }
+                        if (data) {
+                            setMessage('Verifying eSewa payment for your group order...');
+                            const response = await verifyGroupEsewa(data, gcId);
+                            const resData = (response.data as any)?.data || (response.data as any);
+                            if (response.data?.success) {
+                                setStatus('success');
+                                if (resData?.orderPlaced) {
+                                    setMessage('Payment verified! Group order has been placed.');
+                                    setOrderId(resData.orders?.[0]?.orderId);
+                                } else {
+                                    setMessage('Your payment is verified! Waiting for other members to pay.');
+                                }
+                            } else {
+                                setStatus('failed');
+                                setMessage((response as any).error || 'Payment verification failed.');
+                            }
+                        } else {
+                            setStatus('failed');
+                            setMessage('No payment data received from eSewa.');
+                        }
+                        return;
+                    }
+                    // Khalti group payment
+                    if (pidx || method === 'khalti') {
+                        if (pidx && pendingId) {
+                            setMessage('Verifying Khalti payment for your group order...');
+                            const response = await verifyGroupKhalti(pidx, pendingId, gcId);
+                            const resData = (response.data as any)?.data || (response.data as any);
+                            if (response.data?.success) {
+                                setStatus('success');
+                                if (resData?.orderPlaced) {
+                                    setMessage('Payment verified! Group order has been placed.');
+                                    setOrderId(resData.orders?.[0]?.orderId);
+                                } else {
+                                    setMessage('Your payment is verified! Waiting for other members to pay.');
+                                }
+                            } else {
+                                setStatus('failed');
+                                setMessage('Payment verification failed.');
+                            }
+                        } else {
+                            setStatus('failed');
+                            setMessage('Missing payment information from Khalti.');
+                        }
+                        return;
+                    }
+                }
+
+                // ── REGULAR (NON-GROUP) PAYMENT FLOW ──
                 // Auto-detect eSewa if data parameter exists (eSewa appends this)
                 if (data || method === 'esewa') {
                     if (esewaStatus === 'failure') {
@@ -101,6 +168,8 @@ function PaymentCallbackContent() {
     const handleContinue = () => {
         if (status === 'success' && orderId) {
             router.push(`/order-tracking/${orderId}`);
+        } else if (status === 'success' && groupCartId) {
+            router.push(`/group-cart/${groupCartId}`);
         } else {
             router.push('/browse-restaurants');
         }
@@ -154,7 +223,11 @@ function PaymentCallbackContent() {
                                 : 'bg-orange-500 hover:bg-orange-600'
                                 }`}
                         >
-                            {status === 'success' ? 'Track Your Order' : 'Back to Restaurants'}
+                            {status === 'success' && orderId
+                                ? 'Track Your Order'
+                                : status === 'success' && groupCartId
+                                    ? 'Back to Group Cart'
+                                    : 'Back to Restaurants'}
                         </button>
                     )}
                 </div>

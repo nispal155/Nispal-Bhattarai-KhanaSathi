@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, Trash2, ArrowLeft, Loader2 } from "lucide-react";
+import { Minus, Plus, Trash2, ArrowLeft, Loader2, Users, Copy, ChevronRight } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   getCart,
@@ -12,6 +12,7 @@ import {
   applyPromoCode,
   removePromoCode,
 } from "@/lib/cartService";
+import { getMyGroupCarts, GroupCart } from "@/lib/groupCartService";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
@@ -59,11 +60,31 @@ export default function CartPage() {
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState("");
   const [promoSuccess, setPromoSuccess] = useState("");
+  const [activeGroupCarts, setActiveGroupCarts] = useState<GroupCart[]>([]);
   const { user: authUser } = useAuth();
 
   useEffect(() => {
     fetchCart();
+    fetchActiveGroupCarts();
   }, []);
+
+  const fetchActiveGroupCarts = async () => {
+    try {
+      const res = await getMyGroupCarts();
+      const carts = (res?.data as any)?.data || (res?.data as any) || [];
+      const active = (Array.isArray(carts) ? carts : []).filter(
+        (gc: GroupCart) => gc.status === 'open' || gc.status === 'locked' || gc.status === 'payment_pending'
+      );
+      setActiveGroupCarts(active);
+    } catch {
+      // silent
+    }
+  };
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    toast.success('Invite code copied!');
+  };
 
   const fetchCart = async () => {
     try {
@@ -162,7 +183,74 @@ export default function CartPage() {
           <span>Continue Shopping</span>
         </Link>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-8">Your Cart</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">Your Cart</h1>
+
+        {/* Active Group Carts */}
+        {activeGroupCarts.length > 0 ? (
+          <div className="mb-6 space-y-3">
+            {activeGroupCarts.map((gc) => (
+              <div
+                key={gc._id}
+                className="flex items-center justify-between bg-linear-to-r from-red-50 to-orange-50 border border-red-100 rounded-xl p-4"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm truncate">
+                      {gc.name}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs font-mono bg-white border border-red-200 text-red-600 px-2 py-0.5 rounded-md tracking-wider">
+                        {gc.inviteCode}
+                      </span>
+                      <button
+                        onClick={() => copyCode(gc.inviteCode)}
+                        className="text-gray-400 hover:text-red-500 transition"
+                        title="Copy code"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="text-xs text-gray-400">
+                        {gc.members?.length || 1} member{(gc.members?.length || 1) > 1 ? 's' : ''}
+                        {' · '}{gc.itemCount || 0} items
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <Link
+                  href={`/group-cart/${gc._id}`}
+                  className="flex items-center gap-1 text-red-500 text-sm font-medium hover:text-red-600 transition shrink-0 ml-3"
+                >
+                  Open <ChevronRight className="w-4 h-4" />
+                </Link>
+              </div>
+            ))}
+            <Link
+              href="/group-cart"
+              className="block text-center text-xs text-gray-400 hover:text-red-500 transition py-1"
+            >
+              View all group carts →
+            </Link>
+          </div>
+        ) : (
+          <Link
+            href="/group-cart"
+            className="mb-6 flex items-center justify-between bg-linear-to-r from-red-50 to-orange-50 border border-red-100 rounded-xl p-4 hover:shadow-md transition group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900 text-sm">Order with Friends</p>
+                <p className="text-xs text-gray-500">Create or join a group cart and split the bill</p>
+              </div>
+            </div>
+            <span className="text-red-500 text-sm font-medium group-hover:translate-x-1 transition-transform">→</span>
+          </Link>
+        )}
 
         {!hasItems ? (
           <div className="text-center py-16">

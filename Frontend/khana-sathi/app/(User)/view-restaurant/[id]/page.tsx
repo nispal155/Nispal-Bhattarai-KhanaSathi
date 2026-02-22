@@ -2,13 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Star, Clock, MapPin, Phone, ShoppingCart, Plus, Minus, Loader2, ArrowLeft, AlertCircle } from "lucide-react";
+import { Star, Clock, MapPin, Phone, ShoppingCart, Plus, Minus, Loader2, ArrowLeft, AlertCircle, Users, ChevronDown } from "lucide-react";
 import { useState, useEffect, use } from "react";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import { getRestaurantById } from "@/lib/restaurantService";
 import { getRestaurantMenu, MenuItem } from "@/lib/menuService";
 import { addToCart, clearCart } from "@/lib/cartService";
+import { getMyGroupCarts, addItemToGroupCart, GroupCart } from "@/lib/groupCartService";
 import { formatPriceRange } from "@/lib/formatters";
 import toast from "react-hot-toast";
 
@@ -50,10 +51,31 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [addingToCart, setAddingToCart] = useState(false);
+  const [activeGroupCarts, setActiveGroupCarts] = useState<GroupCart[]>([]);
+  const [selectedGroupCart, setSelectedGroupCart] = useState<string>("");
+  const [addingToGroupCart, setAddingToGroupCart] = useState(false);
+  const [showGroupCartPicker, setShowGroupCartPicker] = useState(false);
 
   useEffect(() => {
     fetchData();
+    fetchActiveGroupCarts();
   }, [id]);
+
+  const fetchActiveGroupCarts = async () => {
+    try {
+      const res = await getMyGroupCarts();
+      const carts = (res?.data as any)?.data || (res?.data as any) || [];
+      const active = (Array.isArray(carts) ? carts : []).filter(
+        (gc: GroupCart) => gc.status === 'open'
+      );
+      setActiveGroupCarts(active);
+      if (active.length > 0 && !selectedGroupCart) {
+        setSelectedGroupCart(active[0]._id);
+      }
+    } catch {
+      // silent — group cart is optional
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -158,6 +180,23 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
       }
     } finally {
       setAddingToCart(false);
+    }
+  };
+
+  const handleAddToGroupCart = async () => {
+    if (cartItems.length === 0 || !selectedGroupCart) return;
+    try {
+      setAddingToGroupCart(true);
+      for (const item of cartItems) {
+        await addItemToGroupCart(selectedGroupCart, item.menuItem._id, item.quantity, item.specialInstructions);
+      }
+      setCartItems([]);
+      toast.success('Items added to group cart!');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      toast.error(error.response?.data?.message || 'Failed to add items to group cart');
+    } finally {
+      setAddingToGroupCart(false);
     }
   };
 
@@ -442,6 +481,68 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                 >
                   View Cart
                 </Link>
+
+                {/* Add to Group Cart */}
+                {activeGroupCarts.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Users className="w-4 h-4 text-red-500" />
+                      <span className="text-sm font-semibold text-gray-700">Add to Group Cart</span>
+                    </div>
+
+                    {activeGroupCarts.length === 1 ? (
+                      <div className="bg-red-50 rounded-lg px-3 py-2 mb-3">
+                        <p className="text-sm font-medium text-gray-800 truncate">{activeGroupCarts[0].name}</p>
+                        <p className="text-xs text-gray-500">
+                          {activeGroupCarts[0].members?.length || 1} members · Code: {activeGroupCarts[0].inviteCode}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="relative mb-3">
+                        <button
+                          onClick={() => setShowGroupCartPicker(!showGroupCartPicker)}
+                          className="w-full flex items-center justify-between bg-red-50 rounded-lg px-3 py-2.5 text-sm text-left"
+                        >
+                          <span className="font-medium text-gray-800 truncate">
+                            {activeGroupCarts.find(gc => gc._id === selectedGroupCart)?.name || 'Select group cart'}
+                          </span>
+                          <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                        </button>
+                        {showGroupCartPicker && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-40 overflow-y-auto">
+                            {activeGroupCarts.map(gc => (
+                              <button
+                                key={gc._id}
+                                onClick={() => { setSelectedGroupCart(gc._id); setShowGroupCartPicker(false); }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition ${
+                                  selectedGroupCart === gc._id ? 'bg-red-50 text-red-600' : 'text-gray-700'
+                                }`}
+                              >
+                                <p className="font-medium truncate">{gc.name}</p>
+                                <p className="text-xs text-gray-400">{gc.members?.length || 1} members</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleAddToGroupCart}
+                      disabled={addingToGroupCart || !selectedGroupCart}
+                      className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {addingToGroupCart ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Users className="w-4 h-4" />
+                          Add to Group Cart ({cartCount})
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </aside>
           )}

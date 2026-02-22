@@ -14,12 +14,11 @@ const userRoutes = require('./src/routes/userRoutes');
 const reviewRoutes = require('./src/routes/reviewRoutes');
 const promoRoutes = require('./src/routes/promoRoutes');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
-const contentRoutes = require('./src/routes/contentRoutes');
 const chatRoutes = require('./src/routes/chatRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
-const complaintRoutes = require('./src/routes/complaintRoutes');
 const paymentRoutes = require('./src/routes/paymentRoutes');
 const multiOrderRoutes = require('./src/routes/multiOrderRoutes');
+const groupCartRoutes = require('./src/routes/groupCartRoutes');
 
 dotenv.config();
 
@@ -30,6 +29,18 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// Request logger – logs every incoming request
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    if (res.statusCode >= 400) {
+      console.log(`[${res.statusCode}] ${req.method} ${req.originalUrl} - ${duration}ms`);
+    }
+  });
+  next();
+});
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -42,12 +53,11 @@ app.use('/api/users', userRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/promo', promoRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/content', contentRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/complaints', complaintRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/multi-orders', multiOrderRoutes);
+app.use('/api/group-cart', groupCartRoutes);
 
 app.get('/', (req, res) => {
     res.send('KhanaSathi API is running...');

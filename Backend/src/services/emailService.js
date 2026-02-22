@@ -1,16 +1,40 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Create Nodemailer transporter using Gmail SMTP
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: Number(process.env.EMAIL_PORT) || 587,
+  secure: false, // true for 465, false for 587 (STARTTLS)
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
 
-// The "from" address — use your verified domain, or Resend's test sender
-const FROM_EMAIL = process.env.EMAIL_FROM || 'KhanaSathi <onboarding@resend.dev>';
+const FROM_EMAIL = `KhanaSathi <${process.env.EMAIL_USER}>`;
 
-console.log('Email Config: Resend API (HTTPS), from:', FROM_EMAIL);
+console.log('Email Config: Nodemailer SMTP (Gmail), from:', FROM_EMAIL);
+
+// Verify transporter connection on startup
+transporter.verify()
+  .then(() => console.log(' SMTP connection verified — ready to send emails'))
+  .catch((err) => console.error(' SMTP connection error:', err.message));
 
 // Generate 6-digit OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Helper to send mail via Nodemailer
+const sendMail = async (to, subject, html) => {
+  const info = await transporter.sendMail({
+    from: FROM_EMAIL,
+    to,
+    subject,
+    html,
+  });
+  return info.messageId;
 };
 
 // Send OTP email
@@ -22,11 +46,7 @@ const sendOTP = async (email, otp) => {
     console.log('OTP:', otp);
     console.log('=====================\n');
 
-    const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to: email,
-      subject: 'Verify Your Email - KhanaSathi',
-      html: `
+    const messageId = await sendMail(email, 'Verify Your Email - KhanaSathi', `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -76,16 +96,10 @@ const sendOTP = async (email, otp) => {
           </table>
         </body>
         </html>
-      `,
-    });
+    `);
 
-    if (error) {
-      console.error('Error sending OTP email:', error);
-      return { success: false, error: error.message };
-    }
-
-    console.log('OTP email sent:', data?.id);
-    return { success: true, messageId: data?.id };
+    console.log('OTP email sent:', messageId);
+    return { success: true, messageId };
   } catch (error) {
     console.error('Error sending OTP email:', error);
     return { success: false, error: error.message };
@@ -100,11 +114,7 @@ const sendPasswordResetOTP = async (email, otp) => {
     console.log('OTP:', otp);
     console.log('==========================\n');
 
-    const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to: email,
-      subject: 'Reset Your Password - KhanaSathi',
-      html: `
+    const messageId = await sendMail(email, 'Reset Your Password - KhanaSathi', `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -154,16 +164,10 @@ const sendPasswordResetOTP = async (email, otp) => {
           </table>
         </body>
         </html>
-      `,
-    });
+    `);
 
-    if (error) {
-      console.error('Error sending password reset OTP email:', error);
-      return { success: false, error: error.message };
-    }
-
-    console.log('Password reset OTP email sent:', data?.id);
-    return { success: true, messageId: data?.id };
+    console.log('Password reset OTP email sent:', messageId);
+    return { success: true, messageId };
   } catch (error) {
     console.error('Error sending password reset OTP email:', error);
     return { success: false, error: error.message };
@@ -173,11 +177,7 @@ const sendPasswordResetOTP = async (email, otp) => {
 // Send Welcome Email with Login Details
 const sendWelcomeEmail = async (email, username, password, role, otp) => {
   try {
-    const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to: email,
-      subject: 'Welcome to KhanaSathi Team - Your Login Details',
-      html: `
+    const messageId = await sendMail(email, 'Welcome to KhanaSathi Team - Your Login Details', `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -236,16 +236,10 @@ const sendWelcomeEmail = async (email, username, password, role, otp) => {
           </table>
         </body>
         </html>
-      `,
-    });
+    `);
 
-    if (error) {
-      console.error('Error sending welcome email:', error);
-      return { success: false, error: error.message };
-    }
-
-    console.log('Welcome email sent:', data?.id);
-    return { success: true, messageId: data?.id };
+    console.log('Welcome email sent:', messageId);
+    return { success: true, messageId };
   } catch (error) {
     console.error('Error sending welcome email:', error);
     return { success: false, error: error.message };

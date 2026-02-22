@@ -57,6 +57,26 @@ const orderSchema = new mongoose.Schema({
   subOrderIndex: {
     type: Number  // Position in multi-order (1, 2, 3...)
   },
+  // Group order fields
+  isGroupOrder: {
+    type: Boolean,
+    default: false
+  },
+  groupCartId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'GroupCart'
+  },
+  splitPayment: {
+    mode: {
+      type: String,
+      enum: ['individual', 'equal', 'host_pays']
+    },
+    shares: [{
+      user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      amount: Number,
+      status: { type: String, enum: ['pending', 'paid'], default: 'pending' }
+    }]
+  },
   deliveryAddress: {
     label: String,
     addressLine1: String,
@@ -97,7 +117,7 @@ const orderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['esewa', 'khalti', 'card', 'bank', 'cod'],
+    enum: ['esewa', 'khalti', 'cod'],
     default: 'cod'
   },
   paymentStatus: {
