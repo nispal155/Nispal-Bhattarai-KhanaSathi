@@ -4,8 +4,19 @@ import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { verifyEsewaPayment, verifyKhaltiPayment } from '@/lib/paymentService';
 import { verifyGroupEsewa, verifyGroupKhalti } from '@/lib/groupCartService';
+import type { InitiateGroupOrderResponse } from '@/lib/groupCartService';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 import Image from 'next/image';
+
+function extractPayload<T>(response: { data?: unknown } | undefined): T | undefined {
+    const payload = response?.data;
+    if (!payload || typeof payload !== 'object') return payload as T | undefined;
+    if ('data' in payload) {
+        const nested = (payload as { data?: T }).data;
+        return nested ?? (payload as T);
+    }
+    return payload as T;
+}
 
 function PaymentCallbackContent() {
     const router = useRouter();
@@ -61,18 +72,18 @@ function PaymentCallbackContent() {
                         if (data) {
                             setMessage('Verifying eSewa payment for your group order...');
                             const response = await verifyGroupEsewa(data, gcId);
-                            const resData = (response.data as any)?.data || (response.data as any);
+                            const resData = extractPayload<InitiateGroupOrderResponse['data']>(response as { data?: unknown } | undefined);
                             if (response.data?.success) {
                                 setStatus('success');
                                 if (resData?.orderPlaced) {
-                                    setMessage('Payment verified! Group order has been placed.');
+                                    setMessage('Payment verified. Group order has been placed.');
                                     setOrderId(resData.orders?.[0]?.orderId);
                                 } else {
-                                    setMessage('Your payment is verified! Waiting for other members to pay.');
+                                    setMessage('Your payment is complete. Waiting for other members to pay.');
                                 }
                             } else {
                                 setStatus('failed');
-                                setMessage((response as any).error || 'Payment verification failed.');
+                                setMessage((response as { error?: string }).error || 'Payment verification failed.');
                             }
                         } else {
                             setStatus('failed');
@@ -85,14 +96,14 @@ function PaymentCallbackContent() {
                         if (pidx && pendingId) {
                             setMessage('Verifying Khalti payment for your group order...');
                             const response = await verifyGroupKhalti(pidx, pendingId, gcId);
-                            const resData = (response.data as any)?.data || (response.data as any);
+                            const resData = extractPayload<InitiateGroupOrderResponse['data']>(response as { data?: unknown } | undefined);
                             if (response.data?.success) {
                                 setStatus('success');
                                 if (resData?.orderPlaced) {
-                                    setMessage('Payment verified! Group order has been placed.');
+                                    setMessage('Payment verified. Group order has been placed.');
                                     setOrderId(resData.orders?.[0]?.orderId);
                                 } else {
-                                    setMessage('Your payment is verified! Waiting for other members to pay.');
+                                    setMessage('Your payment is complete. Waiting for other members to pay.');
                                 }
                             } else {
                                 setStatus('failed');
@@ -155,10 +166,11 @@ function PaymentCallbackContent() {
                     setStatus('failed');
                     setMessage('Unknown payment method.');
                 }
-            } catch (error: any) {
+            } catch (error: unknown) {
                 console.error('Payment verification error:', error);
                 setStatus('failed');
-                setMessage(error.response?.data?.message || 'Failed to verify payment. Please contact support.');
+                const err = error as { response?: { data?: { message?: string } } };
+                setMessage(err.response?.data?.message || 'Failed to verify payment. Please contact support.');
             }
         };
 
@@ -209,8 +221,11 @@ function PaymentCallbackContent() {
                     <h2 className={`text-2xl font-bold mb-2 ${status === 'success' ? 'text-green-600' :
                         status === 'failed' ? 'text-red-600' : 'text-gray-800'
                         }`}>
-                        {status === 'verifying' ? 'Processing Payment' :
-                            status === 'success' ? 'Order Placed Successfully!' : 'Payment Failed'}
+                        {status === 'verifying'
+                            ? 'Processing Payment'
+                            : status === 'success'
+                                ? (orderId ? 'Order Placed Successfully!' : 'Payment Successful!')
+                                : 'Payment Failed'}
                     </h2>
                     <p className="text-gray-500 mb-8">{message}</p>
 

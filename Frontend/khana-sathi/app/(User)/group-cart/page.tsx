@@ -14,6 +14,7 @@ import {
   ShoppingBag,
   Crown,
   Clock,
+  Share2,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
@@ -281,16 +282,40 @@ export default function GroupCartListPage() {
                   {createdCart.inviteCode}
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(createdCart.inviteCode);
-                  toast.success("Invite code copied!");
-                }}
-                className="flex items-center justify-center gap-2 mx-auto bg-red-500 text-white px-6 py-2.5 rounded-lg hover:bg-red-600 transition mb-4"
-              >
-                <Copy className="w-4 h-4" />
-                Copy Invite Code
-              </button>
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdCart.inviteCode);
+                    toast.success("Invite code copied!");
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white px-6 py-2.5 rounded-lg hover:bg-red-600 transition"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy Invite Code
+                </button>
+                <button
+                  onClick={() => {
+                    const shareText = `Join my group cart on Khana Sathi!\n\nInvite Code: ${createdCart.inviteCode}\n\nGo to ${window.location.origin}/group-cart and enter this code to join.`;
+                    if (navigator.share) {
+                      navigator.share({
+                        text: shareText
+                      }).catch(() => {
+                        // User cancelled or share failed, fallback to copy
+                        navigator.clipboard.writeText(shareText);
+                        toast.success("Invite message copied!");
+                      });
+                    } else {
+                      // Fallback for browsers that don't support Web Share API
+                      navigator.clipboard.writeText(shareText);
+                      toast.success("Invite message copied!");
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 bg-green-500 text-white px-6 py-2.5 rounded-lg hover:bg-green-600 transition"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Share Code
+                </button>
+              </div>
               <button
                 onClick={() => {
                   const id = createdCart._id;

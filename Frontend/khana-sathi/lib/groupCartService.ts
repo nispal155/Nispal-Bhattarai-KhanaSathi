@@ -260,6 +260,7 @@ export interface InitiateGroupOrderResponse {
   data: {
     requiresPayment?: boolean;
     paymentGateway?: 'esewa' | 'khalti' | 'member_split';
+    requiredPaymentMethod?: 'cod' | 'esewa' | 'khalti';
     paymentUrl?: string;
     pidx?: string;
     formData?: Record<string, string>;

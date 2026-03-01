@@ -28,6 +28,7 @@ import {
   CreditCard,
   Wallet,
   Banknote,
+  Share2,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
@@ -35,6 +36,7 @@ import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
 import {
   getGroupCart as fetchGroupCartAPI,
+  getGroupCartSummary,
   toggleReady,
   lockGroupCart,
   unlockGroupCart,
@@ -50,7 +52,17 @@ import {
   payGroupShareKhalti,
 } from "@/lib/groupCartService";
 import { redirectToEsewa } from "@/lib/paymentService";
-import type { GroupCart } from "@/lib/groupCartService";
+import type { GroupCart, GroupCartSummary, InitiateGroupOrderResponse } from "@/lib/groupCartService";
+
+function extractPayload<T>(response: { data?: unknown } | undefined): T | undefined {
+  const payload = response?.data;
+  if (!payload || typeof payload !== "object") return payload as T | undefined;
+  if ("data" in payload) {
+    const nested = (payload as { data?: T }).data;
+    return nested ?? (payload as T);
+  }
+  return payload as T;
+}
 
 export default function GroupCartDetailPage() {
   const params = useParams();
@@ -60,6 +72,7 @@ export default function GroupCartDetailPage() {
   const groupCartId = params?.id as string;
 
   const [groupCart, setGroupCart] = useState<GroupCart | null>(null);
+  const [summary, setSummary] = useState<GroupCartSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedCode, setCopiedCode] = useState(false);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
@@ -67,7 +80,6 @@ export default function GroupCartDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<string>("");
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cod' | 'esewa' | 'khalti' | null>(null);
 
   /* ── Expiry countdown ── */
   useEffect(() => {
@@ -89,9 +101,14 @@ export default function GroupCartDetailPage() {
   const fetchData = useCallback(async () => {
     if (!groupCartId) return;
     try {
-      const res = await fetchGroupCartAPI(groupCartId);
-      const data = (res?.data as any)?.data || (res?.data as any);
-      if (data) setGroupCart(data);
+      const [gcRes, sumRes] = await Promise.all([
+        fetchGroupCartAPI(groupCartId),
+        getGroupCartSummary(groupCartId),
+      ]);
+      const gcData = extractPayload<GroupCart>(gcRes as { data?: unknown } | undefined);
+      const sumData = extractPayload<GroupCartSummary>(sumRes as { data?: unknown } | undefined);
+      if (gcData) setGroupCart(gcData);
+      if (sumData) setSummary(sumData);
     } catch {
       toast.error("Failed to load group cart");
     } finally {
@@ -116,7 +133,7 @@ export default function GroupCartDetailPage() {
       toast.error("Group cart was cancelled");
       router.push("/group-cart");
     });
-    socket.on("groupOrderPlaced", (data: any) => {
+    socket.on("groupOrderPlaced", (data: { orderId?: string }) => {
       toast.success("Group order placed!");
       router.push(`/group-cart/${groupCartId}/checkout?orderId=${data?.orderId || ""}`);
     });
@@ -150,6 +167,32 @@ export default function GroupCartDetailPage() {
   const promoDiscount = groupCart?.promoDiscount || 0;
   const total = subtotal + deliveryFee + serviceFee - promoDiscount;
   const splitMode = groupCart?.splitMode || "individual";
+  const selectedGroupPaymentMethod = groupCart?.paymentMethod || "";
+  const perMemberShare = summary?.perMemberShare || {};
+  const allNonHostPaid = useMemo(
+    () =>
+      (groupCart?.members || [])
+        .filter((m) => m.role !== "host")
+        .every((m) => m.paymentStatus === "paid" || (m.paymentAmount || 0) <= 0),
+    [groupCart?.members],
+  );
+  const isEqualHostLocked =
+    isPaymentPending &&
+    splitMode === "equal" &&
+    isHost &&
+    currentMember?.paymentStatus !== "paid" &&
+    !allNonHostPaid;
+
+  const splitModeLabels = {
+    individual: "Pay for your own",
+    equal: "Split equally",
+    host_pays: "Host pays all"
+  };
+
+  const getDisplayShare = (member: GroupCart["members"][number]) => {
+    if (isPaymentPending) return member.paymentAmount || 0;
+    return perMemberShare[member.user?._id] ?? 0;
+  };
 
   /* ── Helpers ── */
   const withAction = async (key: string, fn: () => Promise<void>) => {
@@ -276,7 +319,7 @@ export default function GroupCartDetailPage() {
         toast.error(res.error);
         return;
       }
-      const data = (res?.data as any)?.data || (res?.data as any);
+      const data = extractPayload<InitiateGroupOrderResponse["data"]>(res as { data?: unknown } | undefined);
 
       // If order was placed directly (host_pays + COD)
       if (data?.orders && !data?.requiresPayment) {
@@ -314,7 +357,7 @@ export default function GroupCartDetailPage() {
       if (method === 'cod') {
         const res = await payGroupShareCOD(groupCartId);
         if (res?.error) { toast.error(res.error); return; }
-        const data = (res?.data as any)?.data || (res?.data as any);
+        const data = extractPayload<InitiateGroupOrderResponse["data"]>(res as { data?: unknown } | undefined);
         if (data?.orderPlaced) {
           toast.success("All paid! Order placed.");
           const orders = data.orders || [];
@@ -328,7 +371,7 @@ export default function GroupCartDetailPage() {
       if (method === 'esewa') {
         const res = await payGroupShareEsewa(groupCartId);
         if (res?.error) { toast.error(res.error); return; }
-        const data = (res?.data as any)?.data || (res?.data as any);
+        const data = extractPayload<{ paymentUrl: string; formData: Record<string, string> }>(res as { data?: unknown } | undefined);
         if (data?.formData) {
           toast.success("Redirecting to eSewa...");
           redirectToEsewa({ paymentUrl: data.paymentUrl || '', formData: data.formData });
@@ -338,7 +381,7 @@ export default function GroupCartDetailPage() {
       if (method === 'khalti') {
         const res = await payGroupShareKhalti(groupCartId);
         if (res?.error) { toast.error(res.error); return; }
-        const data = (res?.data as any)?.data || (res?.data as any);
+        const data = extractPayload<{ paymentUrl: string; pidx: string }>(res as { data?: unknown } | undefined);
         if (data?.paymentUrl) {
           toast.success("Redirecting to Khalti...");
           window.location.href = data.paymentUrl;
@@ -346,12 +389,6 @@ export default function GroupCartDetailPage() {
         return;
       }
     });
-
-  const splitModeLabels: Record<string, string> = {
-    individual: "Pay for your own",
-    equal: "Split equally",
-    host_pays: "Host pays all",
-  };
 
   /* ── Loading / Not found ── */
   if (loading) {
@@ -659,17 +696,6 @@ export default function GroupCartDetailPage() {
                           })}
                         </div>
                       )}
-
-                      {/* Add items button for self */}
-                      {isSelf && isOpen && (
-                        <Link
-                          href="/browse-restaurants"
-                          className="mt-4 flex items-center justify-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 rounded-lg py-2.5 transition"
-                        >
-                          <Plus className="w-4 h-4" />
-                          Browse Restaurants & Add Items
-                        </Link>
-                      )}
                     </div>
                   )}
                 </div>
@@ -687,13 +713,35 @@ export default function GroupCartDetailPage() {
                 <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-3 text-center">
                   <p className="font-mono text-xl font-bold tracking-[0.2em] text-gray-900">{groupCart.inviteCode}</p>
                 </div>
-                <button
-                  onClick={copyInviteCode}
-                  className="mt-3 w-full flex items-center justify-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 rounded-lg py-2 transition font-medium"
-                >
-                  {copiedCode ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                  {copiedCode ? 'Copied!' : 'Copy Invite Code'}
-                </button>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={copyInviteCode}
+                    className="flex-1 flex items-center justify-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 rounded-lg py-2 transition font-medium"
+                  >
+                    {copiedCode ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                    {copiedCode ? 'Copied!' : 'Copy Invite Code'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const shareText = `Join my group cart on Khana Sathi!\n\nInvite Code: ${groupCart.inviteCode}\n\nGo to ${window.location.origin}/group-cart and enter this code to join.`;
+                      if (navigator.share) {
+                        navigator.share({
+                          text: shareText
+                        }).catch(() => {
+                          navigator.clipboard.writeText(shareText);
+                          toast.success("Invite message copied!");
+                        });
+                      } else {
+                        navigator.clipboard.writeText(shareText);
+                        toast.success("Invite message copied!");
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 text-sm text-green-500 hover:text-green-600 bg-green-50 rounded-lg py-2 transition font-medium"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Share Code
+                  </button>
+                </div>
               </div>
             )}
             {/* Split Mode (host only) */}
@@ -724,7 +772,12 @@ export default function GroupCartDetailPage() {
 
             {/* Pricing */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Order Summary</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center justify-between">
+                Order Summary
+                <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-medium">
+                  {splitModeLabels[splitMode]}
+                </span>
+              </h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between text-gray-500">
                   <span>Subtotal ({groupCart.itemCount || 0} items)</span>
@@ -751,29 +804,45 @@ export default function GroupCartDetailPage() {
               </div>
 
               {splitMode === "equal" && memberCount > 0 && (
-                <div className="mt-3 bg-blue-50 rounded-lg p-2 text-xs text-blue-600 text-center">
-                  Rs. {Math.round(total / memberCount).toLocaleString()} per
-                  person
+                <div className="mt-3 bg-blue-50 rounded-lg p-2.5 text-center">
+                  <p className="text-xs text-blue-600 font-medium mb-1">Each person pays:</p>
+                  <p className="text-lg font-bold text-blue-700">
+                    Rs. {Math.round((summary?.pricing?.total || total) / memberCount).toLocaleString()}
+                  </p>
                 </div>
               )}
 
               {splitMode === "individual" && (
-                <div className="mt-3 space-y-1">
-                  {groupCart.members?.map((m) => (
-                    <div
-                      key={m.user?._id}
-                      className="flex justify-between text-xs text-gray-500"
-                    >
-                      <span>{m.user?.username}</span>
-                      <span>
-                        Rs.{" "}
-                        {(
-                          (m.subtotal || 0) +
-                          Math.round((deliveryFee + serviceFee) / memberCount)
-                        ).toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
+                <div className="mt-3 bg-gray-50 rounded-lg p-2.5">
+                  <p className="text-xs text-gray-600 font-medium mb-2">Individual breakdown:</p>
+                  <div className="space-y-1.5">
+                    {groupCart.members?.map((m) => {
+                      const isSelf = m.user?._id === user?._id;
+                      const memberShare = getDisplayShare(m);
+                      return (
+                        <div
+                          key={m.user?._id}
+                          className={`flex justify-between text-xs ${isSelf ? 'font-semibold text-red-600' : 'text-gray-600'}`}
+                        >
+                          <span>{m.user?.username}{isSelf ? ' (You)' : ''}</span>
+                          <span>Rs. {memberShare.toLocaleString()}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {splitMode === "host_pays" && (
+                <div className="mt-3 bg-amber-50 rounded-lg p-2.5 text-center">
+                  <p className="text-xs text-amber-600 font-medium mb-1">
+                    <Crown className="w-3 h-3 inline mr-1" />
+                    Host pays everything
+                  </p>
+                  <p className="text-lg font-bold text-amber-700">
+                    {groupCart.host?.username}: Rs. {total.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">Others pay Rs. 0</p>
                 </div>
               )}
             </div>
@@ -878,6 +947,18 @@ export default function GroupCartDetailPage() {
                       const isSelf = m.user?._id === user?._id;
                       const isPaid = m.paymentStatus === 'paid';
                       const shareAmount = m.paymentAmount || 0;
+                      const isHostWaitingLast =
+                        splitMode === "equal" &&
+                        isPaymentPending &&
+                        m.role === "host" &&
+                        m.paymentStatus !== "paid" &&
+                        !allNonHostPaid;
+                      const isHostCanPayNow =
+                        splitMode === "equal" &&
+                        isPaymentPending &&
+                        m.role === "host" &&
+                        m.paymentStatus !== "paid" &&
+                        allNonHostPaid;
                       return (
                         <div key={m.user?._id} className={`flex items-center justify-between p-2.5 rounded-lg border ${
                           isPaid ? 'bg-green-50 border-green-200' : isSelf ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'
@@ -899,6 +980,12 @@ export default function GroupCartDetailPage() {
                             <p className="text-[10px] text-gray-400">
                               {isPaid ? 'Paid ✓' : m.paymentMethod ? `via ${m.paymentMethod}` : 'Pending'}
                             </p>
+                            {isHostWaitingLast && (
+                              <p className="text-[10px] text-amber-600 font-medium">Waiting to pay last</p>
+                            )}
+                            {isHostCanPayNow && (
+                              <p className="text-[10px] text-green-600 font-medium">You can pay now</p>
+                            )}
                           </div>
                         </div>
                       );
@@ -912,32 +999,49 @@ export default function GroupCartDetailPage() {
                       <p className="text-lg font-bold text-red-600 mb-3">
                         Rs. {(currentMember.paymentAmount || 0).toLocaleString()}
                       </p>
-                      <div className="space-y-2">
-                        <button
-                          onClick={() => handlePayMyShare('cod')}
-                          disabled={actionLoading === "pay-share"}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition disabled:opacity-50"
-                        >
-                          {actionLoading === "pay-share" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
-                          Cash on Delivery
-                        </button>
-                        <button
-                          onClick={() => handlePayMyShare('esewa')}
-                          disabled={actionLoading === "pay-share"}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 transition disabled:opacity-50"
-                        >
-                          {actionLoading === "pay-share" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-                          Pay with eSewa
-                        </button>
-                        <button
-                          onClick={() => handlePayMyShare('khalti')}
-                          disabled={actionLoading === "pay-share"}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition disabled:opacity-50"
-                        >
-                          {actionLoading === "pay-share" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-                          Pay with Khalti
-                        </button>
-                      </div>
+                      {isEqualHostLocked ? (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          You can pay after all members complete payment.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {selectedGroupPaymentMethod === 'cod' && (
+                            <button
+                              onClick={() => handlePayMyShare('cod')}
+                              disabled={actionLoading === "pay-share"}
+                              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition disabled:opacity-50"
+                            >
+                              {actionLoading === "pay-share" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
+                              Confirm COD Share
+                            </button>
+                          )}
+                          {selectedGroupPaymentMethod === 'esewa' && (
+                            <button
+                              onClick={() => handlePayMyShare('esewa')}
+                              disabled={actionLoading === "pay-share"}
+                              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 transition disabled:opacity-50"
+                            >
+                              {actionLoading === "pay-share" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                              Pay with eSewa
+                            </button>
+                          )}
+                          {selectedGroupPaymentMethod === 'khalti' && (
+                            <button
+                              onClick={() => handlePayMyShare('khalti')}
+                              disabled={actionLoading === "pay-share"}
+                              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition disabled:opacity-50"
+                            >
+                              {actionLoading === "pay-share" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                              Pay with Khalti
+                            </button>
+                          )}
+                          {!selectedGroupPaymentMethod && (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              Waiting for host to select payment method.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1021,8 +1125,8 @@ export default function GroupCartDetailPage() {
             <h3 className="text-lg font-bold text-gray-900 mb-1">Select Payment Method</h3>
             <p className="text-sm text-gray-500 mb-1">
               {splitMode === 'host_pays'
-                ? `You will pay the full total`
-                : `Each member will pay their share after you confirm`}
+                ? `Only host pays the full total.`
+                : `This selected method will be used by all members.`}
             </p>
             <p className="text-lg font-bold text-red-600 mb-4">
               Total: Rs. {total.toLocaleString()}

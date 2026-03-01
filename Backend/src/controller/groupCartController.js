@@ -804,6 +804,71 @@ function calculateGroupCartShares(groupCart, deliveryFee, serviceFee, discount) 
   return { itemsByRestaurant, restaurantBuckets, combinedShares, grandSubtotal, grandTotal };
 }
 
+function getMemberUserId(member) {
+  return member.user?._id?.toString() || member.user?.toString();
+}
+
+function isEqualMode(groupCart) {
+  return groupCart?.splitMode === 'equal';
+}
+
+function isHostMember(groupCart, userId) {
+  const hostId = groupCart.host?._id?.toString() || groupCart.host?.toString();
+  return hostId === userId?.toString();
+}
+
+function areAllNonHostPaid(groupCart) {
+  const hostId = groupCart.host?._id?.toString() || groupCart.host?.toString();
+  return (groupCart.members || [])
+    .filter(m => getMemberUserId(m) !== hostId)
+    .every(m => m.paymentStatus === 'paid' || (m.paymentAmount || 0) <= 0);
+}
+
+function enforceHostPaysLastForEqual(groupCart, userId) {
+  if (!isEqualMode(groupCart)) return null;
+  if (!isHostMember(groupCart, userId)) return null;
+  if (areAllNonHostPaid(groupCart)) return null;
+  return 'Host can pay only after all other members have paid.';
+}
+
+function getRequiredPayerIds(groupCart) {
+  if (groupCart.splitMode === 'host_pays') {
+    return [groupCart.host?._id?.toString() || groupCart.host?.toString()].filter(Boolean);
+  }
+  return groupCart.members
+    .filter(m => (m.paymentAmount || 0) > 0)
+    .map(getMemberUserId)
+    .filter(Boolean);
+}
+
+function areRequiredPayersPaid(groupCart) {
+  const requiredPayerIds = getRequiredPayerIds(groupCart);
+  if (requiredPayerIds.length === 0) return true;
+  return requiredPayerIds.every(uid => {
+    const member = groupCart.members.find(m => getMemberUserId(m) === uid);
+    return member?.paymentStatus === 'paid';
+  });
+}
+
+async function placeGroupOrderSafely(groupCartId, paymentMethod, paymentStatus) {
+  const populated = await populateGroupCart(groupCartId);
+  if (!populated) {
+    throw new Error('Group cart not found');
+  }
+  if (populated.status === 'ordered') {
+    return { alreadyOrdered: true, result: null };
+  }
+  try {
+    const result = await createOrdersFromGroupCart(populated, paymentMethod, paymentStatus);
+    return { alreadyOrdered: false, result };
+  } catch (error) {
+    if (error.message === 'Orders already placed for this group cart') {
+      return { alreadyOrdered: true, result: null };
+    }
+    throw error;
+  }
+}
+
 // ── Helper: create orders from a paid group cart ──────────
 async function createOrdersFromGroupCart(groupCart, paymentMethod, paymentStatus) {
   // Guard: prevent double-order if cart already ordered
@@ -986,16 +1051,22 @@ exports.initiateGroupOrder = async (req, res) => {
         m.paymentAmount = combinedShares[uid] || 0;
         m.paymentStatus = 'paid';
       });
-      rawGC.status = 'ordered';
+      rawGC.status = 'payment_pending';
       await rawGC.save();
 
-      const updatedGC = await populateGroupCart(id);
-      const result = await createOrdersFromGroupCart(updatedGC, 'cod', 'pending');
+      const placed = await placeGroupOrderSafely(id, 'cod', 'pending');
+      const result = placed.result || { orders: [], grandTotal, combinedShares };
 
       return res.status(201).json({
         success: true,
         message: 'Group order placed successfully (COD)',
-        data: { ...result, splitMode: groupCart.splitMode }
+        data: {
+          ...result,
+          orderPlaced: true,
+          alreadyPlaced: placed.alreadyOrdered,
+          splitMode: groupCart.splitMode,
+          requiredPaymentMethod: 'cod'
+        }
       });
     }
 
@@ -1058,7 +1129,8 @@ exports.initiateGroupOrder = async (req, res) => {
             },
             grandTotal,
             combinedShares,
-            splitMode: groupCart.splitMode
+            splitMode: groupCart.splitMode,
+            requiredPaymentMethod: 'esewa'
           }
         });
       }
@@ -1117,7 +1189,8 @@ exports.initiateGroupOrder = async (req, res) => {
             pidx: khaltiResponse.pidx,
             grandTotal,
             combinedShares,
-            splitMode: groupCart.splitMode
+            splitMode: groupCart.splitMode,
+            requiredPaymentMethod: 'khalti'
           }
         });
       } else {
@@ -1134,7 +1207,7 @@ exports.initiateGroupOrder = async (req, res) => {
       const uid = m.user.toString();
       m.paymentAmount = combinedShares[uid] || 0;
       m.paymentStatus = (combinedShares[uid] || 0) > 0 ? 'pending' : 'paid';
-      m.paymentMethod = '';
+      m.paymentMethod = paymentMethod;
     });
     rawGC.status = 'payment_pending';
     await rawGC.save();
@@ -1151,6 +1224,7 @@ exports.initiateGroupOrder = async (req, res) => {
         grandTotal,
         combinedShares,
         splitMode: groupCart.splitMode,
+        requiredPaymentMethod: paymentMethod,
         groupCart: populated
       }
     });
@@ -1169,27 +1243,40 @@ exports.payGroupShareCOD = async (req, res) => {
     if (groupCart.status !== 'payment_pending') {
       return res.status(400).json({ success: false, message: 'Group cart is not awaiting payment' });
     }
+    if (groupCart.paymentMethod !== 'cod') {
+      return res.status(400).json({
+        success: false,
+        message: `This group cart requires ${groupCart.paymentMethod || 'a selected'} payment method`
+      });
+    }
 
     const member = groupCart.members.find(m => m.user.toString() === req.user._id.toString());
     if (!member) return res.status(403).json({ success: false, message: 'You are not a member' });
     if (member.paymentStatus === 'paid') {
       return res.status(400).json({ success: false, message: 'Already paid' });
     }
+    const hostLastViolation = enforceHostPaysLastForEqual(groupCart, req.user._id.toString());
+    if (hostLastViolation) {
+      return res.status(400).json({ success: false, message: hostLastViolation });
+    }
 
     member.paymentStatus = 'paid';
     member.paymentMethod = 'cod';
     await groupCart.save();
 
-    // Check if all paid → auto-place order
-    const allPaid = groupCart.members.every(m => m.paymentStatus === 'paid');
+    // Check if all required payers are paid → auto-place order
+    const allPaid = areRequiredPayersPaid(groupCart);
     if (allPaid) {
-      const populated = await populateGroupCart(id);
-      const result = await createOrdersFromGroupCart(populated, 'cod', 'pending');
+      const placed = await placeGroupOrderSafely(id, 'cod', 'pending');
       emitGroupCartUpdate(await populateGroupCart(id));
       return res.status(201).json({
         success: true,
         message: 'All members paid! Group order placed.',
-        data: { orderPlaced: true, ...result }
+        data: {
+          orderPlaced: true,
+          alreadyPlaced: placed.alreadyOrdered,
+          ...(placed.result || {})
+        }
       });
     }
 
@@ -1215,11 +1302,21 @@ exports.payGroupShareEsewa = async (req, res) => {
     if (groupCart.status !== 'payment_pending') {
       return res.status(400).json({ success: false, message: 'Group cart is not awaiting payment' });
     }
+    if (groupCart.paymentMethod !== 'esewa') {
+      return res.status(400).json({
+        success: false,
+        message: `This group cart requires ${groupCart.paymentMethod || 'a selected'} payment method`
+      });
+    }
 
     const member = groupCart.members.find(m => m.user.toString() === req.user._id.toString());
     if (!member) return res.status(403).json({ success: false, message: 'You are not a member' });
     if (member.paymentStatus === 'paid') {
       return res.status(400).json({ success: false, message: 'Already paid' });
+    }
+    const hostLastViolation = enforceHostPaysLastForEqual(groupCart, req.user._id.toString());
+    if (hostLastViolation) {
+      return res.status(400).json({ success: false, message: hostLastViolation });
     }
 
     const amount = member.paymentAmount;
@@ -1227,6 +1324,20 @@ exports.payGroupShareEsewa = async (req, res) => {
       member.paymentStatus = 'paid';
       member.paymentMethod = 'esewa';
       await groupCart.save();
+      const allPaid = areRequiredPayersPaid(groupCart);
+      if (allPaid) {
+        const placed = await placeGroupOrderSafely(id, 'esewa', 'paid');
+        emitGroupCartUpdate(await populateGroupCart(id));
+        return res.status(201).json({
+          success: true,
+          message: 'Payment not required. Group order placed.',
+          data: {
+            orderPlaced: true,
+            alreadyPlaced: placed.alreadyOrdered,
+            ...(placed.result || {})
+          }
+        });
+      }
       return res.status(200).json({ success: true, message: 'No payment needed' });
     }
 
@@ -1285,11 +1396,21 @@ exports.payGroupShareKhalti = async (req, res) => {
     if (groupCart.status !== 'payment_pending') {
       return res.status(400).json({ success: false, message: 'Group cart is not awaiting payment' });
     }
+    if (groupCart.paymentMethod !== 'khalti') {
+      return res.status(400).json({
+        success: false,
+        message: `This group cart requires ${groupCart.paymentMethod || 'a selected'} payment method`
+      });
+    }
 
     const member = groupCart.members.find(m => m.user.toString() === req.user._id.toString());
     if (!member) return res.status(403).json({ success: false, message: 'You are not a member' });
     if (member.paymentStatus === 'paid') {
       return res.status(400).json({ success: false, message: 'Already paid' });
+    }
+    const hostLastViolation = enforceHostPaysLastForEqual(groupCart, req.user._id.toString());
+    if (hostLastViolation) {
+      return res.status(400).json({ success: false, message: hostLastViolation });
     }
 
     const amount = member.paymentAmount;
@@ -1297,6 +1418,20 @@ exports.payGroupShareKhalti = async (req, res) => {
       member.paymentStatus = 'paid';
       member.paymentMethod = 'khalti';
       await groupCart.save();
+      const allPaid = areRequiredPayersPaid(groupCart);
+      if (allPaid) {
+        const placed = await placeGroupOrderSafely(id, 'khalti', 'paid');
+        emitGroupCartUpdate(await populateGroupCart(id));
+        return res.status(201).json({
+          success: true,
+          message: 'Payment not required. Group order placed.',
+          data: {
+            orderPlaced: true,
+            alreadyPlaced: placed.alreadyOrdered,
+            ...(placed.result || {})
+          }
+        });
+      }
       return res.status(200).json({ success: true, message: 'No payment needed' });
     }
 
@@ -1401,24 +1536,39 @@ exports.verifyGroupEsewa = async (req, res) => {
     const gcId = rawGcId.toString();
     const groupCart = await GroupCart.findById(gcId);
     if (!groupCart) return res.status(404).json({ success: false, message: 'Group cart not found' });
+    if (groupCart.paymentMethod !== 'esewa') {
+      return res.status(400).json({
+        success: false,
+        message: `This group cart requires ${groupCart.paymentMethod || 'a selected'} payment method`
+      });
+    }
 
     const member = groupCart.members.find(m => m.user.toString() === req.user._id.toString());
+    const hostLastViolation = enforceHostPaysLastForEqual(groupCart, req.user._id.toString());
+    if (hostLastViolation) {
+      return res.status(400).json({ success: false, message: hostLastViolation });
+    }
     if (member) {
       member.paymentStatus = 'paid';
+      member.paymentMethod = 'esewa';
       member.paymentRef = transaction_code;
       await groupCart.save();
     }
 
-    // Check if all paid
-    const allPaid = groupCart.members.every(m => m.paymentStatus === 'paid');
+    // Check if all required payers are paid
+    const allPaid = areRequiredPayersPaid(groupCart);
     if (allPaid) {
-      const populated = await populateGroupCart(gcId);
-      const result = await createOrdersFromGroupCart(populated, 'esewa', 'paid');
+      const placed = await placeGroupOrderSafely(gcId, 'esewa', 'paid');
       emitGroupCartUpdate(await populateGroupCart(gcId));
       return res.status(201).json({
         success: true,
         message: 'Payment verified! Group order placed.',
-        data: { orderPlaced: true, ...result, groupCartId: gcId }
+        data: {
+          orderPlaced: true,
+          alreadyPlaced: placed.alreadyOrdered,
+          ...(placed.result || {}),
+          groupCartId: gcId
+        }
       });
     }
 
@@ -1472,24 +1622,39 @@ exports.verifyGroupKhalti = async (req, res) => {
     const gcId = rawGcId.toString();
     const groupCart = await GroupCart.findById(gcId);
     if (!groupCart) return res.status(404).json({ success: false, message: 'Group cart not found' });
+    if (groupCart.paymentMethod !== 'khalti') {
+      return res.status(400).json({
+        success: false,
+        message: `This group cart requires ${groupCart.paymentMethod || 'a selected'} payment method`
+      });
+    }
 
     const member = groupCart.members.find(m => m.user.toString() === req.user._id.toString());
+    const hostLastViolation = enforceHostPaysLastForEqual(groupCart, req.user._id.toString());
+    if (hostLastViolation) {
+      return res.status(400).json({ success: false, message: hostLastViolation });
+    }
     if (member) {
       member.paymentStatus = 'paid';
+      member.paymentMethod = 'khalti';
       member.paymentRef = pidx;
       await groupCart.save();
     }
 
-    // Check if all paid
-    const allPaid = groupCart.members.every(m => m.paymentStatus === 'paid');
+    // Check if all required payers are paid
+    const allPaid = areRequiredPayersPaid(groupCart);
     if (allPaid) {
-      const populated = await populateGroupCart(gcId);
-      const result = await createOrdersFromGroupCart(populated, 'khalti', 'paid');
+      const placed = await placeGroupOrderSafely(gcId, 'khalti', 'paid');
       emitGroupCartUpdate(await populateGroupCart(gcId));
       return res.status(201).json({
         success: true,
         message: 'Payment verified! Group order placed.',
-        data: { orderPlaced: true, ...result, groupCartId: gcId }
+        data: {
+          orderPlaced: true,
+          alreadyPlaced: placed.alreadyOrdered,
+          ...(placed.result || {}),
+          groupCartId: gcId
+        }
       });
     }
 
