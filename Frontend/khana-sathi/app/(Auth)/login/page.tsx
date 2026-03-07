@@ -13,7 +13,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
   const [formData, setFormData] = useState({
-    email: '',
+    identifier: '',
     password: '',
     rememberMe: false,
   });
@@ -30,20 +30,20 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.email || !formData.password) {
+    if (!formData.identifier || !formData.password) {
       toast.error('Please fill in all fields');
       return;
     }
 
     setIsLoading(true);
 
-    const result = await loginApi(formData.email, formData.password);
+    const result = await loginApi(formData.identifier, formData.password);
 
     if (result.error) {
       // Check if user needs to verify email
-      if (result.error.toLowerCase().includes('verify')) {
+      if (result.error.toLowerCase().includes('verify') && formData.identifier.includes('@')) {
         toast.error('Please verify your email first');
-        localStorage.setItem('pendingVerificationEmail', formData.email);
+        localStorage.setItem('pendingVerificationEmail', formData.identifier);
         router.push('/verify-otp');
         return;
       }
@@ -55,7 +55,16 @@ export default function LoginPage() {
     if (result.data) {
       toast.success('Login successful!');
       login(
-        { _id: result.data._id, username: result.data.username, email: result.data.email },
+        {
+          _id: result.data._id,
+          username: result.data.username,
+          email: result.data.email,
+          role: result.data.role as string,
+          isProfileComplete: result.data.isProfileComplete,
+          isApproved: result.data.isApproved,
+          parentAccount: result.data.parentAccount || null,
+          childProfile: result.data.childProfile
+        },
         result.data.token
       );
       console.log(result);
@@ -75,6 +84,14 @@ export default function LoginPage() {
           router.push('/waiting-approval');
         } else {
           router.push('/RM-Dashboard');
+        }
+      } else if (result.data.role === 'child') {
+        if (!result.data.isProfileComplete) {
+          router.push('/child-onboarding');
+        } else if (!result.data.isApproved) {
+          router.push('/child-verification-pending');
+        } else {
+          router.push('/browse-restaurants');
         }
       } else {
         // Default for customers - Redirect to Home (Browse Restaurants)
@@ -117,13 +134,13 @@ export default function LoginPage() {
           <form className="space-y-6" onSubmit={handleSubmit}>
             {/* Email */}
             <div>
-              <label className="block text-gray-700 text-sm font-medium mb-2">E-mail</label>
+              <label className="block text-gray-700 text-sm font-medium mb-2">Email or Username</label>
               <input
-                type="email"
-                name="email"
-                value={formData.email}
+                type="text"
+                name="identifier"
+                value={formData.identifier}
                 onChange={handleChange}
-                placeholder="you@example.com"
+                placeholder="you@example.com or child_username"
                 className="w-full px-5 py-4 bg-gray-100 text-black placeholder-gray-500 rounded-lg 
               focus:outline-none focus:ring-2 focus:ring-yellow-500 transition"
               />

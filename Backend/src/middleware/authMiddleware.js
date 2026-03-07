@@ -1,6 +1,19 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const CHILD_PENDING_ALLOWED_ROUTES = [
+    { method: 'GET', path: '/api/users/profile' },
+    { method: 'PUT', path: '/api/users/profile' },
+    { method: 'POST', path: '/api/users/child-onboarding' }
+];
+
+const isChildPendingAllowedRoute = (req) => {
+    const requestPath = req.originalUrl.split('?')[0];
+    return CHILD_PENDING_ALLOWED_ROUTES.some(
+        (route) => route.method === req.method && route.path === requestPath
+    );
+};
+
 const protect = async (req, res, next) => {
     let token;
 
@@ -17,6 +30,21 @@ const protect = async (req, res, next) => {
 
             if (!req.user) {
                 return res.status(401).json({ message: 'Not authorized, user not found' });
+            }
+
+            if (
+                req.user.role === 'child' &&
+                (!req.user.isProfileComplete || !req.user.isApproved) &&
+                !isChildPendingAllowedRoute(req)
+            ) {
+                return res.status(403).json({
+                    message: req.user.isProfileComplete
+                        ? 'Child account is pending admin approval.'
+                        : 'Child onboarding is incomplete. Please complete onboarding first.',
+                    code: 'CHILD_VERIFICATION_PENDING',
+                    isProfileComplete: req.user.isProfileComplete,
+                    isApproved: req.user.isApproved
+                });
             }
 
             return next();

@@ -34,7 +34,13 @@ export default function UserManagementPage() {
             setLoading(true);
             try {
                 const [usersRes, statsRes] = await Promise.all([
-                    getAllUsers({ role: roleFilter || undefined, search: appliedSearch || undefined, page: currentPage, limit: 15 }),
+                    getAllUsers({
+                        role: roleFilter || undefined,
+                        excludeRole: 'child',
+                        search: appliedSearch || undefined,
+                        page: currentPage,
+                        limit: 15
+                    }),
                     getUserStats()
                 ]);
 

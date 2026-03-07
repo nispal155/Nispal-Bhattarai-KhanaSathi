@@ -3,8 +3,16 @@ import { post } from './api';
 interface AuthResponse {
     _id: string;
     username: string;
-    role: String;
+    role: string;
     email: string;
+    parentAccount?: string;
+    childProfile?: {
+        displayName?: string;
+        isActive?: boolean;
+        birthCertificate?: string;
+        childPhoto?: string;
+        onboardingSubmittedAt?: string;
+    };
     token: string;
     isProfileComplete?: boolean;
     isApproved?: boolean;
@@ -21,8 +29,8 @@ export async function register(username: string, email: string, password: string
     return post<MessageResponse>('/auth/register', { username, email, password });
 }
 
-export async function login(email: string, password: string) {
-    return post<AuthResponse>('/auth/login', { email, password });
+export async function login(identifier: string, password: string) {
+    return post<AuthResponse>('/auth/login', { identifier, email: identifier, password });
 }
 
 export async function verifyOTP(email: string, otp: string) {

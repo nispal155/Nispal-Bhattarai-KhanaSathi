@@ -2,7 +2,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { verifyOTP, resendOTP } from '@/lib/authService';
 import { useAuth } from '@/context/AuthContext';
@@ -12,19 +12,20 @@ export default function VerifyOTPPage() {
   const router = useRouter();
   const { login } = useAuth();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
+  const email = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('pendingVerificationEmail') || '';
+  }, []);
+
   useEffect(() => {
-    const storedEmail = localStorage.getItem('pendingVerificationEmail');
-    if (storedEmail) {
-      setEmail(storedEmail);
-    } else {
+    if (!email) {
       router.push('/Signup');
     }
-  }, [router]);
+  }, [email, router]);
 
   const handleChange = (value: string, index: number) => {
     if (!/^\d*$/.test(value)) return;
@@ -78,7 +79,16 @@ export default function VerifyOTPPage() {
 
       // Auto-login after verification
       login(
-        { _id: result.data._id, username: result.data.username, email: result.data.email },
+        {
+          _id: result.data._id,
+          username: result.data.username,
+          email: result.data.email,
+          role: result.data.role as string,
+          isProfileComplete: result.data.isProfileComplete,
+          isApproved: result.data.isApproved,
+          parentAccount: result.data.parentAccount || null,
+          childProfile: result.data.childProfile
+        },
         result.data.token
       );
 
@@ -90,6 +100,14 @@ export default function VerifyOTPPage() {
         }
       } else if (result.data.role === 'admin') {
         router.push('/admin-dashboard');
+      } else if (result.data.role === 'child') {
+        if (!result.data.isProfileComplete) {
+          router.push('/child-onboarding');
+        } else if (!result.data.isApproved) {
+          router.push('/child-verification-pending');
+        } else {
+          router.push('/browse-restaurants');
+        }
       } else {
         router.push('/');
       }

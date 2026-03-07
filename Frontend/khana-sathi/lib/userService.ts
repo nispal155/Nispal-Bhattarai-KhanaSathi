@@ -6,12 +6,24 @@ export interface UserProfile {
   username: string;
   email: string;
   role: string;
+  parentAccount?: string | null | {
+    _id: string;
+    username?: string;
+    email?: string;
+  };
   phone?: string;
   dateOfBirth?: string;
   profilePicture?: string;
   isVerified: boolean;
   isProfileComplete: boolean;
   isApproved: boolean;
+  childProfile?: {
+    displayName?: string;
+    isActive?: boolean;
+    birthCertificate?: string;
+    childPhoto?: string;
+    onboardingSubmittedAt?: string;
+  };
   loyaltyPoints: number;
   notifications: {
     push: boolean;
@@ -62,6 +74,44 @@ export interface AddressesResponse {
   data: Address[];
 }
 
+export interface ChildAccount {
+  _id: string;
+  username: string;
+  email: string;
+  role: 'child';
+  parentAccount: string;
+  displayName: string;
+  isActive: boolean;
+  isProfileComplete: boolean;
+  isApproved: boolean;
+  onboardingSubmittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChildAccountsResponse {
+  success: boolean;
+  count?: number;
+  message?: string;
+  data: ChildAccount[];
+}
+
+export interface ChildAccountResponse {
+  success: boolean;
+  message?: string;
+  data: ChildAccount;
+}
+
+export interface ChildOnboardingResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    isProfileComplete: boolean;
+    isApproved: boolean;
+    onboardingSubmittedAt?: string;
+  };
+}
+
 // Get current user profile
 export async function getProfile() {
   return get<ProfileResponse>('/users/profile');
@@ -102,15 +152,59 @@ export async function setDefaultAddress(addressId: string) {
   return put<AddressResponse>(`/users/addresses/${addressId}/set-default`, {});
 }
 
+// Parent: Get linked child accounts
+export async function getMyChildAccounts() {
+  return get<ChildAccountsResponse>('/users/children');
+}
+
+// Parent: Create a child account
+export async function createChildAccount(payload: {
+  email: string;
+  password: string;
+  displayName?: string;
+}) {
+  return post<ChildAccountResponse>('/users/children', payload);
+}
+
+// Parent: Update child account
+export async function updateChildAccount(
+  childId: string,
+  payload: {
+    email?: string;
+    password?: string;
+    displayName?: string;
+    isActive?: boolean;
+  }
+) {
+  return put<ChildAccountResponse>(`/users/children/${childId}`, payload);
+}
+
+// Parent: Delete child account
+export async function deleteChildAccount(childId: string) {
+  return del<{ success: boolean; message: string }>(`/users/children/${childId}`);
+}
+
+// Child: Submit onboarding documents/details
+export async function submitChildOnboarding(payload: {
+  birthCertificate: string;
+  childPhoto: string;
+  dateOfBirth?: string;
+  displayName?: string;
+}) {
+  return post<ChildOnboardingResponse>('/users/child-onboarding', payload);
+}
+
 // Admin: Get all users
 export async function getAllUsers(options?: {
   role?: string;
+  excludeRole?: string;
   search?: string;
   limit?: number;
   page?: number;
 }) {
   const params = new URLSearchParams();
   if (options?.role) params.append('role', options.role);
+  if (options?.excludeRole) params.append('excludeRole', options.excludeRole);
   if (options?.search) params.append('search', options.search);
   if (options?.limit) params.append('limit', options.limit.toString());
   if (options?.page) params.append('page', options.page.toString());

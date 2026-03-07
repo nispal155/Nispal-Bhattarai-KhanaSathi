@@ -15,19 +15,42 @@ const UserHeader: React.FC = () => {
     const [showGCDropdown, setShowGCDropdown] = useState(false);
 
     useEffect(() => {
-        const fetchActive = async () => {
+        let cancelled = false;
+
+        const fetchNavState = async () => {
+            if (!user) {
+                if (!cancelled) {
+                    setActiveGCs([]);
+                }
+                return;
+            }
+
             try {
                 const res = await getMyGroupCarts();
-                const carts = (res?.data as any)?.data || (res?.data as any) || [];
+                const payload = res.data;
+                const carts = Array.isArray(payload?.data)
+                    ? payload.data
+                    : Array.isArray(payload as unknown)
+                        ? (payload as unknown as GroupCart[])
+                        : [];
                 const active = (Array.isArray(carts) ? carts : []).filter(
                     (gc: GroupCart) => gc.status === 'open' || gc.status === 'locked' || gc.status === 'payment_pending'
                 );
-                setActiveGCs(active);
+                if (!cancelled) {
+                    setActiveGCs(active);
+                }
             } catch {
-                // silent
+                if (!cancelled) {
+                    setActiveGCs([]);
+                }
             }
         };
-        if (user) fetchActive();
+
+        fetchNavState();
+
+        return () => {
+            cancelled = true;
+        };
     }, [user]);
 
     const copyCode = (code: string) => {

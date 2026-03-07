@@ -7,6 +7,16 @@ export interface User {
     username: string;
     email: string;
     role?: string;
+    isProfileComplete?: boolean;
+    isApproved?: boolean;
+    parentAccount?: string | null;
+    childProfile?: {
+        displayName?: string;
+        isActive?: boolean;
+        birthCertificate?: string;
+        childPhoto?: string;
+        onboardingSubmittedAt?: string;
+    };
     profilePicture?: string;
     allergyPreferences?: string[];
     notifications?: { push: boolean; email: boolean; sms: boolean };

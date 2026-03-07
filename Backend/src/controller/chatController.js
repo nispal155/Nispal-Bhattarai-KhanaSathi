@@ -174,6 +174,7 @@ exports.sendThreadMessage = async (req, res) => {
         let senderRole = req.user.role;
         if (senderRole === 'delivery_staff') senderRole = 'rider';
         if (senderRole === 'restaurant_admin') senderRole = 'restaurant';
+        if (senderRole === 'child') senderRole = 'customer';
 
         const newMsg = await Message.create({
             order: orderId, chatThread: thread, sender: req.user._id, senderRole,
@@ -231,7 +232,7 @@ exports.getActiveChats = async (req, res) => {
         const role = req.user.role;
         let orders = [];
 
-        if (role === 'customer') {
+        if (role === 'customer' || role === 'child') {
             const singleOrders = await Order.find({ customer: userId, status: { $in: ACTIVE_STATUSES } })
                 .populate('restaurant', 'name createdBy owner logoUrl')
                 .populate('deliveryRider', 'username profilePicture');
@@ -338,6 +339,7 @@ exports.sendMessage = async (req, res) => {
         let resolvedRole = senderRole || req.user.role;
         if (resolvedRole === 'delivery_staff') resolvedRole = 'rider';
         if (resolvedRole === 'restaurant_admin') resolvedRole = 'restaurant';
+        if (resolvedRole === 'child') resolvedRole = 'customer';
 
         const newMsg = await Message.create({
             order: orderId, chatThread: thread, sender: senderId, senderRole: resolvedRole,

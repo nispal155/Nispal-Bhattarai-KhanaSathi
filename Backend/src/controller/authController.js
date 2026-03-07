@@ -8,6 +8,19 @@ const generateToken = (id) => {
     });
 };
 
+const buildLoginQuery = (identifier) => {
+    if (identifier.includes('@')) {
+        return { email: identifier };
+    }
+
+    return {
+        $or: [
+            { email: identifier },
+            { username: identifier }
+        ]
+    };
+};
+
 // @desc    Register new user and send OTP
 // @route   POST /api/auth/register
 // @access  Public
@@ -15,6 +28,12 @@ const registerUser = async (req, res) => {
     const { username, role, email, password } = req.body;
 
     try {
+        if (role === 'child') {
+            return res.status(403).json({
+                message: 'Child accounts must be created by a parent account.'
+            });
+        }
+
         const userExists = await User.findOne({ email });
 
         if (userExists) {
@@ -144,13 +163,24 @@ const resendOTP = async (req, res) => {
 // @route   POST /api/auth/login
 // @access  Public
 const authUser = async (req, res) => {
-    const { email, password } = req.body;
+    const { email, username, identifier, password } = req.body;
 
     try {
-        const user = await User.findOne({ email });
+        const rawIdentifier = (identifier || email || username || '').trim();
+        const loginIdentifier = rawIdentifier.includes('@') ? rawIdentifier.toLowerCase() : rawIdentifier;
+
+        if (!loginIdentifier || !password) {
+            return res.status(400).json({ message: 'Email/username and password are required' });
+        }
+
+        const user = await User.findOne(buildLoginQuery(loginIdentifier));
 
         if (!user) {
             return res.status(401).json({ message: 'Invalid email or password' });
+        }
+
+        if (user.role === 'child' && user.childProfile?.isActive === false) {
+            return res.status(403).json({ message: 'Child account is currently disabled by parent' });
         }
 
         if (!user.isVerified) {
@@ -163,6 +193,8 @@ const authUser = async (req, res) => {
                 username: user.username,
                 role: user.role,
                 email: user.email,
+                parentAccount: user.parentAccount,
+                childProfile: user.childProfile,
                 isProfileComplete: user.isProfileComplete,
                 isApproved: user.isApproved,
                 token: generateToken(user._id),

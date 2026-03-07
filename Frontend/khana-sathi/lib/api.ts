@@ -25,6 +25,32 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
+        if (error.response?.status === 403 && error.response?.data?.code === 'CHILD_VERIFICATION_PENDING') {
+            if (typeof window !== 'undefined') {
+                try {
+                    const storedUser = localStorage.getItem('user');
+                    if (storedUser) {
+                        const parsedUser = JSON.parse(storedUser);
+                        if (parsedUser?.role === 'child') {
+                            parsedUser.isProfileComplete = error.response?.data?.isProfileComplete;
+                            parsedUser.isApproved = error.response?.data?.isApproved;
+                            localStorage.setItem('user', JSON.stringify(parsedUser));
+                        }
+                    }
+                } catch {
+                    // Ignore malformed auth payloads and continue redirect flow
+                }
+
+                const redirectPath = error.response?.data?.isProfileComplete
+                    ? '/child-verification-pending'
+                    : '/child-onboarding';
+
+                if (window.location.pathname !== redirectPath) {
+                    window.location.href = redirectPath;
+                }
+            }
+        }
+
         if (error.response?.status === 401) {
             if (typeof window !== 'undefined') {
                 localStorage.removeItem('token');

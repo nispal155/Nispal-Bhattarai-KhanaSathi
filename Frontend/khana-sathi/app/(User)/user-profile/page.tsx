@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Camera, Bell, LogOut, Edit2, Loader2, Trash2 } from "lucide-react";
+import { Camera, Bell, LogOut, Edit2, Loader2, Trash2, ShieldCheck } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
@@ -331,6 +331,7 @@ export default function ProfilePage() {
   const tabs = [
     { id: "personal", label: "Personal Info", icon: "👤" },
     { id: "orders", label: "Order History", icon: "📦" },
+    ...(user?.role === "customer" ? [{ id: "parental", label: "Parental Control", icon: "🛡️" }] : []),
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
 
@@ -691,6 +692,30 @@ export default function ProfilePage() {
                     View All Orders
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* Settings Tab */}
+            {activeTab === "parental" && user?.role === "customer" && (
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">Parental Control</h2>
+                    <p className="text-gray-600 mt-2">
+                      Create a child account with email and password, then manage onboarding and verification status.
+                    </p>
+                  </div>
+                  <ShieldCheck className="w-7 h-7 text-red-500 shrink-0" />
+                </div>
+
+                <div className="mt-6">
+                  <Link
+                    href="/parental-control"
+                    className="inline-flex items-center px-5 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+                  >
+                    Open Parental Control
+                  </Link>
+                </div>
               </div>
             )}
 

@@ -13,6 +13,33 @@ const userSchema = new mongoose.Schema({
         default: 'customer',
         required: true
     },
+    parentAccount: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+        index: true
+    },
+    childProfile: {
+        displayName: {
+            type: String,
+            trim: true
+        },
+        isActive: {
+            type: Boolean,
+            default: true
+        },
+        birthCertificate: {
+            type: String,
+            default: ''
+        },
+        childPhoto: {
+            type: String,
+            default: ''
+        },
+        onboardingSubmittedAt: {
+            type: Date
+        }
+    },
     email: {
         type: String,
         required: true,

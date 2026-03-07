@@ -2,6 +2,52 @@ const User = require('../models/User');
 const Address = require('../models/Address');
 const Order = require('../models/Order');
 
+const PARENT_ALLOWED_ROLES = new Set(['customer']);
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const canManageChildren = (role) => PARENT_ALLOWED_ROLES.has(role);
+const ensureAdminAccess = (req, res) => {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({
+      success: false,
+      message: 'Admin access required'
+    });
+    return false;
+  }
+  return true;
+};
+
+const serializeChildAccount = (child) => ({
+  _id: child._id,
+  username: child.username,
+  email: child.email,
+  role: child.role,
+  parentAccount: child.parentAccount,
+  displayName: child.childProfile?.displayName || child.username,
+  isActive: child.childProfile?.isActive !== false,
+  isProfileComplete: child.isProfileComplete,
+  isApproved: child.isApproved,
+  onboardingSubmittedAt: child.childProfile?.onboardingSubmittedAt,
+  createdAt: child.createdAt,
+  updatedAt: child.updatedAt
+});
+
+const buildChildUsernameFromEmail = async (email) => {
+  const emailPrefix = String(email || '').split('@')[0] || 'child';
+  const slug = emailPrefix
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/(^_+|_+$)/g, '') || 'child';
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = attempt === 0 ? `child_${slug}` : `child_${slug}_${Math.floor(Math.random() * 1e6)}`;
+    const exists = await User.findOne({ username: candidate }).select('_id');
+    if (!exists) return candidate;
+  }
+
+  throw new Error('Unable to generate a unique child username');
+};
+
 /**
  * @desc    Get current user profile
  * @route   GET /api/users/profile
@@ -287,17 +333,344 @@ exports.setDefaultAddress = async (req, res) => {
 };
 
 /**
+ * @desc    Create child account linked to parent
+ * @route   POST /api/users/children
+ * @access  Private (Customer as parent)
+ */
+exports.createChildAccount = async (req, res) => {
+  try {
+    if (!canManageChildren(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customer parent accounts can create child accounts'
+      });
+    }
+
+    const { email, password, displayName } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Child email and password are required'
+      });
+    }
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid child email address'
+      });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    const emailExists = await User.findOne({ email: normalizedEmail }).select('_id');
+    if (emailExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'A user with this email already exists'
+      });
+    }
+
+    const generatedUsername = await buildChildUsernameFromEmail(normalizedEmail);
+    const child = await User.create({
+      username: generatedUsername,
+      email: normalizedEmail,
+      password,
+      role: 'child',
+      parentAccount: req.user._id,
+      isVerified: true,
+      isProfileComplete: false,
+      isApproved: false,
+      childProfile: {
+        displayName: displayName?.trim() || generatedUsername,
+        isActive: true
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Child account created successfully',
+      data: serializeChildAccount(child)
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create child account',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get all child accounts linked to current parent
+ * @route   GET /api/users/children
+ * @access  Private (Customer as parent)
+ */
+exports.getMyChildAccounts = async (req, res) => {
+  try {
+    if (!canManageChildren(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customer parent accounts can view child accounts'
+      });
+    }
+
+    const children = await User.find({
+      role: 'child',
+      parentAccount: req.user._id
+    })
+      .select('username email role parentAccount childProfile isProfileComplete isApproved createdAt updatedAt')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: children.length,
+      data: children.map(serializeChildAccount)
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch child accounts',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Update linked child account
+ * @route   PUT /api/users/children/:childId
+ * @access  Private (Customer as parent)
+ */
+exports.updateChildAccount = async (req, res) => {
+  try {
+    if (!canManageChildren(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customer parent accounts can update child accounts'
+      });
+    }
+
+    const { childId } = req.params;
+    const { email, password, displayName, isActive } = req.body;
+
+    const child = await User.findOne({
+      _id: childId,
+      role: 'child',
+      parentAccount: req.user._id
+    });
+
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child account not found'
+      });
+    }
+
+    if (email && String(email).trim().toLowerCase() !== String(child.email).toLowerCase()) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      if (!EMAIL_REGEX.test(normalizedEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid child email address'
+        });
+      }
+
+      const emailExists = await User.findOne({ email: normalizedEmail }).select('_id');
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'A user with this email already exists'
+        });
+      }
+
+      child.email = normalizedEmail;
+    }
+
+    if (!child.childProfile) {
+      child.childProfile = {};
+    }
+
+    if (typeof displayName === 'string') {
+      child.childProfile.displayName = displayName.trim() || child.username;
+    }
+
+    if (typeof isActive === 'boolean') {
+      child.childProfile.isActive = isActive;
+    }
+
+    if (password) {
+      if (String(password).length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password must be at least 6 characters long'
+        });
+      }
+      child.password = password;
+    }
+
+    await child.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Child account updated successfully',
+      data: serializeChildAccount(child)
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update child account',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Delete linked child account
+ * @route   DELETE /api/users/children/:childId
+ * @access  Private (Customer as parent)
+ */
+exports.deleteChildAccount = async (req, res) => {
+  try {
+    if (!canManageChildren(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customer parent accounts can delete child accounts'
+      });
+    }
+
+    const child = await User.findOne({
+      _id: req.params.childId,
+      role: 'child',
+      parentAccount: req.user._id
+    });
+
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child account not found'
+      });
+    }
+
+    await child.deleteOne();
+
+    res.status(200).json({
+      success: true,
+      message: 'Child account deleted successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete child account',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Submit child onboarding details and documents
+ * @route   POST /api/users/child-onboarding
+ * @access  Private (Child)
+ */
+exports.submitChildOnboarding = async (req, res) => {
+  try {
+    if (req.user.role !== 'child') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only child accounts can submit child onboarding'
+      });
+    }
+
+    const { birthCertificate, childPhoto, dateOfBirth, displayName } = req.body;
+    const normalizedBirthCertificate = String(birthCertificate || '').trim();
+
+    if (!normalizedBirthCertificate || !childPhoto) {
+      return res.status(400).json({
+        success: false,
+        message: 'Birth certificate and child photo are required'
+      });
+    }
+
+    if (!normalizedBirthCertificate.toLowerCase().startsWith('data:application/pdf')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Birth certificate must be uploaded as a PDF file'
+      });
+    }
+
+    const child = await User.findById(req.user._id);
+    if (!child || child.role !== 'child') {
+      return res.status(404).json({
+        success: false,
+        message: 'Child account not found'
+      });
+    }
+
+    if (!child.childProfile) {
+      child.childProfile = {};
+    }
+
+    if (typeof displayName === 'string' && displayName.trim()) {
+      child.childProfile.displayName = displayName.trim();
+    }
+
+    child.childProfile.birthCertificate = normalizedBirthCertificate;
+    child.childProfile.childPhoto = childPhoto;
+    child.childProfile.onboardingSubmittedAt = new Date();
+    child.profilePicture = childPhoto;
+
+    if (dateOfBirth) {
+      child.dateOfBirth = dateOfBirth;
+    }
+
+    child.isProfileComplete = true;
+    child.isApproved = false;
+
+    await child.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Onboarding submitted successfully. Waiting for admin approval.',
+      data: {
+        isProfileComplete: child.isProfileComplete,
+        isApproved: child.isApproved,
+        onboardingSubmittedAt: child.childProfile?.onboardingSubmittedAt
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit child onboarding',
+      error: error.message
+    });
+  }
+};
+
+/**
  * @desc    Get all users (Admin)
  * @route   GET /api/users
  * @access  Private (Admin)
  */
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, search, limit = 20, page = 1 } = req.query;
+    if (!ensureAdminAccess(req, res)) return;
+
+    const { role, excludeRole, search, limit = 20, page = 1 } = req.query;
 
     let query = {};
 
-    if (role) query.role = role;
+    if (role) {
+      query.role = role;
+    } else if (excludeRole) {
+      query.role = { $ne: excludeRole };
+    }
+
     if (search) {
       query.$or = [
         { username: { $regex: search, $options: 'i' } },
@@ -305,11 +678,17 @@ exports.getAllUsers = async (req, res) => {
       ];
     }
 
-    const users = await User.find(query)
+    let usersQuery = User.find(query)
       .select('-password -otp -otpExpires')
       .sort({ createdAt: -1 })
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit));
+
+    if (role === 'child') {
+      usersQuery = usersQuery.populate('parentAccount', 'username email');
+    }
+
+    const users = await usersQuery;
 
     const total = await User.countDocuments(query);
 
@@ -336,6 +715,8 @@ exports.getAllUsers = async (req, res) => {
  */
 exports.getUserById = async (req, res) => {
   try {
+    if (!ensureAdminAccess(req, res)) return;
+
     const user = await User.findById(req.params.id).select('-password -otp -otpExpires');
 
     if (!user) {
@@ -365,6 +746,8 @@ exports.getUserById = async (req, res) => {
  */
 exports.updateUser = async (req, res) => {
   try {
+    if (!ensureAdminAccess(req, res)) return;
+
     const { role, isVerified, isApproved } = req.body;
 
     const user = await User.findById(req.params.id);
@@ -403,6 +786,8 @@ exports.updateUser = async (req, res) => {
  */
 exports.deleteUser = async (req, res) => {
   try {
+    if (!ensureAdminAccess(req, res)) return;
+
     const user = await User.findById(req.params.id);
 
     if (!user) {
@@ -436,6 +821,8 @@ exports.deleteUser = async (req, res) => {
  */
 exports.getUserStats = async (req, res) => {
   try {
+    if (!ensureAdminAccess(req, res)) return;
+
     const [
       totalUsers,
       customers,
