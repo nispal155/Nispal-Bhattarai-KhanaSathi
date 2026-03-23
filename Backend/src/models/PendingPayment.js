@@ -6,6 +6,10 @@ const pendingPaymentSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  cartOwner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   // Store cart data for order creation after payment
   cartData: {
     restaurantGroups: [{

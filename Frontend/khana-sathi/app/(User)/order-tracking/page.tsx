@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Clock, Loader2, LogIn, RefreshCw, Layers } from "lucide-react";
+import { Clock, Loader2, LogIn, RefreshCw, Layers, RotateCcw } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getMyOrders } from "@/lib/orderService";
+import { getMyOrders, reorderOrder } from "@/lib/orderService";
 import { getMyMultiOrders, getMultiOrderStatusText, getMultiOrderStatusColor } from "@/lib/multiOrderService";
 import type { MultiOrder } from "@/lib/multiOrderService";
 import { useAuth } from "@/context/AuthContext";
@@ -37,6 +37,23 @@ interface DisplayOrder {
   restaurantCount?: number;
 }
 
+const MULTI_ORDER_STATUSES: MultiOrder["status"][] = [
+  "pending",
+  "partially_confirmed",
+  "all_confirmed",
+  "preparing",
+  "partially_ready",
+  "all_ready",
+  "picking_up",
+  "picked_up",
+  "on_the_way",
+  "delivered",
+  "cancelled",
+];
+
+const isMultiOrderStatus = (status: string): status is MultiOrder["status"] =>
+  MULTI_ORDER_STATUSES.includes(status as MultiOrder["status"]);
+
 export default function OrdersListPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -44,6 +61,7 @@ export default function OrdersListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
+  const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading) {
@@ -133,8 +151,8 @@ export default function OrdersListPage() {
   });
 
   const getStatusColor = (status: string, isMultiOrder: boolean) => {
-    if (isMultiOrder) {
-      return getMultiOrderStatusColor(status as any);
+    if (isMultiOrder && isMultiOrderStatus(status)) {
+      return getMultiOrderStatusColor(status);
     }
     switch (status) {
       case "delivered": return "bg-green-100 text-green-700";
@@ -145,10 +163,41 @@ export default function OrdersListPage() {
   };
 
   const getStatusText = (status: string, isMultiOrder: boolean) => {
-    if (isMultiOrder) {
-      return getMultiOrderStatusText(status as any);
+    if (isMultiOrder && isMultiOrderStatus(status)) {
+      return getMultiOrderStatusText(status);
     }
     return status.replace("_", " ");
+  };
+
+  const handleReorder = async (orderId: string) => {
+    try {
+      setReorderingOrderId(orderId);
+      const response = await reorderOrder(orderId);
+
+      if (response.error) {
+        toast.error(response.error);
+        return;
+      }
+
+      const skippedItems = response.data?.data?.skippedItems || [];
+      if (skippedItems.length > 0) {
+        const preview = skippedItems
+          .slice(0, 2)
+          .map((item) => `${item.name} (${item.reason})`)
+          .join(", ");
+        const extra = skippedItems.length > 2 ? ` and ${skippedItems.length - 2} more` : "";
+        toast.success(`${response.data?.message || "Meal added to cart"}. Skipped: ${preview}${extra}`);
+      } else {
+        toast.success(response.data?.message || "Meal added to cart");
+      }
+
+      router.push('/cart');
+    } catch (err) {
+      console.error("Error reordering meal:", err);
+      toast.error("Failed to reorder this meal");
+    } finally {
+      setReorderingOrderId(null);
+    }
   };
 
   // Show loading while checking auth
@@ -258,43 +307,70 @@ export default function OrdersListPage() {
         ) : (
           <div className="space-y-4">
             {filteredOrders.map((order) => (
-              <Link
+              <div
                 key={order._id}
-                href={order.isMultiOrder ? `/multi-order-tracking/${order._id}` : `/order-tracking/${order._id}`}
-                className={`block bg-white rounded-xl border p-4 hover:shadow-md transition-shadow ${order.isMultiOrder ? 'border-purple-200 bg-gradient-to-r from-purple-50 to-white' : 'border-gray-200'
+                className={`bg-white rounded-xl border p-4 transition-shadow hover:shadow-md ${order.isMultiOrder ? 'border-purple-200 bg-gradient-to-r from-purple-50 to-white' : 'border-gray-200'
                   }`}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {order.isMultiOrder && (
-                      <span className="inline-flex items-center justify-center w-6 h-6 bg-purple-100 rounded-full">
-                        <Layers className="w-4 h-4 text-purple-600" />
-                      </span>
-                    )}
-                    <h3 className="font-medium text-gray-900">Order #{order.orderNumber}</h3>
-                  </div>
-                  <span className={`text-xs px-3 py-1 rounded-full capitalize ${getStatusColor(order.status, order.isMultiOrder)}`}>
-                    {getStatusText(order.status, order.isMultiOrder)}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 mb-2">
-                  {order.isMultiOrder ? (
-                    <span className="flex items-center gap-1">
-                      <Layers className="w-3 h-3" />
-                      {order.displayName}
+                <Link
+                  href={order.isMultiOrder ? `/multi-order-tracking/${order._id}` : `/order-tracking/${order._id}`}
+                  className="block"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {order.isMultiOrder && (
+                        <span className="inline-flex items-center justify-center w-6 h-6 bg-purple-100 rounded-full">
+                          <Layers className="w-4 h-4 text-purple-600" />
+                        </span>
+                      )}
+                      <h3 className="font-medium text-gray-900">Order #{order.orderNumber}</h3>
+                    </div>
+                    <span className={`text-xs px-3 py-1 rounded-full capitalize ${getStatusColor(order.status, order.isMultiOrder)}`}>
+                      {getStatusText(order.status, order.isMultiOrder)}
                     </span>
-                  ) : (
-                    order.displayName
-                  )}
-                </p>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <Clock className="w-4 h-4" />
-                    <span>{new Date(order.createdAt).toLocaleDateString()}</span>
                   </div>
-                  <span className="font-medium">Rs. {order.total}</span>
-                </div>
-              </Link>
+                  <p className="text-sm text-gray-600 mb-2">
+                    {order.isMultiOrder ? (
+                      <span className="flex items-center gap-1">
+                        <Layers className="w-3 h-3" />
+                        {order.displayName}
+                      </span>
+                    ) : (
+                      order.displayName
+                    )}
+                  </p>
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <Clock className="w-4 h-4" />
+                      <span>{new Date(order.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <span className="font-medium">Rs. {order.total}</span>
+                  </div>
+                </Link>
+
+                {!order.isMultiOrder && (
+                  <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => handleReorder(order._id)}
+                      disabled={reorderingOrderId === order._id}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {reorderingOrderId === order._id ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Reordering...
+                        </>
+                      ) : (
+                        <>
+                          <RotateCcw className="w-4 h-4" />
+                          Reorder Meal
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}

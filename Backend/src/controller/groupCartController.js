@@ -8,6 +8,9 @@ const Notification = require('../models/Notification');
 const PendingPayment = require('../models/PendingPayment');
 const crypto = require('crypto');
 const { getIO } = require('../services/socket');
+const {
+  getRestrictionReasonsForMenuItem
+} = require('../utils/childAccountControls');
 
 // eSewa + Khalti configs (reuse from paymentController)
 const ESEWA_CONFIG = {
@@ -219,6 +222,15 @@ exports.addItemToGroupCart = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Menu item is not available' });
     }
 
+    const restrictionReasons = getRestrictionReasonsForMenuItem(menuItem, req.user);
+    if (restrictionReasons.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: restrictionReasons[0],
+        code: 'CHILD_MENU_ITEM_RESTRICTED'
+      });
+    }
+
     // Check if item already exists for this member
     const existingIdx = groupCart.members[memberIndex].items.findIndex(
       i => i.menuItem.toString() === menuItemId
@@ -253,7 +265,13 @@ exports.addItemToGroupCart = async (req, res) => {
     res.status(200).json({ success: true, message: 'Item added', data: populated });
   } catch (error) {
     console.error('addItemToGroupCart error:', error);
-    res.status(500).json({ success: false, message: 'Failed to add item', error: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Failed to add item',
+      error: error.message,
+      code: error.code,
+      details: error.details
+    });
   }
 };
 
@@ -285,6 +303,19 @@ exports.updateGroupCartItem = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Item not found in your cart' });
     }
 
+    const currentQuantity = groupCart.members[memberIndex].items[itemIdx].quantity;
+    if (quantity > currentQuantity) {
+      const menuItem = await Menu.findById(menuItemId);
+      const restrictionReasons = getRestrictionReasonsForMenuItem(menuItem, req.user);
+      if (restrictionReasons.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: restrictionReasons[0],
+          code: 'CHILD_MENU_ITEM_RESTRICTED'
+        });
+      }
+    }
+
     if (quantity <= 0) {
       groupCart.members[memberIndex].items.splice(itemIdx, 1);
     } else {
@@ -303,7 +334,13 @@ exports.updateGroupCartItem = async (req, res) => {
     res.status(200).json({ success: true, message: 'Item updated', data: populated });
   } catch (error) {
     console.error('updateGroupCartItem error:', error);
-    res.status(500).json({ success: false, message: 'Failed to update item', error: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Failed to update item',
+      error: error.message,
+      code: error.code,
+      details: error.details
+    });
   }
 };
 

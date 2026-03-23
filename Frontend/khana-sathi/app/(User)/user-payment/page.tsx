@@ -2,20 +2,43 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Wallet, Building2, Check, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, Wallet, Check, Loader2, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { getCart, Cart } from "@/lib/cartService";
-import { createOrder } from "@/lib/orderService";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getCart, getChildCartRequestById, Cart, ChildCartRequest } from "@/lib/cartService";
+import { createOrder, Order } from "@/lib/orderService";
 import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
 
+type PaymentOrderResponse = {
+  success: boolean;
+  data: Order | Order[];
+  message?: string;
+  multiOrder?: { _id: string; orderNumber?: string } | null;
+  isMultiRestaurant?: boolean;
+};
+
+const getCartItemKey = (menuItem: unknown) => {
+  if (typeof menuItem === "string") return menuItem;
+  if (
+    menuItem &&
+    typeof menuItem === "object" &&
+    "_id" in menuItem &&
+    typeof menuItem._id === "string"
+  ) {
+    return menuItem._id;
+  }
+  return "menu-item";
+};
+
 export default function PaymentPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const [cart, setCart] = useState<Cart | null>(null);
+  const searchParams = useSearchParams();
+  const childCartId = searchParams.get("childCartId") || "";
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [cart, setCart] = useState<(Cart | ChildCartRequest) | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState("cod");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -34,18 +57,55 @@ export default function PaymentPage() {
       router.push('/login');
       return;
     }
+
     if (isAuthenticated) {
       fetchCartData();
     }
-  }, [isAuthenticated, authLoading, router]);
+  }, [authLoading, childCartId, isAuthenticated, router, user?.role]);
 
   const fetchCartData = async () => {
     try {
       setLoading(true);
-      const response = await getCart();
+      if (user?.role === "child") {
+        toast.error("Child accounts cannot complete payment. Your parent must pay from their account.");
+        router.push('/cart');
+        return;
+      }
+
+      if (childCartId && user?.role !== "customer") {
+        toast.error("Only parent accounts can pay for a child cart.");
+        router.push('/cart');
+        return;
+      }
+
+      const response = childCartId
+        ? await getChildCartRequestById(childCartId)
+        : await getCart();
+
+      if (response.error) {
+        toast.error(response.error);
+        router.push('/cart');
+        return;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const responseData = response?.data as any;
       const cartData = responseData?.data || responseData;
+
+      if (childCartId && cartData?.parentApproval?.status !== "approved") {
+        const approvalStatus = cartData?.parentApproval?.status;
+        const approvalNote = cartData?.parentApproval?.note?.trim();
+        const message = approvalStatus === "pending_parent_approval"
+          ? "This child cart is still waiting for approval."
+          : approvalStatus === "rejected"
+            ? `This child cart was rejected.${approvalNote ? ` Note: ${approvalNote}` : ""}`
+            : "This child cart is not ready for payment yet.";
+
+        toast.error(message);
+        router.push('/cart');
+        return;
+      }
+
       setCart(cartData);
     } catch (err) {
       console.error("Error fetching cart:", err);
@@ -79,6 +139,12 @@ export default function PaymentPage() {
   const handlePayment = async () => {
     if (!cart) return;
 
+    if (user?.role === "child") {
+      toast.error("Child accounts cannot complete payment. Your parent must pay from their account.");
+      router.push('/cart');
+      return;
+    }
+
     if (!address.addressLine1) {
       toast.error("Please enter a street address");
       return;
@@ -94,6 +160,7 @@ export default function PaymentPage() {
           deliveryAddress: address,
           paymentMethod: selectedPayment,
           specialInstructions: "",
+          childCartId: childCartId || undefined,
         };
 
         console.log("Creating COD order:", orderData);
@@ -106,8 +173,12 @@ export default function PaymentPage() {
           return;
         }
 
-        const responseData = response?.data as any;
-        const orders = responseData?.data || responseData;
+        const responseData = response.data as PaymentOrderResponse | undefined;
+        const orders = Array.isArray(responseData?.data)
+          ? responseData.data
+          : responseData?.data
+            ? [responseData.data]
+            : [];
         const multiOrder = responseData?.multiOrder;
         const isMultiRestaurant = responseData?.isMultiRestaurant;
 
@@ -115,11 +186,11 @@ export default function PaymentPage() {
 
         if (isMultiRestaurant && multiOrder?._id) {
           // Multi-restaurant order: redirect to unified tracking page
-          toast.success(`${(orders as any[]).length} orders placed! Tracking all restaurants together.`);
+          toast.success(`${orders.length} orders placed! Tracking all restaurants together.`);
           router.push(`/multi-order-tracking/${multiOrder._id}`);
         } else {
           // Single restaurant order: redirect to individual tracking
-          const order = (Array.isArray(orders) ? orders[0] : orders) as any;
+          const order = orders[0];
           if (order?._id) {
             toast.success("Order placed successfully!");
             router.push(`/order-tracking/${order._id}`);
@@ -133,7 +204,8 @@ export default function PaymentPage() {
         const esewaRes = await initiateEsewaFromCart({
           deliveryAddress: address,
           specialInstructions: "",
-          useLoyaltyPoints: false
+          useLoyaltyPoints: false,
+          childCartId: childCartId || undefined,
         });
         console.log("eSewa response:", esewaRes);
 
@@ -155,7 +227,8 @@ export default function PaymentPage() {
         const khaltiRes = await initiateKhaltiFromCart({
           deliveryAddress: address,
           specialInstructions: "",
-          useLoyaltyPoints: false
+          useLoyaltyPoints: false,
+          childCartId: childCartId || undefined,
         });
         console.log("Khalti response:", JSON.stringify(khaltiRes, null, 2));
 
@@ -176,9 +249,10 @@ export default function PaymentPage() {
           toast.error("Failed to initiate Khalti payment");
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Payment error:", err);
-      toast.error(err.response?.data?.message || err?.message || "Payment failed");
+      const errorMessage = err instanceof Error ? err.message : "Payment failed";
+      toast.error(errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -192,6 +266,9 @@ export default function PaymentPage() {
   const serviceFee = 20;
   const discount = cart?.promoDiscount || 0;
   const total = subtotal + deliveryFee + serviceFee - discount;
+  const childCheckoutName = cart && "child" in cart
+    ? cart.child.displayName || cart.child.username
+    : "";
 
   if (loading) {
     return (
@@ -229,6 +306,13 @@ export default function PaymentPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
           <div className="lg:col-span-2 space-y-6">
+            {childCartId && childCheckoutName && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-sm font-medium text-blue-800">
+                  Paying for {childCheckoutName}&apos;s approved cart from the parent account.
+                </p>
+              </div>
+            )}
 
             {/* Delivery Address Form */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -358,7 +442,7 @@ export default function PaymentPage() {
                   <div key={group.restaurant._id} className="space-y-3">
                     <h3 className="font-medium text-gray-900 border-b pb-2">{group.restaurant.name}</h3>
                     {group.items.map((item, itemIndex) => (
-                      <div key={`${group.restaurant._id}-${typeof item.menuItem === 'object' ? (item.menuItem as any)?._id : item.menuItem}-${itemIndex}`} className="flex justify-between">
+                      <div key={`${group.restaurant._id}-${getCartItemKey(item.menuItem)}-${itemIndex}`} className="flex justify-between">
                         <span className="text-gray-600">
                           {item.name} <span className="text-xs">x{item.quantity}</span>
                         </span>

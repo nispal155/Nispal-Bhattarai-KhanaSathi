@@ -59,8 +59,14 @@ export default function GroupCartListPage() {
   }, []);
 
   useEffect(() => {
+    if (user?.role === 'child') {
+      toast.error('Group Cart is available only for parent accounts.');
+      router.replace('/cart');
+      return;
+    }
+
     fetchGroupCarts();
-  }, [fetchGroupCarts]);
+  }, [fetchGroupCarts, router, user?.role]);
 
   /* ── Real-time socket listeners ── */
   useEffect(() => {

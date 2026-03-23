@@ -40,6 +40,14 @@ const menuItemSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isJunkFood: {
+    type: Boolean,
+    default: false
+  },
+  containsCaffeine: {
+    type: Boolean,
+    default: false
+  },
   spiceLevel: {
     type: String,
     enum: ['None', 'Mild', 'Medium', 'Hot', 'Extra Hot'],

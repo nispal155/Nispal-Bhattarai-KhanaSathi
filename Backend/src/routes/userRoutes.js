@@ -10,6 +10,8 @@ const {
   setDefaultAddress,
   createChildAccount,
   getMyChildAccounts,
+  getChildAccountInsights,
+  getChildSummary,
   updateChildAccount,
   deleteChildAccount,
   submitChildOnboarding,
@@ -38,9 +40,11 @@ router.delete('/addresses/:id', deleteAddress);
 // Parent-child account routes
 router.get('/children', getMyChildAccounts);
 router.post('/children', createChildAccount);
+router.get('/children/:childId/insights', getChildAccountInsights);
 router.put('/children/:childId', updateChildAccount);
 router.delete('/children/:childId', deleteChildAccount);
 router.post('/child-onboarding', submitChildOnboarding);
+router.get('/child-summary', getChildSummary);
 
 // Admin routes
 router.get('/stats', authorize('admin'), getUserStats);

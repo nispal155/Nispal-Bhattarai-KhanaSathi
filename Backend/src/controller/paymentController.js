@@ -5,6 +5,13 @@ const Menu = require('../models/Menu');
 const PendingPayment = require('../models/PendingPayment');
 const MultiOrder = require('../models/MultiOrder');
 const crypto = require('crypto');
+const {
+    getRestrictionReasonsForMenuItem,
+    calculateCartTotals,
+    assertChildCanPurchaseTotal
+} = require('../utils/childAccountControls');
+const { loadCartForCheckout } = require('../utils/checkoutContext');
+const { notifyParentOfChildActivity } = require('../utils/childActivityNotifier');
 
 // eSewa Configuration (sandbox/test environment)
 const ESEWA_CONFIG = {
@@ -33,42 +40,98 @@ const generateEsewaSignature = (message) => {
         .digest('base64');
 };
 
-/**
- * Helper function to calculate cart totals
- */
-const calculateCartTotals = (cart, useLoyaltyPoints, userLoyaltyPoints) => {
-    let subtotal = 0;
-    for (const group of cart.restaurantGroups) {
-        for (const item of group.items) {
-            subtotal += item.price * item.quantity;
+const validateCartForChildUser = async (user, cart, useLoyaltyPoints = false, options = {}) => {
+    const { skipSpendingLimit = false } = options;
+
+    if (!user || user.role !== 'child') {
+        return;
+    }
+
+    const menuItemIds = [];
+    for (const group of cart.restaurantGroups || []) {
+        for (const item of group.items || []) {
+            const menuItemId = item.menuItem?._id || item.menuItem;
+            if (menuItemId) {
+                menuItemIds.push(menuItemId);
+            }
         }
     }
 
-    const deliveryFee = cart.restaurantGroups.length * 50;
-    const serviceFee = cart.restaurantGroups.length * 20; // Per-restaurant service fee (consistent with order creation)
-    const promoDiscount = cart.promoDiscount || 0;
+    const menuItems = await Menu.find({ _id: { $in: menuItemIds } })
+        .select('name isAvailable isJunkFood containsCaffeine allergens');
+    const menuItemMap = new Map(menuItems.map((item) => [item._id.toString(), item]));
 
-    let loyaltyDiscount = 0;
-    if (useLoyaltyPoints && userLoyaltyPoints > 0) {
-        const remainingTotal = subtotal + deliveryFee + serviceFee - promoDiscount;
-        loyaltyDiscount = Math.min(userLoyaltyPoints, remainingTotal);
+    for (const group of cart.restaurantGroups || []) {
+        for (const item of group.items || []) {
+            const menuItemId = (item.menuItem?._id || item.menuItem)?.toString();
+            const menuItem = item.menuItem?._id ? item.menuItem : menuItemMap.get(menuItemId);
+
+            if (!menuItem) {
+                continue;
+            }
+
+            if (menuItem.isAvailable === false) {
+                const error = new Error(`${menuItem.name || 'A menu item'} is no longer available`);
+                error.statusCode = 400;
+                throw error;
+            }
+
+            const restrictionReasons = getRestrictionReasonsForMenuItem(menuItem, user);
+            if (restrictionReasons.length > 0) {
+                const error = new Error(restrictionReasons[0]);
+                error.statusCode = 403;
+                error.code = 'CHILD_MENU_ITEM_RESTRICTED';
+                throw error;
+            }
+        }
     }
 
-    const total = Math.max(0, subtotal + deliveryFee + serviceFee - promoDiscount - loyaltyDiscount);
+    const { total } = calculateCartTotals(cart, useLoyaltyPoints, user.loyaltyPoints);
+    if (!skipSpendingLimit) {
+        await assertChildCanPurchaseTotal(user, total);
+    }
+};
 
-    return { subtotal, deliveryFee, serviceFee, promoDiscount, loyaltyDiscount, total };
+const assertChildParentApproval = async (user, cart) => {
+    if (!user || user.role !== 'child') {
+        return;
+    }
+
+    const approvalStatus = cart?.parentApproval?.status;
+    if (approvalStatus !== 'approved') {
+        const error = new Error(
+            approvalStatus === 'pending_parent_approval'
+                ? 'Your cart is waiting for parent approval.'
+                : 'Parent approval is required before checkout.'
+        );
+        error.statusCode = 403;
+        error.code = 'CHILD_PARENT_APPROVAL_REQUIRED';
+        throw error;
+    }
 };
 
 /**
  * Helper function to create orders from pending payment
  */
 const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymentMethod) => {
-    const user = await User.findById(pendingPayment.user);
+    const cartOwnerId = pendingPayment.cartOwner || pendingPayment.user;
+    const user = await User.findById(cartOwnerId);
+    const liveCart = await Cart.findOne({ user: cartOwnerId });
+    await assertChildParentApproval(user, liveCart || pendingPayment.cartData);
     const cart = pendingPayment.cartData;
+    const isParentCheckout = Boolean(
+        pendingPayment.user &&
+        pendingPayment.cartOwner &&
+        pendingPayment.user.toString() !== pendingPayment.cartOwner.toString()
+    );
+    await validateCartForChildUser(user, cart, pendingPayment.useLoyaltyPoints, {
+        skipSpendingLimit: isParentCheckout
+    });
 
     const createdOrders = [];
     let totalOrderValue = 0;
-    let pointsToDeduct = pendingPayment.useLoyaltyPoints ? user.loyaltyPoints : 0;
+    let pointsToDeduct = pendingPayment.useLoyaltyPoints ? Number(user.loyaltyPoints || 0) : 0;
+    let actualPointsUsed = 0;
 
     for (const group of cart.restaurantGroups) {
         const subtotal = group.items.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -81,13 +144,14 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
             const remainingGroupTotal = subtotal + deliveryFee + serviceFee - discount;
             pointsDiscount = Math.min(pointsToDeduct, remainingGroupTotal);
             pointsToDeduct -= pointsDiscount;
+            actualPointsUsed += pointsDiscount;
         }
 
         const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
         totalOrderValue += total;
 
         const order = await Order.create({
-            customer: pendingPayment.user,
+            customer: cartOwnerId,
             restaurant: group.restaurant,
             items: group.items.map(item => ({
                 menuItem: item.menuItem,
@@ -136,15 +200,16 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
 
     // Calculate and update loyalty points
     const pointsEarned = Math.floor(totalOrderValue / 100);
-    const initialLoyaltyPoints = user.loyaltyPoints;
-    const netPointsChange = pointsEarned - (pendingPayment.useLoyaltyPoints ? initialLoyaltyPoints : 0);
+    const initialLoyaltyPoints = Number(user.loyaltyPoints || 0);
+    const netPointsChange = pointsEarned - actualPointsUsed;
+    const updatedLoyaltyPoints = Math.max(initialLoyaltyPoints + netPointsChange, 0);
 
-    await User.findByIdAndUpdate(pendingPayment.user, {
-        $inc: { loyaltyPoints: netPointsChange }
+    await User.findByIdAndUpdate(cartOwnerId, {
+        $set: { loyaltyPoints: updatedLoyaltyPoints }
     });
 
-    // Clear the user's cart
-    await Cart.findOneAndDelete({ user: pendingPayment.user });
+    // Clear the cart that was actually checked out.
+    await Cart.findOneAndDelete({ user: cartOwnerId });
 
     // Create notifications for restaurant owners (not the restaurant doc)
     const Notification = require('../models/Notification');
@@ -183,7 +248,7 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
         console.log('Creating MultiOrder for payment-based order with', createdOrders.length, 'restaurants');
 
         multiOrder = await MultiOrder.create({
-            customer: pendingPayment.user,
+            customer: cartOwnerId,
             subOrders: createdOrders.map(o => o._id),
             restaurantCount: createdOrders.length,
             deliveryAddress: pendingPayment.deliveryAddress,
@@ -244,28 +309,34 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
  */
 exports.initiateEsewaFromCart = async (req, res) => {
     try {
-        const { deliveryAddress, specialInstructions, useLoyaltyPoints } = req.body;
+        const { deliveryAddress, specialInstructions, useLoyaltyPoints, childCartId } = req.body;
         console.log('=== ESEWA INITIATE FROM CART ===');
         console.log('User ID:', req.user._id);
         console.log('Request body:', JSON.stringify(req.body, null, 2));
 
-        // Get user's cart
-        const cart = await Cart.findOne({ user: req.user._id }).populate('restaurantGroups.items.menuItem');
+        const { cart, cartOwner, payer, isParentCheckout } = await loadCartForCheckout(req.user, childCartId, {
+            populateMenuItems: true
+        });
         if (!cart || cart.restaurantGroups.length === 0) {
             console.log('Cart is empty for user:', req.user._id);
             return res.status(400).json({ success: false, message: 'Cart is empty' });
         }
         console.log('Cart found with', cart.restaurantGroups.length, 'restaurant groups');
 
-        const user = await User.findById(req.user._id);
+        const user = await User.findById(cartOwner._id);
+        await assertChildParentApproval(user, cart);
+        await validateCartForChildUser(user, cart, useLoyaltyPoints, {
+            skipSpendingLimit: isParentCheckout
+        });
         const { total } = calculateCartTotals(cart, useLoyaltyPoints, user.loyaltyPoints);
         console.log('Total amount:', total);
 
         // Create pending payment record
-        const transactionUuid = `ESEWA-${req.user._id}-${Date.now()}`;
+        const transactionUuid = `ESEWA-${cartOwner._id}-${Date.now()}`;
 
         const pendingPayment = await PendingPayment.create({
             user: req.user._id,
+            cartOwner: cartOwner._id,
             cartData: {
                 restaurantGroups: cart.restaurantGroups.map(group => ({
                     restaurant: group.restaurant,
@@ -322,11 +393,28 @@ exports.initiateEsewaFromCart = async (req, res) => {
             }
         });
     } catch (error) {
+        if (
+            req.user?.role === 'child' &&
+            ['CHILD_PAYMENT_NOT_ALLOWED', 'CHILD_PARENT_APPROVAL_REQUIRED', 'CHILD_SPENDING_LIMIT_REACHED', 'CHILD_MENU_ITEM_RESTRICTED'].includes(error.code)
+        ) {
+            try {
+                await notifyParentOfChildActivity(req.user, {
+                    title: 'Child Payment Attempt',
+                    message: `${req.user.username} tried to start checkout, but parent action is still required. Reason: ${error.message}`,
+                    link: '/cart'
+                });
+            } catch (notificationError) {
+                console.error('Failed to notify parent about child eSewa attempt:', notificationError.message);
+            }
+        }
+
         console.error('eSewa payment initiation error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to initiate eSewa payment',
-            error: error.message
+            message: error.statusCode ? error.message : 'Failed to initiate eSewa payment',
+            error: error.message,
+            code: error.code,
+            details: error.details
         });
     }
 };
@@ -338,20 +426,25 @@ exports.initiateEsewaFromCart = async (req, res) => {
  */
 exports.initiateKhaltiFromCart = async (req, res) => {
     try {
-        const { deliveryAddress, specialInstructions, useLoyaltyPoints } = req.body;
+        const { deliveryAddress, specialInstructions, useLoyaltyPoints, childCartId } = req.body;
         console.log('=== KHALTI INITIATE FROM CART ===');
         console.log('User ID:', req.user._id);
         console.log('Request body:', JSON.stringify(req.body, null, 2));
 
-        // Get user's cart
-        const cart = await Cart.findOne({ user: req.user._id }).populate('restaurantGroups.items.menuItem');
+        const { cart, cartOwner, payer, isParentCheckout } = await loadCartForCheckout(req.user, childCartId, {
+            populateMenuItems: true
+        });
         if (!cart || cart.restaurantGroups.length === 0) {
             console.log('Cart is empty for user:', req.user._id);
             return res.status(400).json({ success: false, message: 'Cart is empty' });
         }
         console.log('Cart found with', cart.restaurantGroups.length, 'restaurant groups');
 
-        const user = await User.findById(req.user._id);
+        const user = await User.findById(cartOwner._id);
+        await assertChildParentApproval(user, cart);
+        await validateCartForChildUser(user, cart, useLoyaltyPoints, {
+            skipSpendingLimit: isParentCheckout
+        });
         const { total } = calculateCartTotals(cart, useLoyaltyPoints, user.loyaltyPoints);
 
         // Get restaurant name for display
@@ -362,6 +455,7 @@ exports.initiateKhaltiFromCart = async (req, res) => {
         // Create pending payment record first
         const pendingPayment = await PendingPayment.create({
             user: req.user._id,
+            cartOwner: cartOwner._id,
             cartData: {
                 restaurantGroups: cart.restaurantGroups.map(group => ({
                     restaurant: group.restaurant,
@@ -398,9 +492,9 @@ exports.initiateKhaltiFromCart = async (req, res) => {
             purchase_order_id: purchaseOrderId,
             purchase_order_name: `Order from ${restaurantName}`,
             customer_info: {
-                name: user.username,
-                email: user.email,
-                phone: user.phone || '9800000000'
+                name: payer.username,
+                email: payer.email,
+                phone: payer.phone || '9800000000'
             }
         };
 
@@ -443,11 +537,28 @@ exports.initiateKhaltiFromCart = async (req, res) => {
             });
         }
     } catch (error) {
+        if (
+            req.user?.role === 'child' &&
+            ['CHILD_PAYMENT_NOT_ALLOWED', 'CHILD_PARENT_APPROVAL_REQUIRED', 'CHILD_SPENDING_LIMIT_REACHED', 'CHILD_MENU_ITEM_RESTRICTED'].includes(error.code)
+        ) {
+            try {
+                await notifyParentOfChildActivity(req.user, {
+                    title: 'Child Payment Attempt',
+                    message: `${req.user.username} tried to start checkout, but parent action is still required. Reason: ${error.message}`,
+                    link: '/cart'
+                });
+            } catch (notificationError) {
+                console.error('Failed to notify parent about child Khalti attempt:', notificationError.message);
+            }
+        }
+
         console.error('Khalti payment error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to initiate Khalti payment',
-            error: error.message
+            message: error.statusCode ? error.message : 'Failed to initiate Khalti payment',
+            error: error.message,
+            code: error.code,
+            details: error.details
         });
     }
 };
@@ -479,7 +590,10 @@ exports.verifyEsewaPayment = async (req, res) => {
 
         // Idempotency: if already completed, return existing order info
         if (pendingPayment.status === 'completed') {
-            const existingOrders = await Order.find({ customer: pendingPayment.user, esewaRefId: transaction_code });
+            const existingOrders = await Order.find({
+                customer: pendingPayment.cartOwner || pendingPayment.user,
+                esewaRefId: transaction_code
+            });
             return res.status(200).json({
                 success: true,
                 message: 'Payment already verified',
@@ -558,10 +672,12 @@ exports.verifyEsewaPayment = async (req, res) => {
         }
     } catch (error) {
         console.error('eSewa verification error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to verify eSewa payment',
-            error: error.message
+            message: error.statusCode ? error.message : 'Failed to verify eSewa payment',
+            error: error.message,
+            code: error.code,
+            details: error.details
         });
     }
 };
@@ -584,7 +700,10 @@ exports.verifyKhaltiPayment = async (req, res) => {
 
         // Idempotency: if already completed, return existing order info
         if (pendingPayment.status === 'completed') {
-            const existingOrders = await Order.find({ customer: pendingPayment.user, khaltiRefId: { $exists: true } })
+            const existingOrders = await Order.find({
+                customer: pendingPayment.cartOwner || pendingPayment.user,
+                khaltiRefId: { $exists: true }
+            })
                 .sort({ createdAt: -1 }).limit(pendingPayment.cartData.restaurantGroups.length);
             return res.status(200).json({
                 success: true,
@@ -640,10 +759,12 @@ exports.verifyKhaltiPayment = async (req, res) => {
         }
     } catch (error) {
         console.error('Khalti verification error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to verify Khalti payment',
-            error: error.message
+            message: error.statusCode ? error.message : 'Failed to verify Khalti payment',
+            error: error.message,
+            code: error.code,
+            details: error.details
         });
     }
 };

@@ -1,5 +1,9 @@
 const Menu = require('../models/Menu');
 const Restaurant = require('../models/Restaurant');
+const {
+  filterMenuItemsForChild,
+  getRestrictionReasonsForMenuItem
+} = require('../utils/childAccountControls');
 
 /**
  * @desc    Add a new menu item
@@ -17,6 +21,8 @@ exports.createMenuItem = async (req, res) => {
       isVegetarian,
       isVegan,
       isGlutenFree,
+      isJunkFood,
+      containsCaffeine,
       spiceLevel,
       allergens,
       preparationTime,
@@ -42,6 +48,8 @@ exports.createMenuItem = async (req, res) => {
       isVegetarian,
       isVegan,
       isGlutenFree,
+      isJunkFood,
+      containsCaffeine,
       spiceLevel,
       allergens,
       preparationTime,
@@ -81,9 +89,12 @@ exports.getMenuByRestaurant = async (req, res) => {
     if (glutenFree === 'true') query.isGlutenFree = true;
 
     const menuItems = await Menu.find(query).sort({ category: 1, name: 1 });
+    const visibleMenuItems = req.user?.role === 'child'
+      ? filterMenuItemsForChild(menuItems, req.user)
+      : menuItems;
 
     // Group by category
-    const groupedMenu = menuItems.reduce((acc, item) => {
+    const groupedMenu = visibleMenuItems.reduce((acc, item) => {
       if (!acc[item.category]) {
         acc[item.category] = [];
       }
@@ -93,7 +104,7 @@ exports.getMenuByRestaurant = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      count: menuItems.length,
+      count: visibleMenuItems.length,
       data: groupedMenu
     });
   } catch (error) {
@@ -151,6 +162,17 @@ exports.getMenuItemById = async (req, res) => {
         success: false,
         message: 'Menu item not found'
       });
+    }
+
+    if (req.user?.role === 'child') {
+      const restrictionReasons = getRestrictionReasonsForMenuItem(menuItem, req.user);
+      if (restrictionReasons.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: restrictionReasons[0],
+          code: 'CHILD_MENU_ITEM_RESTRICTED'
+        });
+      }
     }
 
     res.status(200).json({
@@ -326,11 +348,14 @@ exports.searchMenuItems = async (req, res) => {
     const menuItems = await Menu.find(query)
       .populate('restaurant', 'name logoUrl')
       .limit(50);
+    const visibleMenuItems = req.user?.role === 'child'
+      ? filterMenuItemsForChild(menuItems, req.user)
+      : menuItems;
 
     res.status(200).json({
       success: true,
-      count: menuItems.length,
-      data: menuItems
+      count: visibleMenuItems.length,
+      data: visibleMenuItems
     });
   } catch (error) {
     res.status(500).json({

@@ -28,6 +28,37 @@ const userSchema = new mongoose.Schema({
             type: Boolean,
             default: true
         },
+        spendingLimits: {
+            daily: {
+                type: Number,
+                default: null,
+                min: 0
+            },
+            weekly: {
+                type: Number,
+                default: null,
+                min: 0
+            },
+            monthly: {
+                type: Number,
+                default: null,
+                min: 0
+            }
+        },
+        foodRestrictions: {
+            blockJunkFood: {
+                type: Boolean,
+                default: false
+            },
+            blockCaffeine: {
+                type: Boolean,
+                default: false
+            },
+            blockedAllergens: [{
+                type: String,
+                enum: ['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame']
+            }]
+        },
         birthCertificate: {
             type: String,
             default: ''

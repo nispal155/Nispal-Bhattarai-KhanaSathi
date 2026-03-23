@@ -1,20 +1,45 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { Phone, Mail, ChevronDown, Loader2 } from "lucide-react";
+import { Phone, Mail, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { getCart, getCartSummary } from "@/lib/cartService";
+import { getCart, getChildCartRequestById, Cart, ChildCartRequest } from "@/lib/cartService";
 import { getProfile, getAddresses, UserProfile, Address } from "@/lib/userService";
-import { createOrder, DeliveryAddress } from "@/lib/orderService";
-import { Cart, RestaurantGroup } from "@/lib/cartService";
+import { createOrder, Order } from "@/lib/orderService";
 import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
+import toast from "react-hot-toast";
 
-type CartData = Cart;
+type CartData = Cart | ChildCartRequest;
+type CheckoutOrderResponse = {
+  success: boolean;
+  data: Order | Order[];
+  message?: string;
+  multiOrder?: { _id: string; orderNumber?: string } | null;
+  isMultiRestaurant?: boolean;
+  pointsEarned?: number;
+  pointsUsed?: number;
+  loyaltyPointsBalance?: number;
+};
+
+const getCartItemKey = (menuItem: unknown) => {
+  if (typeof menuItem === "string") return menuItem;
+  if (
+    menuItem &&
+    typeof menuItem === "object" &&
+    "_id" in menuItem &&
+    typeof menuItem._id === "string"
+  ) {
+    return menuItem._id;
+  }
+  return "menu-item";
+};
 
 export default function CheckoutPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const childCartId = searchParams.get("childCartId") || "";
   const [cart, setCart] = useState<CartData | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -31,25 +56,58 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [childCartId]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
       const [cartRes, profileRes, addressesRes] = await Promise.all([
-        getCart(),
+        childCartId ? getChildCartRequestById(childCartId) : getCart(),
         getProfile(),
         getAddresses(),
       ]);
+
+      if (cartRes.error) {
+        toast.error(cartRes.error);
+        router.push('/cart');
+        return;
+      }
 
       // Handle nested response structure
       const cartData = cartRes?.data?.data || cartRes?.data;
       const profileData = profileRes?.data?.data || profileRes?.data;
       const addressesData = addressesRes?.data?.data || addressesRes?.data || [];
 
-      setCart(cartData as Cart);
+      if ((profileData as UserProfile | undefined)?.role === 'child') {
+        toast.error("Child accounts cannot complete payment. Your parent must pay from their account.");
+        router.push('/cart');
+        return;
+      }
+
+      if (childCartId && (profileData as UserProfile | undefined)?.role !== 'customer') {
+        toast.error("Only parent accounts can pay for a child cart.");
+        router.push('/cart');
+        return;
+      }
+
+      if (childCartId && (cartData as ChildCartRequest | undefined)?.parentApproval?.status !== 'approved') {
+        const approvalStatus = (cartData as ChildCartRequest | undefined)?.parentApproval?.status;
+        const approvalNote = (cartData as ChildCartRequest | undefined)?.parentApproval?.note?.trim();
+        const message = approvalStatus === 'pending_parent_approval'
+          ? 'This child cart is still waiting for approval.'
+          : approvalStatus === 'rejected'
+            ? `This child cart was rejected.${approvalNote ? ` Note: ${approvalNote}` : ''}`
+            : 'This child cart is not ready for payment yet.';
+
+        toast.error(message);
+        router.push('/cart');
+        return;
+      }
+
+      setCart(cartData as CartData);
       setProfile(profileData as UserProfile);
       setAddresses(Array.isArray(addressesData) ? addressesData : []);
+      setUseLoyaltyPoints(false);
 
       // Pre-fill form with profile data
       if (profileData && 'username' in profileData) {
@@ -78,13 +136,19 @@ export default function CheckoutPage() {
 
   const handlePlaceOrder = async () => {
     if (!cart || !selectedAddressId) {
-      alert("Please select a delivery address");
+      toast.error("Please select a delivery address");
+      return;
+    }
+
+    if (profile?.role === 'child') {
+      toast.error("Child accounts cannot complete payment. Your parent must pay from their account.");
+      router.push('/cart');
       return;
     }
 
     const selectedAddress = addresses.find(a => a._id === selectedAddressId);
     if (!selectedAddress) {
-      alert("Please select a valid delivery address");
+      toast.error("Please select a valid delivery address");
       return;
     }
 
@@ -106,14 +170,28 @@ export default function CheckoutPage() {
           deliveryAddress,
           paymentMethod,
           specialInstructions,
-          useLoyaltyPoints,
-          promoCode: cart.promoCode
+          useLoyaltyPoints: childCartId ? false : useLoyaltyPoints,
+          promoCode: cart.promoCode,
+          childCartId: childCartId || undefined
         };
 
-        const response: any = await createOrder(orderData);
-        const responseData = response?.data?.data || response?.data;
-        const orders = Array.isArray(responseData) ? responseData : [responseData];
+        const response = await createOrder(orderData);
+        if (response?.error) {
+          toast.error(response.error);
+          setSubmitting(false);
+          return;
+        }
+        const responseData = response.data as CheckoutOrderResponse | undefined;
+        const orders = Array.isArray(responseData?.data)
+          ? responseData.data
+          : responseData?.data
+            ? [responseData.data]
+            : [];
         const firstOrder = orders[0];
+
+        toast.success(
+          `Order placed successfully${responseData?.pointsEarned ? `. Earned ${responseData.pointsEarned} point(s)` : ""}${responseData?.pointsUsed ? ` and redeemed ${responseData.pointsUsed} point(s)` : ""}.`
+        );
         
         if (firstOrder?._id) {
           router.push(`/order-tracking/${firstOrder._id}`);
@@ -127,15 +205,16 @@ export default function CheckoutPage() {
           const esewaRes = await initiateEsewaFromCart({
             deliveryAddress,
             specialInstructions,
-            useLoyaltyPoints,
-            promoCode: cart.promoCode
+            useLoyaltyPoints: childCartId ? false : useLoyaltyPoints,
+            promoCode: cart.promoCode,
+            childCartId: childCartId || undefined
           });
           console.log("eSewa response:", JSON.stringify(esewaRes, null, 2));
           
           // Check for API errors first
           if (esewaRes.error) {
             console.error("eSewa API error:", esewaRes.error);
-            alert(`eSewa payment error: ${esewaRes.error}`);
+            toast.error(esewaRes.error);
             setSubmitting(false);
             return;
           }
@@ -148,12 +227,12 @@ export default function CheckoutPage() {
             return; // Don't set submitting to false - we're leaving the page
           } else {
             console.error("eSewa initiation failed:", esewaRes);
-            alert("Failed to initiate eSewa payment. Please try again.");
+            toast.error("Failed to initiate eSewa payment. Please try again.");
             setSubmitting(false);
           }
         } catch (esewaError) {
           console.error("eSewa payment error:", esewaError);
-          alert("Failed to initiate eSewa payment. Please try again.");
+          toast.error("Failed to initiate eSewa payment. Please try again.");
           setSubmitting(false);
         }
       } else if (paymentMethod === "khalti") {
@@ -163,15 +242,16 @@ export default function CheckoutPage() {
           const khaltiRes = await initiateKhaltiFromCart({
             deliveryAddress,
             specialInstructions,
-            useLoyaltyPoints,
-            promoCode: cart.promoCode
+            useLoyaltyPoints: childCartId ? false : useLoyaltyPoints,
+            promoCode: cart.promoCode,
+            childCartId: childCartId || undefined
           });
           console.log("Khalti response:", JSON.stringify(khaltiRes, null, 2));
           
           // Check for API errors first
           if (khaltiRes.error) {
             console.error("Khalti API error:", khaltiRes.error);
-            alert(`Khalti payment error: ${khaltiRes.error}`);
+            toast.error(khaltiRes.error);
             setSubmitting(false);
             return;
           }
@@ -183,19 +263,19 @@ export default function CheckoutPage() {
             return; // Don't set submitting to false - we're leaving the page
           } else {
             console.error("Khalti initiation failed:", khaltiRes);
-            alert("Failed to initiate Khalti payment. Please try again.");
+            toast.error("Failed to initiate Khalti payment. Please try again.");
             setSubmitting(false);
           }
         } catch (khaltiError) {
           console.error("Khalti payment error:", khaltiError);
-          alert("Failed to initiate Khalti payment. Please try again.");
+          toast.error("Failed to initiate Khalti payment. Please try again.");
           setSubmitting(false);
         }
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
       console.error("Order/Payment error:", error);
-      alert(error.response?.data?.message || "Failed to process. Please try again.");
+      toast.error(error.response?.data?.message || "Failed to process. Please try again.");
       setSubmitting(false);
     }
   };
@@ -206,8 +286,17 @@ export default function CheckoutPage() {
 
   const deliveryFee = (cart?.restaurantGroups.length || 0) * 50;
   const serviceFee = (cart?.restaurantGroups.length || 0) * 20;
-  const discount = (cart?.promoDiscount || 0) + (useLoyaltyPoints ? Math.min(profile?.loyaltyPoints || 0, subtotal + deliveryFee + serviceFee - (cart?.promoDiscount || 0)) : 0);
+  const promoDiscount = cart?.promoDiscount || 0;
+  const redeemableLoyaltyValue = !childCartId
+    ? Math.min(profile?.loyaltyPoints || 0, Math.max(0, subtotal + deliveryFee + serviceFee - promoDiscount))
+    : 0;
+  const loyaltyDiscount = useLoyaltyPoints ? redeemableLoyaltyValue : 0;
+  const discount = promoDiscount + loyaltyDiscount;
   const total = Math.max(0, subtotal + deliveryFee + serviceFee - discount);
+  const pointsEarnPreview = Math.floor(total / 100);
+  const childCheckoutName = cart && "child" in cart
+    ? cart.child.displayName || cart.child.username
+    : "";
 
   if (loading) {
     return (
@@ -298,6 +387,14 @@ export default function CheckoutPage() {
       {/* Main Checkout Form */}
       <main className="max-w-7xl mx-auto px-6 py-10">
         <h1 className="text-4xl font-bold text-gray-900 mb-10">Checkout</h1>
+
+        {childCartId && childCheckoutName && (
+          <div className="mb-8 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+            <p className="text-sm font-medium text-blue-800">
+              Paying for {childCheckoutName}&apos;s approved cart from the parent account.
+            </p>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-10">
           {/* Left Form */}
@@ -475,18 +572,32 @@ export default function CheckoutPage() {
             </section>
 
             {/* Loyalty Points */}
-            {profile && profile.loyaltyPoints > 0 && (
+            {!childCartId && profile && profile.loyaltyPoints > 0 && (
               <section className="bg-orange-50 border border-orange-200 rounded-2xl p-6">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-orange-900">Loyalty Points</h2>
-                    <p className="text-orange-700 text-sm">You have {profile.loyaltyPoints} points available (Rs. {profile.loyaltyPoints})</p>
+                    <p className="text-orange-700 text-sm">1 point = Rs. 1 off. Earn 1 point for every Rs. 100 you spend.</p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+                      <div className="rounded-xl bg-white/80 px-4 py-3">
+                        <p className="text-orange-600">Available now</p>
+                        <p className="text-lg font-bold text-orange-900">{profile.loyaltyPoints} pts</p>
+                      </div>
+                      <div className="rounded-xl bg-white/80 px-4 py-3">
+                        <p className="text-orange-600">Redeem on this order</p>
+                        <p className="text-lg font-bold text-orange-900">Rs. {redeemableLoyaltyValue}</p>
+                      </div>
+                      <div className="rounded-xl bg-white/80 px-4 py-3">
+                        <p className="text-orange-600">You will earn</p>
+                        <p className="text-lg font-bold text-orange-900">{pointsEarnPreview} pts</p>
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={() => setUseLoyaltyPoints(!useLoyaltyPoints)}
                     className={`px-6 py-2 rounded-full font-semibold transition ${useLoyaltyPoints ? 'bg-orange-600 text-white' : 'bg-white text-orange-600 border border-orange-600 hover:bg-orange-100'}`}
                   >
-                    {useLoyaltyPoints ? 'Applied' : 'Apply Points'}
+                    {useLoyaltyPoints ? 'Points Applied' : 'Redeem Points'}
                   </button>
                 </div>
               </section>
@@ -534,7 +645,7 @@ export default function CheckoutPage() {
                   <div key={group.restaurant._id} className="space-y-3">
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider">{group.restaurant.name}</h4>
                     {group.items.map((item, itemIndex) => (
-                      <div key={`${group.restaurant._id}-${typeof item.menuItem === 'object' ? (item.menuItem as any)?._id : item.menuItem}-${itemIndex}`} className="flex gap-4">
+                      <div key={`${group.restaurant._id}-${getCartItemKey(item.menuItem)}-${itemIndex}`} className="flex gap-4">
                         <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0">
                           <Image
                             src={item.image || "/food-placeholder.jpg"}
@@ -548,7 +659,7 @@ export default function CheckoutPage() {
                           <h4 className="font-semibold text-gray-900 text-xs">{item.name}</h4>
                           <p className="text-gray-500 text-xs">Qty: {item.quantity}</p>
                           {item.specialInstructions && (
-                            <p className="text-[10px] text-orange-600 italic">"{item.specialInstructions}"</p>
+                            <p className="text-[10px] text-orange-600 italic">&quot;{item.specialInstructions}&quot;</p>
                           )}
                         </div>
                         <div className="text-right">
@@ -574,9 +685,27 @@ export default function CheckoutPage() {
                   <span>Service Fee:</span>
                   <span>Rs. {serviceFee}</span>
                 </div>
+                {promoDiscount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Promo Discount:</span>
+                    <span>-Rs. {promoDiscount}</span>
+                  </div>
+                )}
+                {loyaltyDiscount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Loyalty Points Redeemed:</span>
+                    <span>-Rs. {loyaltyDiscount}</span>
+                  </div>
+                )}
+                {pointsEarnPreview > 0 && (
+                  <div className="flex justify-between text-orange-600">
+                    <span>Points You&apos;ll Earn:</span>
+                    <span>+{pointsEarnPreview}</span>
+                  </div>
+                )}
                 {discount > 0 && (
                   <div className="flex justify-between text-green-600">
-                    <span>Discount:</span>
+                    <span>Total Savings:</span>
                     <span>-Rs. {discount}</span>
                   </div>
                 )}

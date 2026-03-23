@@ -69,7 +69,29 @@ const cartSchema = new mongoose.Schema({
   collaborators: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
-  }]
+  }],
+  parentApproval: {
+    status: {
+      type: String,
+      enum: ['not_required', 'pending_parent_approval', 'approved', 'rejected'],
+      default: 'not_required'
+    },
+    requestedAt: {
+      type: Date
+    },
+    reviewedAt: {
+      type: Date
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    note: {
+      type: String,
+      trim: true,
+      default: ''
+    }
+  }
 }, {
   timestamps: true
 });

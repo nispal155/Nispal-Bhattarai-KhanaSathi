@@ -3,12 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Star, Clock, MapPin, Phone, ShoppingCart, Plus, Minus, Loader2, ArrowLeft, AlertCircle, Users, ChevronDown } from "lucide-react";
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import { getRestaurantById } from "@/lib/restaurantService";
 import { getRestaurantMenu, MenuItem } from "@/lib/menuService";
-import { addToCart, clearCart } from "@/lib/cartService";
+import { addItemToChildCartRequest, addToCart, clearCart } from "@/lib/cartService";
 import { getMyGroupCarts, addItemToGroupCart, GroupCart } from "@/lib/groupCartService";
 import { formatPriceRange } from "@/lib/formatters";
 import toast from "react-hot-toast";
@@ -41,9 +42,97 @@ interface CartItem {
   specialInstructions?: string;
 }
 
+type RecommendedMenuItem = MenuItem & {
+  recommendationScore: number;
+  recommendationReasons: string[];
+};
+
+const formatChildLimits = (childProfile?: {
+  spendingLimits?: { daily?: number | null; weekly?: number | null; monthly?: number | null };
+}) => {
+  const limits = childProfile?.spendingLimits;
+  const summary: string[] = [];
+
+  if (limits?.daily !== null && limits?.daily !== undefined) summary.push(`Daily budget: Rs. ${limits.daily}`);
+  if (limits?.weekly !== null && limits?.weekly !== undefined) summary.push(`Weekly budget: Rs. ${limits.weekly}`);
+  if (limits?.monthly !== null && limits?.monthly !== undefined) summary.push(`Monthly budget: Rs. ${limits.monthly}`);
+
+  return summary;
+};
+
+const formatChildRestrictions = (childProfile?: {
+  foodRestrictions?: { blockJunkFood?: boolean; blockCaffeine?: boolean; blockedAllergens?: string[] };
+}) => {
+  const restrictions = childProfile?.foodRestrictions;
+  const summary: string[] = [];
+
+  if (restrictions?.blockJunkFood) summary.push("Junk food hidden");
+  if (restrictions?.blockCaffeine) summary.push("Caffeinated items hidden");
+  if (restrictions?.blockedAllergens?.length) {
+    summary.push(`Blocked allergens: ${restrictions.blockedAllergens.join(", ")}`);
+  }
+
+  return summary;
+};
+
+const scoreRecommendedMeal = (item: MenuItem): RecommendedMenuItem => {
+  const reasons = new Set<string>();
+  let score = 0;
+
+  if (!item.isJunkFood) {
+    score += 3;
+    reasons.add("Not marked as junk food");
+  }
+
+  if (!item.containsCaffeine) {
+    score += 1;
+    reasons.add("Caffeine-free");
+  }
+
+  if (typeof item.calories === "number") {
+    if (item.calories <= 450) {
+      score += 3;
+    } else if (item.calories <= 650) {
+      score += 2;
+    } else {
+      score -= 1;
+    }
+    reasons.add(`${item.calories} kcal`);
+  }
+
+  if (item.isVegetarian) {
+    score += 1;
+    reasons.add("Vegetarian");
+  }
+
+  if (item.isVegan) {
+    score += 1;
+    reasons.add("Vegan");
+  }
+
+  if (item.isGlutenFree) {
+    score += 1;
+    reasons.add("Gluten-free");
+  }
+
+  if (item.preparationTime > 0 && item.preparationTime <= 20) {
+    score += 0.5;
+    reasons.add("Quick prep");
+  }
+
+  return {
+    ...item,
+    recommendationScore: score,
+    recommendationReasons: [...reasons].slice(0, 3)
+  };
+};
+
 export default function ViewRestaurantPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
   const { user } = useAuth();
+  const childCartId = searchParams.get("childCartId") || "";
+  const isParentEditingChildCart = user?.role === "customer" && Boolean(childCartId);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,15 +145,16 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
   const [addingToGroupCart, setAddingToGroupCart] = useState(false);
   const [showGroupCartPicker, setShowGroupCartPicker] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-    fetchActiveGroupCarts();
-  }, [id]);
+  const fetchActiveGroupCarts = useCallback(async () => {
+    if (user?.role === 'child' || isParentEditingChildCart) {
+      setActiveGroupCarts([]);
+      setSelectedGroupCart("");
+      return;
+    }
 
-  const fetchActiveGroupCarts = async () => {
     try {
       const res = await getMyGroupCarts();
-      const carts = (res?.data as any)?.data || (res?.data as any) || [];
+      const carts = res.data?.data || [];
       const active = (Array.isArray(carts) ? carts : []).filter(
         (gc: GroupCart) => gc.status === 'open'
       );
@@ -75,9 +165,9 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
     } catch {
       // silent — group cart is optional
     }
-  };
+  }, [isParentEditingChildCart, selectedGroupCart, user?.role]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [restaurantRes, menuRes] = await Promise.all([
@@ -106,13 +196,38 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+    fetchActiveGroupCarts();
+  }, [fetchData, fetchActiveGroupCarts]);
 
   const categories = ["All", ...new Set(menuItems.map(item => item.category))];
 
   const filteredMenu = selectedCategory === "All"
     ? menuItems
     : menuItems.filter(item => item.category === selectedCategory);
+  const childLimitSummary = formatChildLimits(user?.childProfile);
+  const childRestrictionSummary = formatChildRestrictions(user?.childProfile);
+  const recommendedMeals = user?.role === "child"
+    ? menuItems
+      .filter((item) => item.isAvailable)
+      .map(scoreRecommendedMeal)
+      .filter((item) => item.recommendationScore >= 3)
+      .sort((a, b) => {
+        if (b.recommendationScore !== a.recommendationScore) {
+          return b.recommendationScore - a.recommendationScore;
+        }
+
+        if (typeof a.calories === "number" && typeof b.calories === "number") {
+          return a.calories - b.calories;
+        }
+
+        return a.price - b.price;
+      })
+      .slice(0, 3)
+    : [];
 
   const updateLocalCart = (menuItem: MenuItem, change: number, instructions?: string) => {
     setCartItems(prev => {
@@ -148,36 +263,62 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
     try {
       setAddingToCart(true);
 
+      if (isParentEditingChildCart) {
+        for (const item of cartItems) {
+          const response = await addItemToChildCartRequest(
+            childCartId,
+            item.menuItem._id,
+            item.quantity,
+            item.specialInstructions
+          );
+
+          if (response.error) {
+            toast.error(response.error);
+            return;
+          }
+        }
+
+        setCartItems([]);
+        toast.success("Items added to the approved child cart!");
+        return;
+      }
+
       // If replacing, clear the old cart first
       if (forceReplace) {
-        await clearCart();
+        const clearResponse = await clearCart();
+        if (clearResponse.error) {
+          toast.error(clearResponse.error);
+          return;
+        }
       }
 
       // Add each item to cart via API
       for (const item of cartItems) {
-        await addToCart(item.menuItem._id, item.quantity, item.specialInstructions);
+        const response = await addToCart(item.menuItem._id, item.quantity, item.specialInstructions);
+        if (response.error) {
+          if (response.errorCode === 'DIFFERENT_RESTAURANT') {
+            const existingName = (response.details as { existingRestaurant?: string } | undefined)?.existingRestaurant || 'another restaurant';
+            const confirmed = window.confirm(
+              `Your cart has items from ${existingName}. Do you want to clear it and add items from ${restaurant?.name || 'this restaurant'} instead?`
+            );
+            if (confirmed) {
+              await handleAddToCart(true);
+              return;
+            }
+
+            toast("Cart was not changed.");
+            return;
+          }
+
+          toast.error(response.error);
+          return;
+        }
       }
       // Clear local cart after adding
       setCartItems([]);
       toast.success("Items added to cart!");
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string; code?: string; existingRestaurant?: string } } };
-
-      // Handle different-restaurant conflict
-      if (error.response?.data?.code === 'DIFFERENT_RESTAURANT') {
-        const existingName = error.response.data.existingRestaurant || 'another restaurant';
-        const confirmed = window.confirm(
-          `Your cart has items from ${existingName}. Do you want to clear it and add items from ${restaurant?.name || 'this restaurant'} instead?`
-        );
-        if (confirmed) {
-          await handleAddToCart(true);
-          return;
-        } else {
-          toast("Cart was not changed.", { icon: "ℹ️" });
-        }
-      } else {
-        toast.error(error.response?.data?.message || "Failed to add items to cart");
-      }
+    } catch {
+      toast.error("Failed to add items to cart");
     } finally {
       setAddingToCart(false);
     }
@@ -188,13 +329,16 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
     try {
       setAddingToGroupCart(true);
       for (const item of cartItems) {
-        await addItemToGroupCart(selectedGroupCart, item.menuItem._id, item.quantity, item.specialInstructions);
+        const response = await addItemToGroupCart(selectedGroupCart, item.menuItem._id, item.quantity, item.specialInstructions);
+        if (response.error) {
+          toast.error(response.error);
+          return;
+        }
       }
       setCartItems([]);
       toast.success('Items added to group cart!');
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } };
-      toast.error(error.response?.data?.message || 'Failed to add items to group cart');
+    } catch {
+      toast.error('Failed to add items to group cart');
     } finally {
       setAddingToGroupCart(false);
     }
@@ -282,6 +426,33 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                   ))}
                 </div>
               )}
+
+              {user?.role === "child" && (childRestrictionSummary.length > 0 || childLimitSummary.length > 0) && (
+                <div className="mt-4 rounded-xl border border-red-100 bg-red-50 p-4">
+                  <p className="text-sm font-semibold text-red-900 mb-2">Parental controls are active on this account</p>
+                  <div className="flex flex-wrap gap-2">
+                    {childRestrictionSummary.map((item) => (
+                      <span key={item} className="px-3 py-1 rounded-full bg-white text-red-700 text-xs border border-red-200">
+                        {item}
+                      </span>
+                    ))}
+                    {childLimitSummary.map((item) => (
+                      <span key={item} className="px-3 py-1 rounded-full bg-white text-gray-700 text-xs border border-gray-200">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {isParentEditingChildCart && (
+                <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-sm font-semibold text-blue-900 mb-1">Editing an approved child cart</p>
+                  <p className="text-sm text-blue-800">
+                    Items added here will go into the child request waiting in your parent cart review flow.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -291,6 +462,54 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Menu Section */}
           <main className="flex-1">
+            {user?.role === "child" && recommendedMeals.length > 0 && (
+              <div className="mb-6 rounded-2xl border border-emerald-200 bg-linear-to-r from-emerald-50 via-lime-50 to-white p-5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-900">Recommended meals for healthier habits</p>
+                    <p className="text-sm text-emerald-800 mt-1">
+                      These options are picked from the menu you are allowed to see and lean toward lighter choices.
+                    </p>
+                  </div>
+                  <span className="text-xs font-medium text-emerald-700 bg-white/80 border border-emerald-100 px-3 py-1 rounded-full">
+                    Parent-safe picks
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {recommendedMeals.map((item) => (
+                    <div key={item._id} className="rounded-xl border border-white/80 bg-white/90 p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-gray-900">{item.name}</p>
+                          <p className="text-xs text-gray-500 mt-1">{item.category}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-900">Rs. {item.price}</span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {item.recommendationReasons.map((reason) => (
+                          <span
+                            key={`${item._id}-${reason}`}
+                            className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[11px] border border-emerald-100"
+                          >
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => updateLocalCart(item, 1)}
+                        className="mt-4 w-full rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 text-sm font-medium transition-colors"
+                      >
+                        {getItemQuantity(item._id) > 0 ? `Add More (${getItemQuantity(item._id)})` : "Add to Cart"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Categories */}
             <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
               {categories.map((category) => (
@@ -310,7 +529,9 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
             {/* Menu Items */}
             {filteredMenu.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                No menu items available in this category.
+                {user?.role === "child"
+                  ? "No menu items available here after parental-control filters were applied."
+                  : "No menu items available in this category."}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -350,6 +571,12 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                           )}
                           {item.isGlutenFree && (
                             <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">GF</span>
+                          )}
+                          {item.isJunkFood && (
+                            <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">Junk Food</span>
+                          )}
+                          {item.containsCaffeine && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">Caffeine</span>
                           )}
                           {item.spiceLevel && (
                             <span className="text-xs flex items-center gap-0.5">
@@ -470,7 +697,7 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                   ) : (
                     <>
                       <ShoppingCart className="w-5 h-5" />
-                      Add to Cart ({cartCount} items)
+                      {isParentEditingChildCart ? `Add to Child Cart (${cartCount} items)` : `Add to Cart (${cartCount} items)`}
                     </>
                   )}
                 </button>
@@ -479,11 +706,11 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                   href="/cart"
                   className="w-full mt-3 border border-gray-300 text-gray-700 py-3 rounded-lg font-medium transition-colors flex items-center justify-center hover:bg-gray-50"
                 >
-                  View Cart
+                  {isParentEditingChildCart ? "Back to Child Requests" : "View Cart"}
                 </Link>
 
                 {/* Add to Group Cart */}
-                {activeGroupCarts.length > 0 && (
+                {user?.role !== 'child' && !isParentEditingChildCart && activeGroupCarts.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <div className="flex items-center gap-2 mb-3">
                       <Users className="w-4 h-4 text-red-500" />

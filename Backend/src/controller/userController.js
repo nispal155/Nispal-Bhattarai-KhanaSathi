@@ -1,6 +1,15 @@
 const User = require('../models/User');
 const Address = require('../models/Address');
 const Order = require('../models/Order');
+const {
+  normalizeChildControls,
+  getChildControls,
+  getChildSpendingSnapshot
+} = require('../utils/childAccountControls');
+const {
+  buildChildOrderHistorySummary,
+  buildChildNutritionInsights
+} = require('../utils/childInsights');
 
 const PARENT_ALLOWED_ROLES = new Set(['customer']);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -28,8 +37,33 @@ const serializeChildAccount = (child) => ({
   isProfileComplete: child.isProfileComplete,
   isApproved: child.isApproved,
   onboardingSubmittedAt: child.childProfile?.onboardingSubmittedAt,
+  spendingLimits: getChildControls(child).spendingLimits,
+  foodRestrictions: getChildControls(child).foodRestrictions,
   createdAt: child.createdAt,
   updatedAt: child.updatedAt
+});
+
+const serializeChildOrderPreview = (order) => ({
+  _id: order._id,
+  orderNumber: order.orderNumber,
+  status: order.status,
+  paymentStatus: order.paymentStatus,
+  total: Number(Number(order?.pricing?.total || 0).toFixed(2)),
+  createdAt: order.createdAt,
+  restaurant: order.restaurant
+    ? {
+      _id: order.restaurant._id,
+      name: order.restaurant.name,
+      logoUrl: order.restaurant.logoUrl || ''
+    }
+    : null,
+  items: (order.items || []).map((item) => ({
+    name: item.name,
+    quantity: item.quantity,
+    price: item.price,
+    calories: item.menuItem?.calories ?? null,
+    category: item.menuItem?.category || null
+  }))
 });
 
 const buildChildUsernameFromEmail = async (email) => {
@@ -54,9 +88,10 @@ const buildChildUsernameFromEmail = async (email) => {
  * @access  Private
  */
 exports.getProfile = async (req, res) => {
-  console.log('getProfile requested for user:', req.user?._id);
   try {
-    const user = await User.findById(req.user._id).select('-password');
+    const user = await User.findById(req.user._id)
+      .select('-password')
+      .populate('parentAccount', 'username email phone');
 
     if (!user) {
       return res.status(404).json({
@@ -121,7 +156,9 @@ exports.updateProfile = async (req, res) => {
       req.user._id,
       { $set: updateData },
       { new: true, runValidators: true }
-    ).select('-password');
+    )
+      .select('-password')
+      .populate('parentAccount', 'username email phone');
 
     if (!user) {
       return res.status(404).json({
@@ -346,8 +383,9 @@ exports.createChildAccount = async (req, res) => {
       });
     }
 
-    const { email, password, displayName } = req.body;
+    const { email, password, displayName, spendingLimits, foodRestrictions } = req.body;
     const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedControls = normalizeChildControls({ spendingLimits, foodRestrictions });
 
     if (!normalizedEmail || !password) {
       return res.status(400).json({
@@ -390,7 +428,9 @@ exports.createChildAccount = async (req, res) => {
       isApproved: false,
       childProfile: {
         displayName: displayName?.trim() || generatedUsername,
-        isActive: true
+        isActive: true,
+        spendingLimits: normalizedControls.spendingLimits,
+        foodRestrictions: normalizedControls.foodRestrictions
       }
     });
 
@@ -400,10 +440,11 @@ exports.createChildAccount = async (req, res) => {
       data: serializeChildAccount(child)
     });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to create child account',
-      error: error.message
+      message: error.statusCode ? error.message : 'Failed to create child account',
+      error: error.message,
+      details: error.details
     });
   }
 };
@@ -444,6 +485,126 @@ exports.getMyChildAccounts = async (req, res) => {
 };
 
 /**
+ * @desc    Get parent-facing order history and nutrition insights for a child account
+ * @route   GET /api/users/children/:childId/insights
+ * @access  Private (Customer as parent)
+ */
+exports.getChildAccountInsights = async (req, res) => {
+  try {
+    if (!canManageChildren(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customer parent accounts can view child insights'
+      });
+    }
+
+    const child = await User.findOne({
+      _id: req.params.childId,
+      role: 'child',
+      parentAccount: req.user._id
+    })
+      .select('username email role parentAccount childProfile isProfileComplete isApproved createdAt updatedAt');
+
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child account not found'
+      });
+    }
+
+    const [spending, orders] = await Promise.all([
+      getChildSpendingSnapshot(child),
+      Order.find({ customer: child._id })
+        .populate('restaurant', 'name logoUrl')
+        .populate('items.menuItem', 'calories category isJunkFood containsCaffeine allergens isVegetarian isVegan isGlutenFree')
+        .sort({ createdAt: -1 })
+    ]);
+
+    const orderHistory = buildChildOrderHistorySummary(orders);
+    const nutritionInsights = buildChildNutritionInsights(
+      orders.filter((order) => order.status !== 'cancelled')
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        child: serializeChildAccount(child),
+        spending,
+        orderHistory: {
+          ...orderHistory,
+          recentOrders: orders.slice(0, 6).map(serializeChildOrderPreview)
+        },
+        nutritionInsights
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch child insights',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get the authenticated child account spending summary
+ * @route   GET /api/users/child-summary
+ * @access  Private (Child)
+ */
+exports.getChildSummary = async (req, res) => {
+  try {
+    if (req.user.role !== 'child') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only child accounts can view this summary'
+      });
+    }
+
+    const child = await User.findById(req.user._id)
+      .select('username email role parentAccount childProfile isProfileComplete isApproved createdAt updatedAt');
+
+    if (!child || child.role !== 'child') {
+      return res.status(404).json({
+        success: false,
+        message: 'Child account not found'
+      });
+    }
+
+    const [spending, orders, activeOrders] = await Promise.all([
+      getChildSpendingSnapshot(child),
+      Order.find({
+        customer: child._id,
+        isHiddenForCustomer: { $ne: true }
+      })
+        .populate('restaurant', 'name logoUrl')
+        .populate('items.menuItem', 'calories category')
+        .sort({ createdAt: -1 })
+        .limit(3),
+      Order.countDocuments({
+        customer: child._id,
+        isHiddenForCustomer: { $ne: true },
+        status: { $nin: ['delivered', 'cancelled'] }
+      })
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        spending,
+        activeOrders,
+        recentOrders: orders.map(serializeChildOrderPreview)
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch child summary',
+      error: error.message
+    });
+  }
+};
+
+/**
  * @desc    Update linked child account
  * @route   PUT /api/users/children/:childId
  * @access  Private (Customer as parent)
@@ -458,7 +619,7 @@ exports.updateChildAccount = async (req, res) => {
     }
 
     const { childId } = req.params;
-    const { email, password, displayName, isActive } = req.body;
+    const { email, password, displayName, isActive, spendingLimits, foodRestrictions } = req.body;
 
     const child = await User.findOne({
       _id: childId,
@@ -497,6 +658,20 @@ exports.updateChildAccount = async (req, res) => {
       child.childProfile = {};
     }
 
+    if (spendingLimits !== undefined || foodRestrictions !== undefined) {
+      const normalizedControls = normalizeChildControls({
+        spendingLimits: spendingLimits !== undefined
+          ? spendingLimits
+          : child.childProfile?.spendingLimits || {},
+        foodRestrictions: foodRestrictions !== undefined
+          ? foodRestrictions
+          : child.childProfile?.foodRestrictions || {}
+      });
+
+      child.childProfile.spendingLimits = normalizedControls.spendingLimits;
+      child.childProfile.foodRestrictions = normalizedControls.foodRestrictions;
+    }
+
     if (typeof displayName === 'string') {
       child.childProfile.displayName = displayName.trim() || child.username;
     }
@@ -523,10 +698,11 @@ exports.updateChildAccount = async (req, res) => {
       data: serializeChildAccount(child)
     });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update child account',
-      error: error.message
+      message: error.statusCode ? error.message : 'Failed to update child account',
+      error: error.message,
+      details: error.details
     });
   }
 };

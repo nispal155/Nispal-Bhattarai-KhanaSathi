@@ -1,22 +1,21 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import {
   Upload,
-  X,
   Loader2,
   ArrowLeft,
   Save,
-  Trash2,
   Utensils
 } from "lucide-react";
 import { updateMenuItem } from "@/lib/menuService";
 import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api";
+const ALLERGEN_OPTIONS = ["Dairy", "Eggs", "Fish", "Shellfish", "Tree Nuts", "Peanuts", "Wheat", "Soy", "Sesame"];
 
 interface MenuItem {
   _id: string;
@@ -27,6 +26,9 @@ interface MenuItem {
   image: string;
   isAvailable: boolean;
   preparationTime: number;
+  isJunkFood?: boolean;
+  containsCaffeine?: boolean;
+  allergens?: string[];
 }
 
 function EditMenuItemContent() {
@@ -44,25 +46,19 @@ function EditMenuItemContent() {
     price: "",
     preparationTime: "20",
     isAvailable: true,
+    isJunkFood: false,
+    containsCaffeine: false,
+    allergens: [] as string[],
   });
 
-  useEffect(() => {
-    if (!itemId) {
-      toast.error("No menu item ID provided");
-      router.push("/menu");
-      return;
-    }
-    fetchMenuItem();
-  }, [itemId]);
-
-  const fetchMenuItem = async () => {
+  const fetchMenuItem = useCallback(async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
       const response = await axios.get(`${API_URL}/menu/${itemId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const item = response.data.data;
+      const item = response.data.data as MenuItem;
 
       setFormData({
         name: item.name || "",
@@ -71,6 +67,9 @@ function EditMenuItemContent() {
         price: String(item.price || ""),
         preparationTime: String(item.preparationTime || "20"),
         isAvailable: item.isAvailable ?? true,
+        isJunkFood: item.isJunkFood ?? false,
+        containsCaffeine: item.containsCaffeine ?? false,
+        allergens: item.allergens || [],
       });
       setImagePreview(item.image || null);
     } catch (error) {
@@ -80,7 +79,16 @@ function EditMenuItemContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [itemId, router]);
+
+  useEffect(() => {
+    if (!itemId) {
+      toast.error("No menu item ID provided");
+      router.push("/menu");
+      return;
+    }
+    fetchMenuItem();
+  }, [fetchMenuItem, itemId, router]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -96,6 +104,19 @@ function EditMenuItemContent() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const toggleBooleanField = (key: "isJunkFood" | "containsCaffeine") => {
+    setFormData((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleAllergen = (allergen: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      allergens: prev.allergens.includes(allergen)
+        ? prev.allergens.filter((item) => item !== allergen)
+        : [...prev.allergens, allergen]
+    }));
   };
 
   const handleSave = async () => {
@@ -116,12 +137,15 @@ function EditMenuItemContent() {
         preparationTime: Number(formData.preparationTime),
         image: imagePreview || "",
         isAvailable: formData.isAvailable,
+        isJunkFood: formData.isJunkFood,
+        containsCaffeine: formData.containsCaffeine,
+        allergens: formData.allergens,
       });
       toast.success("Menu item updated successfully!");
       router.push("/menu");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error updating menu item:", error);
-      toast.error(error.response?.data?.message || "Failed to update menu item");
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to update menu item" : "Failed to update menu item");
     } finally {
       setSaving(false);
     }
@@ -236,6 +260,56 @@ function EditMenuItemContent() {
                   >
                     <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition shadow-sm ${formData.isAvailable ? "translate-x-7" : "translate-x-1"}`} />
                   </button>
+                </div>
+
+                <div className="p-6 bg-white border border-gray-100 rounded-[1.5rem] space-y-4">
+                  <div>
+                    <h4 className="font-bold text-gray-800 text-sm">Parent Control Tags</h4>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Used to filter child accounts</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.isJunkFood}
+                        onChange={() => toggleBooleanField("isJunkFood")}
+                        className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                      />
+                      Mark as junk food
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.containsCaffeine}
+                        onChange={() => toggleBooleanField("containsCaffeine")}
+                        className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                      />
+                      Contains caffeine
+                    </label>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-2">Allergens</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ALLERGEN_OPTIONS.map((allergen) => {
+                        const selected = formData.allergens.includes(allergen);
+                        return (
+                          <button
+                            key={allergen}
+                            type="button"
+                            onClick={() => toggleAllergen(allergen)}
+                            className={`px-3 py-1.5 rounded-full text-xs border transition ${selected
+                              ? "bg-orange-500 border-orange-500 text-white"
+                              : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                              }`}
+                          >
+                            {allergen}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

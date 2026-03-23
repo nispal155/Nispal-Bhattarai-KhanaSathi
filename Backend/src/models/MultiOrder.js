@@ -252,7 +252,6 @@ multiOrderSchema.methods.allSubOrdersPickedUp = function () {
 multiOrderSchema.index({ customer: 1, createdAt: -1 });
 multiOrderSchema.index({ primaryRider: 1, status: 1 });
 multiOrderSchema.index({ status: 1, createdAt: -1 });
-multiOrderSchema.index({ orderNumber: 1 });
 
 const MultiOrder = mongoose.model('MultiOrder', multiOrderSchema);
 

@@ -25,6 +25,13 @@ const UserHeader: React.FC = () => {
                 return;
             }
 
+            if (user.role === 'child') {
+                if (!cancelled) {
+                    setActiveGCs([]);
+                }
+                return;
+            }
+
             try {
                 const res = await getMyGroupCarts();
                 const payload = res.data;
@@ -82,7 +89,7 @@ const UserHeader: React.FC = () => {
                         </Link>
 
                         {/* Group Order with active cart dropdown */}
-                        <div className="relative">
+                        {user?.role !== 'child' && <div className="relative">
                             <button
                                 onClick={() => setShowGCDropdown(!showGCDropdown)}
                                 className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
@@ -155,7 +162,7 @@ const UserHeader: React.FC = () => {
                                     </div>
                                 </>
                             )}
-                        </div>
+                        </div>}
                         <Link href="/user-profile" className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors">
                             <UserIcon className="w-4 h-4" /> <span>Profile</span>
                         </Link>

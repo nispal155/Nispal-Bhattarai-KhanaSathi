@@ -1,6 +1,18 @@
 import { get, post, put, del } from './api';
 
 // Types
+export interface ChildSpendingLimits {
+  daily: number | null;
+  weekly: number | null;
+  monthly: number | null;
+}
+
+export interface ChildFoodRestrictions {
+  blockJunkFood: boolean;
+  blockCaffeine: boolean;
+  blockedAllergens: string[];
+}
+
 export interface UserProfile {
   _id: string;
   username: string;
@@ -10,6 +22,7 @@ export interface UserProfile {
     _id: string;
     username?: string;
     email?: string;
+    phone?: string;
   };
   phone?: string;
   dateOfBirth?: string;
@@ -20,6 +33,8 @@ export interface UserProfile {
   childProfile?: {
     displayName?: string;
     isActive?: boolean;
+    spendingLimits?: ChildSpendingLimits;
+    foodRestrictions?: ChildFoodRestrictions;
     birthCertificate?: string;
     childPhoto?: string;
     onboardingSubmittedAt?: string;
@@ -85,6 +100,8 @@ export interface ChildAccount {
   isProfileComplete: boolean;
   isApproved: boolean;
   onboardingSubmittedAt?: string;
+  spendingLimits: ChildSpendingLimits;
+  foodRestrictions: ChildFoodRestrictions;
   createdAt: string;
   updatedAt: string;
 }
@@ -109,6 +126,83 @@ export interface ChildOnboardingResponse {
     isProfileComplete: boolean;
     isApproved: boolean;
     onboardingSubmittedAt?: string;
+  };
+}
+
+export interface SpendingWindowSummary {
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+}
+
+export interface ChildSpendingSnapshot {
+  daily: SpendingWindowSummary;
+  weekly: SpendingWindowSummary;
+  monthly: SpendingWindowSummary;
+}
+
+export interface ChildRecentOrder {
+  _id: string;
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  total: number;
+  createdAt: string;
+  restaurant: {
+    _id: string;
+    name: string;
+    logoUrl?: string;
+  } | null;
+  items: Array<{
+    name: string;
+    quantity: number;
+    price: number;
+    calories?: number | null;
+    category?: string | null;
+  }>;
+}
+
+export interface ChildNutritionInsights {
+  trackedOrderCount: number;
+  totalItems: number;
+  trackedCalories: number;
+  averageCaloriesPerOrder: number;
+  healthyChoiceRate: number;
+  healthyChoiceCount: number;
+  junkFoodItemCount: number;
+  caffeinatedItemCount: number;
+  categoryBreakdown: Array<{
+    name: string;
+    count: number;
+  }>;
+  allergenExposure: Array<{
+    name: string;
+    count: number;
+  }>;
+  highlights: string[];
+}
+
+export interface ChildAccountInsights {
+  child: ChildAccount;
+  spending: ChildSpendingSnapshot;
+  orderHistory: {
+    totalOrders: number;
+    totalSpent: number;
+    averageOrderValue: number;
+    activeOrders: number;
+    lastOrderAt?: string | null;
+    statusBreakdown: Record<string, number>;
+    recentOrders: ChildRecentOrder[];
+  };
+  nutritionInsights: ChildNutritionInsights;
+}
+
+export interface ChildSummaryResponse {
+  success: boolean;
+  data: {
+    spending: ChildSpendingSnapshot;
+    activeOrders: number;
+    recentOrders: ChildRecentOrder[];
   };
 }
 
@@ -162,6 +256,8 @@ export async function createChildAccount(payload: {
   email: string;
   password: string;
   displayName?: string;
+  spendingLimits?: Partial<ChildSpendingLimits>;
+  foodRestrictions?: Partial<ChildFoodRestrictions>;
 }) {
   return post<ChildAccountResponse>('/users/children', payload);
 }
@@ -174,6 +270,8 @@ export async function updateChildAccount(
     password?: string;
     displayName?: string;
     isActive?: boolean;
+    spendingLimits?: Partial<ChildSpendingLimits>;
+    foodRestrictions?: Partial<ChildFoodRestrictions>;
   }
 ) {
   return put<ChildAccountResponse>(`/users/children/${childId}`, payload);
@@ -182,6 +280,14 @@ export async function updateChildAccount(
 // Parent: Delete child account
 export async function deleteChildAccount(childId: string) {
   return del<{ success: boolean; message: string }>(`/users/children/${childId}`);
+}
+
+export async function getChildAccountInsights(childId: string) {
+  return get<{ success: boolean; data: ChildAccountInsights }>(`/users/children/${childId}/insights`);
+}
+
+export async function getChildSummary() {
+  return get<ChildSummaryResponse>('/users/child-summary');
 }
 
 // Child: Submit onboarding documents/details

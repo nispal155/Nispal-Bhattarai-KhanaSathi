@@ -2,13 +2,23 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Camera, Bell, LogOut, Edit2, Loader2, Trash2, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Camera, Bell, LogOut, Edit2, Loader2, Trash2, ShieldCheck, RotateCcw } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
-import { getProfile, updateProfile, getAddresses, addAddress, deleteAddress, setDefaultAddress } from "@/lib/userService";
+import {
+  getProfile,
+  updateProfile,
+  getAddresses,
+  addAddress,
+  deleteAddress,
+  setDefaultAddress,
+  getChildSummary,
+  type ChildSpendingSnapshot,
+} from "@/lib/userService";
 import { getMyRestaurant, updateMyRestaurant } from "@/lib/restaurantService";
-import { getMyOrders, clearOrderHistory } from "@/lib/orderService";
+import { getMyOrders, clearOrderHistory, reorderOrder } from "@/lib/orderService";
 import toast from "react-hot-toast";
 
 interface Address {
@@ -39,14 +49,35 @@ interface UserProfile {
   _id: string;
   name: string;
   email: string;
+  role?: string;
   phone?: string;
   dateOfBirth?: string;
   profilePicture?: string;
+  parentAccount?: string | null | {
+    _id: string;
+    username?: string;
+    email?: string;
+    phone?: string;
+  };
   loyaltyPoints: number;
   createdAt: string;
 }
 
+interface RestaurantProfile {
+  name?: string;
+  contactPhone?: string;
+  address?: {
+    addressLine1?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  };
+  openingHour?: string;
+  closingHour?: string;
+}
+
 export default function ProfilePage() {
+  const router = useRouter();
   const { user, logout, updateUser: updateAuthUser, isAuthenticated, isLoading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("personal");
@@ -56,6 +87,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
+  const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [newAddress, setNewAddress] = useState({
@@ -66,7 +98,8 @@ export default function ProfilePage() {
     state: "",
     zipCode: "",
   });
-  const [restaurant, setRestaurant] = useState<any>(null);
+  const [restaurant, setRestaurant] = useState<RestaurantProfile | null>(null);
+  const [childSpending, setChildSpending] = useState<ChildSpendingSnapshot | null>(null);
   const [restaurantEdit, setRestaurantEdit] = useState({
     name: "",
     contactPhone: "",
@@ -87,7 +120,7 @@ export default function ProfilePage() {
     if (isAuthenticated) {
       fetchData();
     }
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated, authLoading, user?.role]);
 
   const fetchData = async () => {
     try {
@@ -96,9 +129,10 @@ export default function ProfilePage() {
         getProfile(),
         getAddresses(),
         getMyOrders(),
-        user?.role === 'restaurant' ? getMyRestaurant() : Promise.resolve({ data: null })
+        user?.role === 'restaurant' ? getMyRestaurant() : Promise.resolve({ data: null }),
+        user?.role === 'child' ? getChildSummary() : Promise.resolve({ data: null }),
       ]);
-      const [profileRes, addressesRes, ordersRes] = results;
+      const [profileRes, addressesRes, ordersRes, restaurantRes, childSummaryRes] = results;
 
       // Handle the nested response structure - extract actual data from API response
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,9 +156,11 @@ export default function ProfilePage() {
           _id: profileData._id || '',
           name: profileData.username || profileData.name || '',
           email: profileData.email || '',
+          role: profileData.role || '',
           phone: profileData.phone || '',
           dateOfBirth: profileData.dateOfBirth || '',
           profilePicture: profileData.profilePicture || '',
+          parentAccount: profileData.parentAccount || null,
           loyaltyPoints: profileData.loyaltyPoints || 0,
           createdAt: profileData.createdAt || '',
         });
@@ -140,8 +176,8 @@ export default function ProfilePage() {
 
       // Handle restaurant data
       if (user?.role === 'restaurant') {
-        const restaurantRes = (results[3] as any)?.data;
-        const rData = restaurantRes?.data || restaurantRes;
+        const restaurantData = (restaurantRes as { data?: { data?: RestaurantProfile } | RestaurantProfile | null })?.data;
+        const rData = restaurantData?.data || restaurantData;
         if (rData) {
           setRestaurant(rData);
           setRestaurantEdit({
@@ -155,6 +191,14 @@ export default function ProfilePage() {
             closingHour: rData.closingHour || ""
           });
         }
+      }
+
+      if (user?.role === 'child') {
+        const childSummaryData = (childSummaryRes as { data?: { data?: { spending?: ChildSpendingSnapshot } } | { spending?: ChildSpendingSnapshot } | null })?.data;
+        const childSummary = childSummaryData?.data || childSummaryData;
+        setChildSpending(childSummary?.spending || null);
+      } else {
+        setChildSpending(null);
       }
     } catch (err) {
       console.error("Error fetching data:", err);
@@ -186,6 +230,39 @@ export default function ProfilePage() {
       toast.error("Failed to clear history");
     } finally {
       setClearingHistory(false);
+    }
+  };
+
+  const handleReorder = async (orderId: string) => {
+    try {
+      setReorderingOrderId(orderId);
+      const response = await reorderOrder(orderId);
+
+      if (response.error) {
+        toast.error(response.error);
+        return;
+      }
+
+      const reorderData = response.data?.data;
+      const skippedItems = reorderData?.skippedItems || [];
+
+      if (skippedItems.length > 0) {
+        const preview = skippedItems
+          .slice(0, 2)
+          .map((item) => `${item.name} (${item.reason})`)
+          .join(", ");
+        const extra = skippedItems.length > 2 ? ` and ${skippedItems.length - 2} more` : "";
+        toast.success(`${response.data?.message || "Meal added to cart"}. Skipped: ${preview}${extra}`);
+      } else {
+        toast.success(response.data?.message || "Meal added to cart");
+      }
+
+      router.push("/cart");
+    } catch (error) {
+      console.error("Reorder error:", error);
+      toast.error("Failed to reorder this meal");
+    } finally {
+      setReorderingOrderId(null);
     }
   };
 
@@ -319,6 +396,13 @@ export default function ProfilePage() {
     });
   };
 
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value === null || value === undefined) {
+      return "No limit";
+    }
+    return `Rs. ${value.toLocaleString("en-IN")}`;
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "delivered": return "text-green-600";
@@ -334,6 +418,9 @@ export default function ProfilePage() {
     ...(user?.role === "customer" ? [{ id: "parental", label: "Parental Control", icon: "🛡️" }] : []),
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
+  const parentAccountDetails = profile?.parentAccount && typeof profile.parentAccount === "object"
+    ? profile.parentAccount
+    : null;
 
   if (loading) {
     return (
@@ -396,6 +483,7 @@ export default function ProfilePage() {
               <div className="px-4">
                 <div className="text-2xl font-bold text-red-500">{profile?.loyaltyPoints || 0}</div>
                 <div className="text-sm text-gray-500">Points</div>
+                <div className="mt-1 text-xs text-gray-400">Redeem value: Rs. {profile?.loyaltyPoints || 0}</div>
               </div>
               <div className="px-4 border-l border-gray-200">
                 <div className="text-2xl font-bold text-gray-900">{orders.length}</div>
@@ -404,6 +492,20 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {user?.role === "customer" && (
+          <div className="mb-6 rounded-xl border border-orange-200 bg-orange-50 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-orange-900">Loyalty Rewards</h2>
+                <p className="text-sm text-orange-700">Earn 1 point for every Rs. 100 spent. Redeem 1 point as Rs. 1 off during checkout.</p>
+              </div>
+              <div className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-orange-900 shadow-sm">
+                Balance: {profile?.loyaltyPoints || 0} pts
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Sidebar Tabs */}
@@ -500,6 +602,55 @@ export default function ProfilePage() {
                       )}
                     </div>
                   </div>
+
+                  {user?.role === 'child' && (
+                    <div className="mt-8 rounded-xl border border-blue-100 bg-blue-50 p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <ShieldCheck className="w-5 h-5 text-blue-600" />
+                        <h3 className="text-base font-semibold text-blue-900">Linked Parent Details</h3>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-blue-700 font-medium mb-1">Parent Name</p>
+                          <p className="text-gray-900">{parentAccountDetails?.username || "Not available"}</p>
+                        </div>
+                        <div>
+                          <p className="text-blue-700 font-medium mb-1">Parent Email</p>
+                          <p className="text-gray-900">{parentAccountDetails?.email || "Not available"}</p>
+                        </div>
+                        <div>
+                          <p className="text-blue-700 font-medium mb-1">Parent Phone</p>
+                          <p className="text-gray-900">{parentAccountDetails?.phone || "Not available"}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 border-t border-blue-100 pt-5">
+                        <h4 className="text-sm font-semibold text-blue-900">Remaining Spending Limits</h4>
+                        {childSpending ? (
+                          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
+                            {[
+                              { label: "Daily", summary: childSpending.daily },
+                              { label: "Weekly", summary: childSpending.weekly },
+                              { label: "Monthly", summary: childSpending.monthly },
+                            ].map(({ label, summary }) => (
+                              <div key={label} className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{label}</p>
+                                <p className="mt-2 text-lg font-bold text-gray-900">{formatCurrency(summary.remaining)}</p>
+                                <p className="text-xs text-gray-500">Remaining now</p>
+                                <div className="mt-3 space-y-1 text-sm text-gray-600">
+                                  <p>Used: {formatCurrency(summary.used)}</p>
+                                  <p>Limit: {formatCurrency(summary.limit)}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-sm text-gray-600">Spending summary is not available right now.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {editMode && (
                     <div className="flex gap-4 mt-6">
@@ -660,29 +811,54 @@ export default function ProfilePage() {
                     <p className="text-gray-500 text-center py-8">No orders yet. Start ordering!</p>
                   ) : (
                     orders.map((order) => (
-                      <Link
+                      <div
                         key={order._id}
-                        href={`/order-tracking/${order._id}`}
-                        className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                        className="rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50"
                       >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
-                            <span className="text-xl">🍽️</span>
+                        <Link
+                          href={`/order-tracking/${order._id}`}
+                          className="flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
+                              <span className="text-xl">🍽️</span>
+                            </div>
+                            <div>
+                              <h3 className="font-medium text-gray-900">{order.restaurant?.name || "Restaurant"}</h3>
+                              <p className="text-sm text-gray-500">
+                                {order.orderNumber} • {formatDate(order.createdAt)}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="font-medium text-gray-900">{order.restaurant?.name || "Restaurant"}</h3>
-                            <p className="text-sm text-gray-500">
-                              {order.orderNumber} • {formatDate(order.createdAt)}
-                            </p>
+                          <div className="text-right">
+                            <p className="font-semibold text-gray-900">Rs. {order.pricing?.total || 0}</p>
+                            <span className={`text-sm capitalize ${getStatusColor(order.status)}`}>
+                              {order.status?.replace("_", " ")}
+                            </span>
                           </div>
+                        </Link>
+
+                        <div className="mt-4 flex justify-end border-t border-gray-100 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => handleReorder(order._id)}
+                            disabled={reorderingOrderId === order._id}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {reorderingOrderId === order._id ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Reordering...
+                              </>
+                            ) : (
+                              <>
+                                <RotateCcw className="h-4 w-4" />
+                                Reorder Meal
+                              </>
+                            )}
+                          </button>
                         </div>
-                        <div className="text-right">
-                          <p className="font-semibold text-gray-900">Rs. {order.pricing?.total || 0}</p>
-                          <span className={`text-sm capitalize ${getStatusColor(order.status)}`}>
-                            {order.status?.replace("_", " ")}
-                          </span>
-                        </div>
-                      </Link>
+                      </div>
                     ))
                   )}
                 </div>

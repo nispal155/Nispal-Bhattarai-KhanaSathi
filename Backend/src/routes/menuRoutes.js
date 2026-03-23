@@ -10,11 +10,11 @@ const {
   toggleAvailability,
   searchMenuItems
 } = require('../controller/menuController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, optionalProtect } = require('../middleware/authMiddleware');
 
 // Public routes
-router.get('/search', searchMenuItems);
-router.get('/restaurant/:restaurantId', getMenuByRestaurant);
+router.get('/search', optionalProtect, searchMenuItems);
+router.get('/restaurant/:restaurantId', optionalProtect, getMenuByRestaurant);
 
 // Protected routes (Restaurant Manager) - MUST come before /:id
 router.get('/my-menu', protect, getMyMenu);
@@ -24,7 +24,6 @@ router.put('/:id', protect, updateMenuItem);
 router.delete('/:id', protect, deleteMenuItem);
 
 // This must be LAST - catches any id parameter
-router.get('/:id', getMenuItemById);
+router.get('/:id', optionalProtect, getMenuItemById);
 
 module.exports = router;
-

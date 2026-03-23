@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 
 export interface User {
     _id: string;
@@ -9,10 +9,25 @@ export interface User {
     role?: string;
     isProfileComplete?: boolean;
     isApproved?: boolean;
-    parentAccount?: string | null;
+    parentAccount?: string | null | {
+        _id: string;
+        username?: string;
+        email?: string;
+        phone?: string;
+    };
     childProfile?: {
         displayName?: string;
         isActive?: boolean;
+        spendingLimits?: {
+            daily?: number | null;
+            weekly?: number | null;
+            monthly?: number | null;
+        };
+        foodRestrictions?: {
+            blockJunkFood?: boolean;
+            blockCaffeine?: boolean;
+            blockedAllergens?: string[];
+        };
         birthCertificate?: string;
         childPhoto?: string;
         onboardingSubmittedAt?: string;
@@ -37,21 +52,22 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<User | null>(null);
-    const [token, setToken] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-
-    useEffect(() => {
-        // Load auth state from localStorage on mount
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
-
-        if (storedToken && storedUser) {
-            setToken(storedToken);
-            setUser(JSON.parse(storedUser));
+    const [user, setUser] = useState<User | null>(() => {
+        if (typeof window === 'undefined') {
+            return null;
         }
-        setIsLoading(false);
-    }, []);
+
+        const storedUser = localStorage.getItem('user');
+        return storedUser ? JSON.parse(storedUser) : null;
+    });
+    const [token, setToken] = useState<string | null>(() => {
+        if (typeof window === 'undefined') {
+            return null;
+        }
+
+        return localStorage.getItem('token');
+    });
+    const [isLoading] = useState(false);
 
     const login = (user: User, token: string) => {
         setUser(user);
@@ -80,9 +96,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(null);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        // Redirect to login page
+        // Return users to the public landing page after logout
         if (typeof window !== 'undefined') {
-            window.location.href = '/login';
+            window.location.href = '/';
         }
     };
 

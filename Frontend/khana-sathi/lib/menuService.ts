@@ -12,6 +12,8 @@ export interface MenuItem {
   isVegetarian: boolean;
   isVegan: boolean;
   isGlutenFree: boolean;
+  isJunkFood: boolean;
+  containsCaffeine: boolean;
   spiceLevel: string;
   allergens: string[];
   preparationTime: number;

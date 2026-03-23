@@ -5,10 +5,25 @@ interface AuthResponse {
     username: string;
     role: string;
     email: string;
-    parentAccount?: string;
+    parentAccount?: string | {
+        _id: string;
+        username?: string;
+        email?: string;
+        phone?: string;
+    };
     childProfile?: {
         displayName?: string;
         isActive?: boolean;
+        spendingLimits?: {
+            daily?: number | null;
+            weekly?: number | null;
+            monthly?: number | null;
+        };
+        foodRestrictions?: {
+            blockJunkFood?: boolean;
+            blockCaffeine?: boolean;
+            blockedAllergens?: string[];
+        };
         birthCertificate?: string;
         childPhoto?: string;
         onboardingSubmittedAt?: string;
@@ -67,6 +82,6 @@ export async function logout() {
         }
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        window.location.href = '/';
     }
 }

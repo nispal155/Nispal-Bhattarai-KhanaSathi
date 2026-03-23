@@ -5,6 +5,13 @@ const User = require('../models/User');
 const Restaurant = require('../models/Restaurant');
 const MultiOrder = require('../models/MultiOrder');
 const socketService = require('../services/socket');
+const {
+  getRestrictionReasonsForMenuItem,
+  calculateCartTotals,
+  assertChildCanPurchaseTotal
+} = require('../utils/childAccountControls');
+const { loadCartForCheckout } = require('../utils/checkoutContext');
+const { notifyParentOfChildActivity } = require('../utils/childActivityNotifier');
 
 // Helper to strip sensitive financial data for riders
 const stripFinancialsForRider = (order) => {
@@ -27,6 +34,62 @@ const stripFinancialsForRider = (order) => {
 
 const multiOrderController = require('./multiOrderController');
 
+const assertChildParentApproval = (user, cart) => {
+  if (!user || user.role !== 'child') {
+    return;
+  }
+
+  const status = cart?.parentApproval?.status;
+  if (status !== 'approved') {
+    const error = new Error(
+      status === 'pending_parent_approval'
+        ? 'Your cart is waiting for parent approval.'
+        : 'Parent approval is required before checkout.'
+    );
+    error.statusCode = 403;
+    error.code = 'CHILD_PARENT_APPROVAL_REQUIRED';
+    throw error;
+  }
+};
+
+const getEntityIdString = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value?._id) {
+    return value._id.toString();
+  }
+
+  return value.toString();
+};
+
+const resetChildApprovalOnCartMutation = (cart, user) => {
+  if (user?.role !== 'child') {
+    return;
+  }
+
+  cart.parentApproval = {
+    ...cart.parentApproval,
+    status: 'not_required',
+    reviewedAt: null,
+    reviewedBy: null,
+    note: ''
+  };
+};
+
+const populateCartForResponse = (cartId) => (
+  Cart.findById(cartId)
+    .populate('restaurantGroups.restaurant', 'name logoUrl')
+    .populate('restaurantGroups.items.menuItem', 'name price image isAvailable')
+    .populate('collaborators', 'username profilePicture')
+    .populate('user', 'username profilePicture')
+);
+
 /**
  * @desc    Create new orders from cart
  * @route   POST /api/orders
@@ -39,7 +102,8 @@ exports.createOrder = async (req, res) => {
       paymentMethod,
       specialInstructions: globalSpecialInstructions,
       promoCode,
-      useLoyaltyPoints
+      useLoyaltyPoints,
+      childCartId
     } = req.body;
 
     // IMPORTANT: Only allow COD orders through this endpoint
@@ -51,9 +115,11 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // Get user's cart
-    const cart = await Cart.findOne({ user: req.user._id }).populate('restaurantGroups.items.menuItem');
-    console.log('Cart found for user:', req.user._id, cart ? 'Yes' : 'No');
+    // Resolve whether this is the payer's own cart or an approved child cart.
+    const { cart, cartOwner, isParentCheckout } = await loadCartForCheckout(req.user, childCartId, {
+      populateMenuItems: true
+    });
+    console.log('Cart found for checkout owner:', cartOwner?._id, cart ? 'Yes' : 'No');
 
     if (!cart || cart.restaurantGroups.length === 0) {
       console.log('Cart is empty or not found');
@@ -64,12 +130,33 @@ exports.createOrder = async (req, res) => {
     }
     console.log('Cart groups count:', cart.restaurantGroups.length);
 
+    assertChildParentApproval(cartOwner, cart);
+
     // Get user for loyalty points
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(cartOwner._id);
+    for (const group of cart.restaurantGroups) {
+      for (const item of group.items) {
+        const menuItem = item.menuItem?._id ? item.menuItem : null;
+        const restrictionReasons = getRestrictionReasonsForMenuItem(menuItem, user);
+        if (restrictionReasons.length > 0) {
+          return res.status(403).json({
+            success: false,
+            message: restrictionReasons[0],
+            code: 'CHILD_MENU_ITEM_RESTRICTED'
+          });
+        }
+      }
+    }
+
+    const projectedTotals = calculateCartTotals(cart, useLoyaltyPoints, user.loyaltyPoints);
+    if (!isParentCheckout) {
+      await assertChildCanPurchaseTotal(user, projectedTotals.total);
+    }
 
     const createdOrders = [];
     let totalOrderValue = 0;
     let pointsToDeduct = 0;
+    let actualPointsUsed = 0;
 
     if (useLoyaltyPoints && user.loyaltyPoints > 0) {
       pointsToDeduct = user.loyaltyPoints;
@@ -88,6 +175,7 @@ exports.createOrder = async (req, res) => {
         const remainingGroupTotal = subtotal + deliveryFee + serviceFee - discount;
         pointsDiscount = Math.min(pointsToDeduct, remainingGroupTotal);
         pointsToDeduct -= pointsDiscount;
+        actualPointsUsed += pointsDiscount;
       }
 
       const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
@@ -95,7 +183,7 @@ exports.createOrder = async (req, res) => {
 
       console.log('Creating order for restaurant:', group.restaurant);
       const order = await Order.create({
-        customer: req.user._id,
+        customer: cartOwner._id,
         restaurant: group.restaurant,
         items: group.items.map(item => {
           // Handle both populated and non-populated menuItem
@@ -141,7 +229,7 @@ exports.createOrder = async (req, res) => {
       console.log('Creating MultiOrder for', createdOrders.length, 'restaurants');
 
       multiOrder = await MultiOrder.create({
-        customer: req.user._id,
+        customer: cartOwner._id,
         subOrders: createdOrders.map(o => o._id),
         restaurantCount: createdOrders.length,
         deliveryAddress,
@@ -182,12 +270,12 @@ exports.createOrder = async (req, res) => {
 
     // Calculate loyalty points: 1 point per Rs. 100
     const pointsEarned = Math.floor(totalOrderValue / 100);
-    // If loyalty points were used, deduct them. Always add earned points.
-    const initialLoyaltyPoints = user.loyaltyPoints;
-    const netPointsChange = pointsEarned - (useLoyaltyPoints ? initialLoyaltyPoints : 0);
+    const initialLoyaltyPoints = Number(user.loyaltyPoints || 0);
+    const netPointsChange = pointsEarned - actualPointsUsed;
+    const updatedLoyaltyPoints = Math.max(initialLoyaltyPoints + netPointsChange, 0);
 
-    await User.findByIdAndUpdate(req.user._id, {
-      $inc: { loyaltyPoints: netPointsChange }
+    await User.findByIdAndUpdate(cartOwner._id, {
+      $set: { loyaltyPoints: updatedLoyaltyPoints }
     });
 
     // Clear the cart
@@ -231,15 +319,33 @@ exports.createOrder = async (req, res) => {
       multiOrder: multiOrder ? { _id: multiOrder._id, orderNumber: multiOrder.orderNumber } : null,
       isMultiRestaurant: createdOrders.length > 1,
       pointsEarned,
-      pointsUsed: useLoyaltyPoints ? initialLoyaltyPoints : 0
+      pointsUsed: actualPointsUsed,
+      loyaltyPointsBalance: updatedLoyaltyPoints
     });
   } catch (error) {
+    if (
+      req.user?.role === 'child' &&
+      ['CHILD_PARENT_APPROVAL_REQUIRED', 'CHILD_SPENDING_LIMIT_REACHED', 'CHILD_MENU_ITEM_RESTRICTED'].includes(error.code)
+    ) {
+      try {
+        await notifyParentOfChildActivity(req.user, {
+          title: 'Child Checkout Attempt',
+          message: `${req.user.username} tried to place an order, but it needs parent review first. Reason: ${error.message}`,
+          link: '/cart'
+        });
+      } catch (notificationError) {
+        console.error('Failed to notify parent about child checkout attempt:', notificationError.message);
+      }
+    }
+
     console.error('Order creation error:', error.message);
     console.error('Error stack:', error.stack);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to create order',
+      message: error.statusCode ? error.message : 'Failed to create order',
       error: error.message,
+      code: error.code,
+      details: error.details,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
@@ -294,7 +400,7 @@ exports.getOrderById = async (req, res) => {
     const order = await Order.findById(req.params.id)
       .populate('restaurant', 'name address contactPhone logoUrl')
       .populate('items.menuItem', 'name price image') // Added image population
-      .populate('customer', 'username email')
+      .populate('customer', 'username email parentAccount')
       .populate('deliveryRider', 'username profilePicture averageRating vehicleDetails');
 
     if (!order) {
@@ -306,6 +412,9 @@ exports.getOrderById = async (req, res) => {
 
     // Check authorization
     const isCustomer = order.customer._id.toString() === req.user._id.toString();
+    const isLinkedParent = req.user.role === 'customer'
+      && order.customer.parentAccount
+      && order.customer.parentAccount.toString() === req.user._id.toString();
     const isRider = order.deliveryRider && order.deliveryRider._id.toString() === req.user._id.toString();
     const isRestaurant = await Restaurant.findOne({
       _id: order.restaurant._id,
@@ -313,7 +422,7 @@ exports.getOrderById = async (req, res) => {
     });
     const isAdmin = req.user.role === 'admin';
 
-    if (!isCustomer && !isRider && !isRestaurant && !isAdmin) {
+    if (!isCustomer && !isLinkedParent && !isRider && !isRestaurant && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to view this order'
@@ -335,6 +444,218 @@ exports.getOrderById = async (req, res) => {
       success: false,
       message: 'Failed to fetch order',
       error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Reorder a previous meal into the active cart
+ * @route   POST /api/orders/:id/reorder
+ * @access  Private (Customer/Child)
+ */
+exports.reorderPreviousOrder = async (req, res) => {
+  try {
+    const order = await Order.findOne({
+      _id: req.params.id,
+      customer: req.user._id,
+      isHiddenForCustomer: { $ne: true }
+    }).populate('restaurant', 'name');
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+        code: 'ORDER_NOT_FOUND'
+      });
+    }
+
+    let cart = await Cart.findOne({
+      $or: [
+        { user: req.user._id },
+        { collaborators: req.user._id }
+      ]
+    });
+
+    const orderRestaurantId = getEntityIdString(order.restaurant);
+    const conflictingGroup = (cart?.restaurantGroups || []).find(
+      (group) => getEntityIdString(group.restaurant) !== orderRestaurantId
+    );
+
+    if (conflictingGroup) {
+      const existingRestaurant = await Restaurant.findById(conflictingGroup.restaurant).select('name');
+      return res.status(409).json({
+        success: false,
+        code: 'DIFFERENT_RESTAURANT',
+        message: `Your cart already has items from ${existingRestaurant?.name || 'another restaurant'}. Clear your cart first to reorder this meal.`,
+        existingRestaurant: existingRestaurant?.name || 'another restaurant'
+      });
+    }
+
+    const orderedMenuItemIds = [...new Set(
+      (order.items || [])
+        .map((item) => getEntityIdString(item.menuItem))
+        .filter(Boolean)
+    )];
+
+    const liveMenuItems = await Menu.find({
+      _id: { $in: orderedMenuItemIds },
+      restaurant: orderRestaurantId
+    }).select('name price image isAvailable restaurant isJunkFood containsCaffeine allergens');
+
+    const liveMenuItemsById = new Map(
+      liveMenuItems.map((menuItem) => [menuItem._id.toString(), menuItem])
+    );
+
+    const skippedItems = [];
+    const restrictedItemNames = [];
+    const reorderableItems = [];
+
+    for (const item of order.items || []) {
+      const menuItemId = getEntityIdString(item.menuItem);
+      const liveMenuItem = liveMenuItemsById.get(menuItemId);
+
+      if (!liveMenuItem) {
+        skippedItems.push({
+          menuItemId,
+          name: item.name,
+          reason: 'No longer on the menu'
+        });
+        continue;
+      }
+
+      if (!liveMenuItem.isAvailable) {
+        skippedItems.push({
+          menuItemId,
+          name: liveMenuItem.name || item.name,
+          reason: 'Currently unavailable'
+        });
+        continue;
+      }
+
+      const restrictionReasons = getRestrictionReasonsForMenuItem(liveMenuItem, req.user);
+      if (restrictionReasons.length > 0) {
+        skippedItems.push({
+          menuItemId,
+          name: liveMenuItem.name || item.name,
+          reason: restrictionReasons[0]
+        });
+        restrictedItemNames.push(liveMenuItem.name || item.name);
+        continue;
+      }
+
+      reorderableItems.push({
+        liveMenuItem,
+        quantity: Number(item.quantity || 1),
+        specialInstructions: item.specialInstructions || ''
+      });
+    }
+
+    if (req.user.role === 'child' && restrictedItemNames.length > 0) {
+      try {
+        const visibleNames = restrictedItemNames.slice(0, 2).join(', ');
+        const extraCount = Math.max(restrictedItemNames.length - 2, 0);
+        const itemSummary = extraCount > 0 ? `${visibleNames} and ${extraCount} more item(s)` : visibleNames;
+
+        await notifyParentOfChildActivity(req.user, {
+          title: 'Blocked Reorder Attempt',
+          message: `${req.user.username} tried to reorder ${itemSummary}, but some items were blocked by parental controls.`,
+          link: '/cart'
+        });
+      } catch (notificationError) {
+        console.error('Failed to notify parent about blocked reorder attempt:', notificationError.message);
+      }
+    }
+
+    if (reorderableItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        code: 'REORDER_NO_AVAILABLE_ITEMS',
+        message: 'None of the items from this order can be reordered right now.',
+        details: {
+          skippedItems
+        }
+      });
+    }
+
+    if (!cart) {
+      cart = new Cart({
+        user: req.user._id,
+        restaurantGroups: []
+      });
+    }
+
+    let groupIndex = cart.restaurantGroups.findIndex(
+      (group) => getEntityIdString(group.restaurant) === orderRestaurantId
+    );
+
+    if (groupIndex === -1) {
+      cart.restaurantGroups.push({
+        restaurant: orderRestaurantId,
+        items: []
+      });
+      groupIndex = cart.restaurantGroups.length - 1;
+    }
+
+    let addedItemsCount = 0;
+
+    for (const item of reorderableItems) {
+      const menuItemId = item.liveMenuItem._id.toString();
+      const existingItemIndex = cart.restaurantGroups[groupIndex].items.findIndex(
+        (cartItem) => getEntityIdString(cartItem.menuItem) === menuItemId
+      );
+
+      if (existingItemIndex > -1) {
+        cart.restaurantGroups[groupIndex].items[existingItemIndex].quantity += item.quantity;
+        if (
+          item.specialInstructions &&
+          !cart.restaurantGroups[groupIndex].items[existingItemIndex].specialInstructions
+        ) {
+          cart.restaurantGroups[groupIndex].items[existingItemIndex].specialInstructions = item.specialInstructions;
+        }
+      } else {
+        cart.restaurantGroups[groupIndex].items.push({
+          menuItem: item.liveMenuItem._id,
+          name: item.liveMenuItem.name,
+          price: item.liveMenuItem.price,
+          image: item.liveMenuItem.image,
+          quantity: item.quantity,
+          specialInstructions: item.specialInstructions,
+          addedBy: req.user._id
+        });
+      }
+
+      addedItemsCount += item.quantity;
+    }
+
+    resetChildApprovalOnCartMutation(cart, req.user);
+    await cart.save();
+
+    const populatedCart = await populateCartForResponse(cart._id);
+
+    if (populatedCart?.isShared && populatedCart.shareCode) {
+      socketService.getIO().to(populatedCart.shareCode).emit('cartUpdated', populatedCart);
+    }
+
+    const summaryMessage = skippedItems.length > 0
+      ? `Reordered ${addedItemsCount} item(s). ${skippedItems.length} item(s) could not be added.`
+      : 'Previous meal added to cart';
+
+    res.status(200).json({
+      success: true,
+      message: summaryMessage,
+      data: {
+        cart: populatedCart,
+        addedItemsCount,
+        skippedItems
+      }
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: 'Failed to reorder previous meal',
+      error: error.message,
+      code: error.code,
+      details: error.details
     });
   }
 };
@@ -902,9 +1223,11 @@ exports.cancelOrder = async (req, res) => {
 
     // Check if user is authorized to cancel
     const isCustomer = order.customer.toString() === req.user._id.toString();
+    const isLinkedParent = req.user.role === 'customer'
+      && await User.exists({ _id: order.customer, role: 'child', parentAccount: req.user._id });
     const isAdmin = req.user.role === 'admin';
 
-    if (!isCustomer && !isAdmin) {
+    if (!isCustomer && !isLinkedParent && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to cancel this order'
@@ -916,7 +1239,7 @@ exports.cancelOrder = async (req, res) => {
     const currentTime = new Date().getTime();
     const diffInMinutes = (currentTime - orderTime) / (1000 * 60);
 
-    if (isCustomer && diffInMinutes > 2) {
+    if ((isCustomer || isLinkedParent) && diffInMinutes > 2) {
       return res.status(400).json({
         success: false,
         message: 'Order modification window (2 mins) has passed. Cannot cancel now.'

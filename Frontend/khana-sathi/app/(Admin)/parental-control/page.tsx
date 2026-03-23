@@ -25,11 +25,16 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 import { useAuth } from "@/context/AuthContext";
 import {
   ChildAccount,
+  ChildAccountInsights,
+  ChildFoodRestrictions,
+  ChildSpendingSnapshot,
+  ChildSpendingLimits,
   UserProfile,
   adminUpdateUser,
   createChildAccount,
   deleteChildAccount,
   getAllUsers,
+  getChildAccountInsights,
   getMyChildAccounts,
   updateChildAccount
 } from "@/lib/userService";
@@ -39,17 +44,92 @@ type EditableChild = {
   displayName: string;
   password: string;
   isActive: boolean;
+  spendingLimits: {
+    daily: string;
+    weekly: string;
+    monthly: string;
+  };
+  foodRestrictions: ChildFoodRestrictions;
 };
 
 const CHILD_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLERGEN_OPTIONS = ["Dairy", "Eggs", "Fish", "Shellfish", "Tree Nuts", "Peanuts", "Wheat", "Soy", "Sesame"];
+const EMPTY_LIMIT_INPUTS = {
+  daily: "",
+  weekly: "",
+  monthly: ""
+};
+const DEFAULT_FOOD_RESTRICTIONS: ChildFoodRestrictions = {
+  blockJunkFood: false,
+  blockCaffeine: false,
+  blockedAllergens: []
+};
+const PERIOD_LABELS = {
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly"
+} as const;
 const formatDisplayDate = (dateValue?: string) =>
   dateValue ? new Date(dateValue).toLocaleDateString() : "N/A";
+const formatCurrency = (value?: number | null) =>
+  value === null || value === undefined ? "Not set" : `Rs. ${value}`;
 const isImageDocument = (value: string) => value.startsWith("data:image/");
 const isPdfDataUrl = (value: string) => value.toLowerCase().startsWith("data:application/pdf");
+const toLimitInputs = (limits?: Partial<ChildSpendingLimits>) => ({
+  daily: limits?.daily === null || limits?.daily === undefined ? "" : String(limits.daily),
+  weekly: limits?.weekly === null || limits?.weekly === undefined ? "" : String(limits.weekly),
+  monthly: limits?.monthly === null || limits?.monthly === undefined ? "" : String(limits.monthly)
+});
+const toApiSpendingLimits = (limits: { daily: string; weekly: string; monthly: string }) => ({
+  daily: limits.daily === "" ? null : Number(limits.daily),
+  weekly: limits.weekly === "" ? null : Number(limits.weekly),
+  monthly: limits.monthly === "" ? null : Number(limits.monthly)
+});
+const getRestrictionSummary = (foodRestrictions?: ChildFoodRestrictions) => {
+  if (!foodRestrictions) return ["No food restrictions"];
+
+  const summary: string[] = [];
+  if (foodRestrictions.blockJunkFood) summary.push("No junk food");
+  if (foodRestrictions.blockCaffeine) summary.push("No caffeine");
+  if (foodRestrictions.blockedAllergens.length > 0) {
+    summary.push(`Allergens blocked: ${foodRestrictions.blockedAllergens.join(", ")}`);
+  }
+
+  return summary.length > 0 ? summary : ["No food restrictions"];
+};
+const getLimitSummary = (spendingLimits?: ChildSpendingLimits) => {
+  if (!spendingLimits) return ["No spending limits set"];
+
+  const summary: string[] = [];
+  if (spendingLimits.daily !== null && spendingLimits.daily !== undefined) summary.push(`Daily: Rs. ${spendingLimits.daily}`);
+  if (spendingLimits.weekly !== null && spendingLimits.weekly !== undefined) summary.push(`Weekly: Rs. ${spendingLimits.weekly}`);
+  if (spendingLimits.monthly !== null && spendingLimits.monthly !== undefined) summary.push(`Monthly: Rs. ${spendingLimits.monthly}`);
+
+  return summary.length > 0 ? summary : ["No spending limits set"];
+};
+const getStatusBadgeClass = (status: string) => {
+  switch (status) {
+    case "delivered":
+      return "bg-green-100 text-green-700";
+    case "cancelled":
+      return "bg-red-100 text-red-700";
+    case "preparing":
+    case "confirmed":
+    case "ready":
+    case "picked_up":
+    case "on_the_way":
+      return "bg-blue-100 text-blue-700";
+    default:
+      return "bg-amber-100 text-amber-700";
+  }
+};
 
 export default function ParentalControlPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [children, setChildren] = useState<ChildAccount[]>([]);
+  const [childInsights, setChildInsights] = useState<Record<string, ChildAccountInsights>>({});
+  const [expandedChildId, setExpandedChildId] = useState<string | null>(null);
+  const [loadingInsightsId, setLoadingInsightsId] = useState<string | null>(null);
   const [adminChildren, setAdminChildren] = useState<UserProfile[]>([]);
   const [adminSearch, setAdminSearch] = useState("");
   const [adminSubmittingId, setAdminSubmittingId] = useState<string | null>(null);
@@ -60,8 +140,44 @@ export default function ParentalControlPage() {
   const [newChild, setNewChild] = useState({
     email: "",
     displayName: "",
-    password: ""
+    password: "",
+    spendingLimits: EMPTY_LIMIT_INPUTS,
+    foodRestrictions: DEFAULT_FOOD_RESTRICTIONS
   });
+
+  const renderSpendingOverview = (spending: ChildSpendingSnapshot) => (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {(["daily", "weekly", "monthly"] as const).map((period) => {
+        const snapshot = spending[period];
+        const usagePercent = snapshot.limit && snapshot.limit > 0
+          ? Math.min(100, Math.round((snapshot.used / snapshot.limit) * 100))
+          : 0;
+
+        return (
+          <div key={period} className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-gray-900">{PERIOD_LABELS[period]}</p>
+              <span className="text-xs text-gray-500">Used {formatCurrency(snapshot.used)}</span>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Limit: {formatCurrency(snapshot.limit)}
+            </p>
+            <p className="text-sm font-medium text-gray-800 mt-1">
+              Remaining: {snapshot.remaining === null ? "Flexible" : `Rs. ${snapshot.remaining}`}
+            </p>
+            {snapshot.limit !== null && (
+              <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${usagePercent >= 90 ? "bg-red-500" : usagePercent >= 70 ? "bg-amber-500" : "bg-green-500"}`}
+                  style={{ width: `${usagePercent}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   const loadChildren = async () => {
     try {
@@ -144,7 +260,9 @@ export default function ParentalControlPage() {
       const res = await createChildAccount({
         email: newChild.email.trim().toLowerCase(),
         displayName: newChild.displayName.trim() || undefined,
-        password: newChild.password
+        password: newChild.password,
+        spendingLimits: toApiSpendingLimits(newChild.spendingLimits),
+        foodRestrictions: newChild.foodRestrictions
       });
 
       if (res.error) {
@@ -153,7 +271,13 @@ export default function ParentalControlPage() {
       }
 
       toast.success("Child account created");
-      setNewChild({ email: "", displayName: "", password: "" });
+      setNewChild({
+        email: "",
+        displayName: "",
+        password: "",
+        spendingLimits: EMPTY_LIMIT_INPUTS,
+        foodRestrictions: DEFAULT_FOOD_RESTRICTIONS
+      });
       await loadChildren();
     } catch (error) {
       console.error("Failed to create child account:", error);
@@ -170,7 +294,13 @@ export default function ParentalControlPage() {
         email: child.email,
         displayName: child.displayName || child.username,
         password: "",
-        isActive: child.isActive
+        isActive: child.isActive,
+        spendingLimits: toLimitInputs(child.spendingLimits),
+        foodRestrictions: {
+          blockJunkFood: child.foodRestrictions?.blockJunkFood || false,
+          blockCaffeine: child.foodRestrictions?.blockCaffeine || false,
+          blockedAllergens: child.foodRestrictions?.blockedAllergens || []
+        }
       }
     }));
   };
@@ -207,7 +337,9 @@ export default function ParentalControlPage() {
         email: draft.email.trim().toLowerCase(),
         displayName: draft.displayName.trim(),
         isActive: draft.isActive,
-        password: draft.password || undefined
+        password: draft.password || undefined,
+        spendingLimits: toApiSpendingLimits(draft.spendingLimits),
+        foodRestrictions: draft.foodRestrictions
       });
 
       if (res.error) {
@@ -216,6 +348,11 @@ export default function ParentalControlPage() {
       }
 
       toast.success("Child account updated");
+      setChildInsights((prev) => {
+        const next = { ...prev };
+        delete next[childId];
+        return next;
+      });
       cancelEdit(childId);
       await loadChildren();
     } catch (error) {
@@ -234,6 +371,14 @@ export default function ParentalControlPage() {
         return;
       }
       toast.success("Child account deleted");
+      setChildInsights((prev) => {
+        const next = { ...prev };
+        delete next[childId];
+        return next;
+      });
+      if (expandedChildId === childId) {
+        setExpandedChildId(null);
+      }
       await loadChildren();
     } catch (error) {
       console.error("Failed to delete child account:", error);
@@ -249,6 +394,41 @@ export default function ParentalControlPage() {
   const handleAdminReset = async () => {
     setAdminSearch("");
     await loadAdminChildren("");
+  };
+
+  const handleToggleInsights = async (childId: string) => {
+    if (expandedChildId === childId) {
+      setExpandedChildId(null);
+      return;
+    }
+
+    setExpandedChildId(childId);
+
+    if (childInsights[childId]) {
+      return;
+    }
+
+    try {
+      setLoadingInsightsId(childId);
+      const res = await getChildAccountInsights(childId);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+
+      const insights = res.data?.data;
+      if (insights) {
+        setChildInsights((prev) => ({
+          ...prev,
+          [childId]: insights
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to load child insights:", error);
+      toast.error("Failed to load child insights");
+    } finally {
+      setLoadingInsightsId(null);
+    }
   };
 
   const handleAdminApproval = async (childId: string, currentStatus: boolean) => {
@@ -269,6 +449,84 @@ export default function ParentalControlPage() {
       setAdminSubmittingId(null);
     }
   };
+
+  const toggleRestrictionAllergen = (
+    selected: string[],
+    allergen: string
+  ) => (selected.includes(allergen)
+    ? selected.filter((item) => item !== allergen)
+    : [...selected, allergen]);
+
+  const renderLimitInputs = (
+    limits: { daily: string; weekly: string; monthly: string },
+    onChange: (key: "daily" | "weekly" | "monthly", value: string) => void
+  ) => (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {(["daily", "weekly", "monthly"] as const).map((key) => (
+        <input
+          key={key}
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder={`${key[0].toUpperCase()}${key.slice(1)} limit (Rs.)`}
+          value={limits[key]}
+          onChange={(e) => onChange(key, e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+      ))}
+    </div>
+  );
+
+  const renderRestrictionInputs = (
+    restrictions: ChildFoodRestrictions,
+    onToggleBoolean: (key: "blockJunkFood" | "blockCaffeine") => void,
+    onToggleAllergen: (allergen: string) => void
+  ) => (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={restrictions.blockJunkFood}
+            onChange={() => onToggleBoolean("blockJunkFood")}
+            className="rounded border-gray-300 text-red-500 focus:ring-red-500"
+          />
+          Block junk food
+        </label>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={restrictions.blockCaffeine}
+            onChange={() => onToggleBoolean("blockCaffeine")}
+            className="rounded border-gray-300 text-red-500 focus:ring-red-500"
+          />
+          Block caffeine
+        </label>
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-gray-600 mb-2">Blocked allergens</p>
+        <div className="flex flex-wrap gap-2">
+          {ALLERGEN_OPTIONS.map((allergen) => {
+            const isSelected = restrictions.blockedAllergens.includes(allergen);
+            return (
+              <button
+                key={allergen}
+                type="button"
+                onClick={() => onToggleAllergen(allergen)}
+                className={`px-3 py-1.5 rounded-full text-xs border transition ${isSelected
+                  ? "bg-red-500 text-white border-red-500"
+                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+              >
+                {allergen}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 
   const createPdfAccessUrl = (doc: string) => {
     if (!isPdfDataUrl(doc)) {
@@ -514,6 +772,29 @@ export default function ParentalControlPage() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
                         <div className="border border-gray-200 rounded-lg p-3">
+                          <p className="font-medium text-gray-800 mb-2">Spending Limits</p>
+                          <div className="flex flex-wrap gap-2">
+                            {getLimitSummary(child.childProfile?.spendingLimits).map((item) => (
+                              <span key={item} className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-xs">
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="border border-gray-200 rounded-lg p-3">
+                          <p className="font-medium text-gray-800 mb-2">Food Restrictions</p>
+                          <div className="flex flex-wrap gap-2">
+                            {getRestrictionSummary(child.childProfile?.foodRestrictions).map((item) => (
+                              <span key={item} className="px-2.5 py-1 rounded-full bg-red-50 text-red-700 text-xs">
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div className="border border-gray-200 rounded-lg p-3">
                           <p className="font-medium text-gray-800 mb-2">Birth Certificate</p>
                           {renderBirthCertificatePreview(child.childProfile?.birthCertificate, child._id)}
                         </div>
@@ -610,36 +891,71 @@ export default function ParentalControlPage() {
 
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Create Child Account</h2>
-          <form onSubmit={handleCreateChild} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <input
-              type="email"
-              placeholder="Child email"
-              value={newChild.email}
-              onChange={(e) => setNewChild((prev) => ({ ...prev, email: e.target.value }))}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <input
-              type="text"
-              placeholder="Display name (optional)"
-              value={newChild.displayName}
-              onChange={(e) => setNewChild((prev) => ({ ...prev, displayName: e.target.value }))}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={newChild.password}
-              onChange={(e) => setNewChild((prev) => ({ ...prev, password: e.target.value }))}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-60"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Add Child
-            </button>
+          <form onSubmit={handleCreateChild} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <input
+                type="email"
+                placeholder="Child email"
+                value={newChild.email}
+                onChange={(e) => setNewChild((prev) => ({ ...prev, email: e.target.value }))}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <input
+                type="text"
+                placeholder="Display name (optional)"
+                value={newChild.displayName}
+                onChange={(e) => setNewChild((prev) => ({ ...prev, displayName: e.target.value }))}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={newChild.password}
+                onChange={(e) => setNewChild((prev) => ({ ...prev, password: e.target.value }))}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-60"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Add Child
+              </button>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-2">Spending Limits</p>
+                {renderLimitInputs(newChild.spendingLimits, (key, value) =>
+                  setNewChild((prev) => ({
+                    ...prev,
+                    spendingLimits: { ...prev.spendingLimits, [key]: value }
+                  }))
+                )}
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 mb-2">Food Restrictions</p>
+                {renderRestrictionInputs(
+                  newChild.foodRestrictions,
+                  (key) => setNewChild((prev) => ({
+                    ...prev,
+                    foodRestrictions: {
+                      ...prev.foodRestrictions,
+                      [key]: !prev.foodRestrictions[key]
+                    }
+                  })),
+                  (allergen) => setNewChild((prev) => ({
+                    ...prev,
+                    foodRestrictions: {
+                      ...prev.foodRestrictions,
+                      blockedAllergens: toggleRestrictionAllergen(prev.foodRestrictions.blockedAllergens, allergen)
+                    }
+                  }))
+                )}
+              </div>
+            </div>
           </form>
         </div>
 
@@ -669,13 +985,33 @@ export default function ParentalControlPage() {
                           <p className={`text-xs mt-1 ${child.isActive ? "text-green-600" : "text-red-500"}`}>
                             {child.isActive ? "Active (can login)" : "Disabled"}
                           </p>
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {getLimitSummary(child.spendingLimits).map((item) => (
+                              <span key={item} className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-xs">
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {getRestrictionSummary(child.foodRestrictions).map((item) => (
+                              <span key={item} className="px-2.5 py-1 rounded-full bg-red-50 text-red-700 text-xs">
+                                {item}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => beginEdit(child)}
                             className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => handleToggleInsights(child._id)}
+                            className="px-3 py-1.5 text-sm border border-blue-200 text-blue-700 rounded-md hover:bg-blue-50"
+                          >
+                            {expandedChildId === child._id ? "Hide Insights" : "View Insights"}
                           </button>
                           <button
                             onClick={() => handleDeleteChild(child._id)}
@@ -727,6 +1063,51 @@ export default function ParentalControlPage() {
                           />
                         </div>
 
+                        <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900 mb-2">Spending Limits</p>
+                            {renderLimitInputs(draft.spendingLimits, (key, value) =>
+                              setEditState((prev) => ({
+                                ...prev,
+                                [child._id]: {
+                                  ...prev[child._id],
+                                  spendingLimits: { ...prev[child._id].spendingLimits, [key]: value }
+                                }
+                              }))
+                            )}
+                          </div>
+
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900 mb-2">Food Restrictions</p>
+                            {renderRestrictionInputs(
+                              draft.foodRestrictions,
+                              (key) => setEditState((prev) => ({
+                                ...prev,
+                                [child._id]: {
+                                  ...prev[child._id],
+                                  foodRestrictions: {
+                                    ...prev[child._id].foodRestrictions,
+                                    [key]: !prev[child._id].foodRestrictions[key]
+                                  }
+                                }
+                              })),
+                              (allergen) => setEditState((prev) => ({
+                                ...prev,
+                                [child._id]: {
+                                  ...prev[child._id],
+                                  foodRestrictions: {
+                                    ...prev[child._id].foodRestrictions,
+                                    blockedAllergens: toggleRestrictionAllergen(
+                                      prev[child._id].foodRestrictions.blockedAllergens,
+                                      allergen
+                                    )
+                                  }
+                                }
+                              }))
+                            )}
+                          </div>
+                        </div>
+
                         <div className="flex flex-wrap items-center gap-3">
                           <button
                             onClick={() =>
@@ -757,6 +1138,174 @@ export default function ParentalControlPage() {
                             Cancel
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {expandedChildId === child._id && !isEditing && (
+                      <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/70 p-4 space-y-4">
+                        {loadingInsightsId === child._id ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                          </div>
+                        ) : childInsights[child._id] ? (
+                          <>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900 mb-3">Spending Overview</p>
+                              {renderSpendingOverview(childInsights[child._id].spending)}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Orders</p>
+                                <p className="text-2xl font-bold text-gray-900 mt-2">
+                                  {childInsights[child._id].orderHistory.totalOrders}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Total Spent</p>
+                                <p className="text-2xl font-bold text-gray-900 mt-2">
+                                  Rs. {childInsights[child._id].orderHistory.totalSpent}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Average Order</p>
+                                <p className="text-2xl font-bold text-gray-900 mt-2">
+                                  Rs. {childInsights[child._id].orderHistory.averageOrderValue}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Active Orders</p>
+                                <p className="text-2xl font-bold text-gray-900 mt-2">
+                                  {childInsights[child._id].orderHistory.activeOrders}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold text-gray-900">Nutrition Insights</p>
+                                  <span className="text-xs text-gray-500">
+                                    {childInsights[child._id].nutritionInsights.healthyChoiceRate}% balanced choices
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 mt-4">
+                                  <div className="rounded-lg bg-emerald-50 p-3">
+                                    <p className="text-xs text-emerald-700">Healthy picks</p>
+                                    <p className="text-xl font-semibold text-emerald-900 mt-1">
+                                      {childInsights[child._id].nutritionInsights.healthyChoiceCount}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-orange-50 p-3">
+                                    <p className="text-xs text-orange-700">Junk food items</p>
+                                    <p className="text-xl font-semibold text-orange-900 mt-1">
+                                      {childInsights[child._id].nutritionInsights.junkFoodItemCount}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-amber-50 p-3">
+                                    <p className="text-xs text-amber-700">Caffeinated items</p>
+                                    <p className="text-xl font-semibold text-amber-900 mt-1">
+                                      {childInsights[child._id].nutritionInsights.caffeinatedItemCount}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg bg-blue-50 p-3">
+                                    <p className="text-xs text-blue-700">Tracked calories</p>
+                                    <p className="text-xl font-semibold text-blue-900 mt-1">
+                                      {childInsights[child._id].nutritionInsights.trackedCalories}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4">
+                                  <p className="text-xs font-medium text-gray-600 mb-2">Highlights</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {childInsights[child._id].nutritionInsights.highlights.map((item) => (
+                                      <span
+                                        key={item}
+                                        className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs"
+                                      >
+                                        {item}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {childInsights[child._id].nutritionInsights.categoryBreakdown.length > 0 && (
+                                  <div className="mt-4">
+                                    <p className="text-xs font-medium text-gray-600 mb-2">Top meal categories</p>
+                                    <div className="space-y-2">
+                                      {childInsights[child._id].nutritionInsights.categoryBreakdown.map((entry) => (
+                                        <div key={entry.name}>
+                                          <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                                            <span>{entry.name}</span>
+                                            <span>{entry.count} items</span>
+                                          </div>
+                                          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                                            <div
+                                              className="h-full rounded-full bg-blue-500"
+                                              style={{
+                                                width: `${Math.min(
+                                                  100,
+                                                  Math.round((entry.count / Math.max(childInsights[child._id].nutritionInsights.totalItems, 1)) * 100)
+                                                )}%`
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold text-gray-900">Recent Orders</p>
+                                  <span className="text-xs text-gray-500">
+                                    Last order: {formatDisplayDate(childInsights[child._id].orderHistory.lastOrderAt || undefined)}
+                                  </span>
+                                </div>
+
+                                {childInsights[child._id].orderHistory.recentOrders.length === 0 ? (
+                                  <p className="text-sm text-gray-500 mt-4">No child orders yet.</p>
+                                ) : (
+                                  <div className="space-y-3 mt-4">
+                                    {childInsights[child._id].orderHistory.recentOrders.map((order) => (
+                                      <div key={order._id} className="rounded-lg border border-gray-200 p-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div>
+                                            <p className="text-sm font-semibold text-gray-900">
+                                              #{order.orderNumber}
+                                            </p>
+                                            <p className="text-xs text-gray-600 mt-1">
+                                              {order.restaurant?.name || "Restaurant unavailable"} • {formatDisplayDate(order.createdAt)}
+                                            </p>
+                                          </div>
+                                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-medium capitalize ${getStatusBadgeClass(order.status)}`}>
+                                            {order.status.replaceAll("_", " ")}
+                                          </span>
+                                        </div>
+                                        <p className="text-sm text-gray-700 mt-3">Total: Rs. {order.total}</p>
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                          {order.items.map((item) => (
+                                            <span
+                                              key={`${order._id}-${item.name}`}
+                                              className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-xs"
+                                            >
+                                              {item.name} x{item.quantity}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-gray-500">No child insights available yet.</p>
+                        )}
                       </div>
                     )}
                   </div>

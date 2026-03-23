@@ -97,6 +97,20 @@ export interface OrdersResponse {
   data: Order[];
 }
 
+export interface ReorderOrderResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    addedItemsCount: number;
+    skippedItems: Array<{
+      menuItemId: string;
+      name: string;
+      reason: string;
+    }>;
+    cart?: unknown;
+  };
+}
+
 // Create new order
 export async function createOrder(orderData: {
   deliveryAddress: DeliveryAddress;
@@ -104,6 +118,7 @@ export async function createOrder(orderData: {
   specialInstructions?: string;
   promoCode?: string;
   useLoyaltyPoints?: boolean;
+  childCartId?: string;
 }) {
   return post<OrderResponse>('/orders', orderData);
 }
@@ -136,6 +151,10 @@ export async function cancelOrder(orderId: string, reason?: string) {
 // Clear order history for user (soft-delete)
 export async function clearOrderHistory() {
   return put<{ success: boolean; message: string; data: { modifiedCount: number } }>('/orders/clear-history', {});
+}
+
+export async function reorderOrder(orderId: string) {
+  return post<ReorderOrderResponse>(`/orders/${orderId}/reorder`, {});
 }
 
 // Restaurant: Get orders
@@ -213,7 +232,7 @@ export async function updateRiderLocation(orderId: string, lat: number, lng: num
 
 // Rider: Get Order Pools
 export async function getOrderPools() {
-  return get<{ success: boolean; data: any[] }>('/orders/pools');
+  return get<{ success: boolean; data: unknown[] }>('/orders/pools');
 }
 
 // Admin: Get all orders

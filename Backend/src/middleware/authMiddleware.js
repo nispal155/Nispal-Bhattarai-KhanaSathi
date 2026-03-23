@@ -14,6 +14,42 @@ const isChildPendingAllowedRoute = (req) => {
     );
 };
 
+const verifyTokenAndLoadUser = async (token) => {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return User.findById(decoded.id).select('-password');
+};
+
+const enforcePendingChildRestrictions = (req, res) => {
+    if (
+        req.user.role === 'child' &&
+        req.user.childProfile?.isActive === false
+    ) {
+        res.status(403).json({
+            message: 'Child account is currently disabled by parent',
+            code: 'CHILD_ACCOUNT_DISABLED'
+        });
+        return false;
+    }
+
+    if (
+        req.user.role === 'child' &&
+        (!req.user.isProfileComplete || !req.user.isApproved) &&
+        !isChildPendingAllowedRoute(req)
+    ) {
+        res.status(403).json({
+            message: req.user.isProfileComplete
+                ? 'Child account is pending admin approval.'
+                : 'Child onboarding is incomplete. Please complete onboarding first.',
+            code: 'CHILD_VERIFICATION_PENDING',
+            isProfileComplete: req.user.isProfileComplete,
+            isApproved: req.user.isApproved
+        });
+        return false;
+    }
+
+    return true;
+};
+
 const protect = async (req, res, next) => {
     let token;
 
@@ -23,28 +59,14 @@ const protect = async (req, res, next) => {
     ) {
         try {
             token = req.headers.authorization.split(' ')[1];
-
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-            req.user = await User.findById(decoded.id).select('-password');
+            req.user = await verifyTokenAndLoadUser(token);
 
             if (!req.user) {
                 return res.status(401).json({ message: 'Not authorized, user not found' });
             }
 
-            if (
-                req.user.role === 'child' &&
-                (!req.user.isProfileComplete || !req.user.isApproved) &&
-                !isChildPendingAllowedRoute(req)
-            ) {
-                return res.status(403).json({
-                    message: req.user.isProfileComplete
-                        ? 'Child account is pending admin approval.'
-                        : 'Child onboarding is incomplete. Please complete onboarding first.',
-                    code: 'CHILD_VERIFICATION_PENDING',
-                    isProfileComplete: req.user.isProfileComplete,
-                    isApproved: req.user.isApproved
-                });
+            if (!enforcePendingChildRestrictions(req, res)) {
+                return;
             }
 
             return next();
@@ -55,6 +77,33 @@ const protect = async (req, res, next) => {
     }
 
     return res.status(401).json({ message: 'Not authorized, no token' });
+};
+
+const optionalProtect = async (req, res, next) => {
+    if (
+        !req.headers.authorization ||
+        !req.headers.authorization.startsWith('Bearer')
+    ) {
+        return next();
+    }
+
+    try {
+        const token = req.headers.authorization.split(' ')[1];
+        req.user = await verifyTokenAndLoadUser(token);
+
+        if (!req.user) {
+            return next();
+        }
+
+        if (!enforcePendingChildRestrictions(req, res)) {
+            return;
+        }
+
+        return next();
+    } catch (error) {
+        console.error(error);
+        return next();
+    }
 };
 
 // Role-based authorization middleware
@@ -105,4 +154,4 @@ const customer = (req, res, next) => {
     }
 };
 
-module.exports = { protect, authorize, admin, restaurantManager, deliveryStaff, customer };
+module.exports = { protect, optionalProtect, authorize, admin, restaurantManager, deliveryStaff, customer };

@@ -2,7 +2,13 @@ import { get, post, put, del } from './api';
 
 // Types
 export interface CartItem {
-  menuItem: string;
+  menuItem: string | {
+    _id: string;
+    name?: string;
+    price?: number;
+    image?: string;
+    isAvailable?: boolean;
+  };
   name: string;
   price: number;
   image?: string;
@@ -38,6 +44,38 @@ export interface Cart {
     username: string;
     profilePicture?: string;
   }[];
+  parentApproval?: {
+    status: 'not_required' | 'pending_parent_approval' | 'approved' | 'rejected';
+    requestedAt?: string;
+    reviewedAt?: string;
+    reviewedBy?: string;
+    note?: string;
+  };
+}
+
+export interface ChildCartRequest {
+  _id: string;
+  child: {
+    _id: string;
+    username: string;
+    email: string;
+    displayName?: string;
+    profilePicture?: string;
+  };
+  restaurantGroups: RestaurantGroup[];
+  itemCount: number;
+  subtotal: number;
+  promoCode?: string;
+  promoDiscount: number;
+  requestedAt?: string;
+  reviewedAt?: string;
+  parentApproval: {
+    status: 'not_required' | 'pending_parent_approval' | 'approved' | 'rejected';
+    requestedAt?: string;
+    reviewedAt?: string;
+    reviewedBy?: string;
+    note?: string;
+  };
 }
 
 export interface CartSummary {
@@ -115,4 +153,43 @@ export async function shareCart() {
 // Join shared cart
 export async function joinCart(shareCode: string) {
   return post<CartResponse>('/cart/join', { shareCode });
+}
+
+export async function requestParentApproval(note?: string) {
+  return post<{ success: boolean; message: string; data: { status: string; requestedAt?: string } }>(
+    '/cart/request-parent-approval',
+    { note: note || '' }
+  );
+}
+
+export async function getChildCartRequests() {
+  return get<{ success: boolean; data: ChildCartRequest[] }>('/cart/child-requests');
+}
+
+export async function getChildCartRequestById(cartId: string) {
+  return get<{ success: boolean; data: ChildCartRequest }>(`/cart/child-requests/${cartId}`);
+}
+
+export async function addItemToChildCartRequest(cartId: string, menuItemId: string, quantity: number = 1, specialInstructions?: string) {
+  return post<{ success: boolean; message: string; data: ChildCartRequest }>(`/cart/child-requests/${cartId}/items`, {
+    menuItemId,
+    quantity,
+    specialInstructions
+  });
+}
+
+export async function approveChildCartRequest(cartId: string, note?: string) {
+  return put<{ success: boolean; message: string }>(`/cart/child-requests/${cartId}/approve`, { note: note || '' });
+}
+
+export async function rejectChildCartRequest(cartId: string, note?: string) {
+  return put<{ success: boolean; message: string }>(`/cart/child-requests/${cartId}/reject`, { note: note || '' });
+}
+
+export async function updateChildCartRequestItem(cartId: string, menuItemId: string, quantity: number, specialInstructions?: string) {
+  return put<{ success: boolean; message: string; data: ChildCartRequest }>(`/cart/child-requests/${cartId}/items`, {
+    menuItemId,
+    quantity,
+    specialInstructions
+  });
 }

@@ -3,21 +3,19 @@
 import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import toast from "react-hot-toast";
 import {
   Upload,
-  X,
   Loader2,
   ArrowLeft,
   Utensils
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5003/api";
+const ALLERGEN_OPTIONS = ["Dairy", "Eggs", "Fish", "Shellfish", "Tree Nuts", "Peanuts", "Wheat", "Soy", "Sesame"];
 
 export default function AddMenuItem() {
-  const { user } = useAuth();
   const router = useRouter();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -28,6 +26,9 @@ export default function AddMenuItem() {
     price: "",
     preparationTime: "20",
     isAvailable: true,
+    isJunkFood: false,
+    containsCaffeine: false,
+    allergens: [] as string[],
   });
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,6 +45,19 @@ export default function AddMenuItem() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const toggleBooleanField = (key: "isJunkFood" | "containsCaffeine") => {
+    setFormData((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleAllergen = (allergen: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      allergens: prev.allergens.includes(allergen)
+        ? prev.allergens.filter((item) => item !== allergen)
+        : [...prev.allergens, allergen]
+    }));
   };
 
   const handleSave = async () => {
@@ -64,6 +78,9 @@ export default function AddMenuItem() {
           price: Number(formData.price),
           preparationTime: Number(formData.preparationTime),
           image: imagePreview || "",
+          isJunkFood: formData.isJunkFood,
+          containsCaffeine: formData.containsCaffeine,
+          allergens: formData.allergens,
         },
         {
           headers: { Authorization: `Bearer ${token}` }
@@ -71,9 +88,9 @@ export default function AddMenuItem() {
       );
       toast.success("Menu item added successfully!");
       router.push("/menu");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error saving menu item:", error);
-      toast.error(error.response?.data?.message || "Failed to save menu item");
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to save menu item" : "Failed to save menu item");
     } finally {
       setSaving(false);
     }
@@ -224,6 +241,56 @@ export default function AddMenuItem() {
                     />
                   </div>
                   <p className="text-[10px] text-orange-600 font-bold uppercase mt-3 tracking-tight">Time will be factored into customer delivery estimates</p>
+                </div>
+
+                <div className="p-6 bg-white border border-gray-100 rounded-2xl space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-800">Parent Control Tags</h4>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Used for child-account restrictions</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.isJunkFood}
+                        onChange={() => toggleBooleanField("isJunkFood")}
+                        className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                      />
+                      Mark as junk food
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.containsCaffeine}
+                        onChange={() => toggleBooleanField("containsCaffeine")}
+                        className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                      />
+                      Contains caffeine
+                    </label>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 mb-2">Allergens</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ALLERGEN_OPTIONS.map((allergen) => {
+                        const selected = formData.allergens.includes(allergen);
+                        return (
+                          <button
+                            key={allergen}
+                            type="button"
+                            onClick={() => toggleAllergen(allergen)}
+                            className={`px-3 py-1.5 rounded-full text-xs border transition ${selected
+                              ? "bg-orange-500 border-orange-500 text-white"
+                              : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                              }`}
+                          >
+                            {allergen}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

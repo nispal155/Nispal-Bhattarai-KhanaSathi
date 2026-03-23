@@ -23,10 +23,11 @@ const {
   verifyGroupEsewa,
   verifyGroupKhalti
 } = require('../controller/groupCartController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 // All routes require authentication
 router.use(protect);
+router.use(authorize('customer'));
 
 // Group cart CRUD
 router.post('/', createGroupCart);

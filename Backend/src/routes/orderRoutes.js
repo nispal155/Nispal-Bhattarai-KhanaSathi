@@ -4,6 +4,7 @@ const {
   createOrder,
   getMyOrders,
   getOrderById,
+  reorderPreviousOrder,
   getRestaurantOrders,
   updateOrderStatus,
   assignRider,
@@ -27,6 +28,7 @@ router.use(protect);
 router.post('/', authorize('customer', 'child'), createOrder);
 router.get('/my-orders', authorize('customer', 'child'), getMyOrders);
 router.put('/clear-history', authorize('customer', 'child'), require('../controller/orderController').clearOrderHistory);
+router.post('/:id/reorder', authorize('customer', 'child'), reorderPreviousOrder);
 router.put('/:id/cancel', cancelOrder); // Customer-only check is in controller (2-min window)
 
 // Restaurant routes

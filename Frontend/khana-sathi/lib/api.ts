@@ -51,13 +51,23 @@ api.interceptors.response.use(
             }
         }
 
+        if (error.response?.status === 403 && error.response?.data?.code === 'CHILD_ACCOUNT_DISABLED') {
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                if (window.location.pathname !== '/') {
+                    window.location.href = '/';
+                }
+            }
+        }
+
         if (error.response?.status === 401) {
             if (typeof window !== 'undefined') {
                 localStorage.removeItem('token');
                 localStorage.removeItem('user');
-                // Optional: Redirect to login if not already there
-                if (!window.location.pathname.includes('/login')) {
-                    window.location.href = '/login';
+                // Return to the public landing page when auth expires
+                if (window.location.pathname !== '/') {
+                    window.location.href = '/';
                 }
             }
         }
@@ -65,9 +75,12 @@ api.interceptors.response.use(
     }
 );
 
-interface ApiResponse<T> {
+export interface ApiResponse<T> {
     data?: T;
     error?: string;
+    errorCode?: string;
+    status?: number;
+    details?: unknown;
 }
 // post for overall 
 export async function post<T>(endpoint: string, body: object): Promise<ApiResponse<T>> {
@@ -76,7 +89,12 @@ export async function post<T>(endpoint: string, body: object): Promise<ApiRespon
         return { data: response.data };
     } catch (error) {
         if (axios.isAxiosError(error)) {
-            return { error: error.response?.data?.message || 'Something went wrong' };
+            return {
+                error: error.response?.data?.message || 'Something went wrong',
+                errorCode: error.response?.data?.code,
+                status: error.response?.status,
+                details: error.response?.data?.details ?? error.response?.data
+            };
         }
         return { error: 'Network error. Please try again.' };
     }
@@ -88,7 +106,12 @@ export async function get<T>(endpoint: string): Promise<ApiResponse<T>> {
         return { data: response.data };
     } catch (error) {
         if (axios.isAxiosError(error)) {
-            return { error: error.response?.data?.message || 'Something went wrong' };
+            return {
+                error: error.response?.data?.message || 'Something went wrong',
+                errorCode: error.response?.data?.code,
+                status: error.response?.status,
+                details: error.response?.data?.details ?? error.response?.data
+            };
         }
         return { error: 'Network error. Please try again.' };
     }
@@ -101,7 +124,12 @@ export async function put<T>(endpoint: string, body: object): Promise<ApiRespons
         return { data: response.data };
     } catch (error) {
         if (axios.isAxiosError(error)) {
-            return { error: error.response?.data?.message || 'Something went wrong' };
+            return {
+                error: error.response?.data?.message || 'Something went wrong',
+                errorCode: error.response?.data?.code,
+                status: error.response?.status,
+                details: error.response?.data?.details ?? error.response?.data
+            };
         }
         return { error: 'Network error. Please try again.' };
     }
@@ -114,7 +142,12 @@ export async function del<T>(endpoint: string): Promise<ApiResponse<T>> {
         return { data: response.data };
     } catch (error) {
         if (axios.isAxiosError(error)) {
-            return { error: error.response?.data?.message || 'Something went wrong' };
+            return {
+                error: error.response?.data?.message || 'Something went wrong',
+                errorCode: error.response?.data?.code,
+                status: error.response?.status,
+                details: error.response?.data?.details ?? error.response?.data
+            };
         }
         return { error: 'Network error. Please try again.' };
     }
