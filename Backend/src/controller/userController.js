@@ -15,6 +15,7 @@ const PARENT_ALLOWED_ROLES = new Set(['customer']);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const canManageChildren = (role) => PARENT_ALLOWED_ROLES.has(role);
+const SUPPORTED_ALLERGENS = ['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame'];
 const ensureAdminAccess = (req, res) => {
   if (req.user?.role !== 'admin') {
     res.status(403).json({
@@ -121,17 +122,14 @@ exports.getProfile = async (req, res) => {
  */
 exports.updateProfile = async (req, res) => {
   try {
-    const { username, phone, dateOfBirth, profilePicture, notifications } = req.body;
-    console.log('Update profile request received:', {
+    const {
       username,
       phone,
       dateOfBirth,
-      hasProfilePicture: !!profilePicture,
-      pictureSize: profilePicture ? profilePicture.length : 0,
-      notifications
-    });
-
-    console.log('Current authenticated user ID:', req.user?._id);
+      profilePicture,
+      notifications,
+      allergyPreferences
+    } = req.body;
 
     const updateData = {};
     if (username) updateData.username = username;
@@ -150,6 +148,14 @@ exports.updateProfile = async (req, res) => {
         email: notifications.email ?? true,
         sms: notifications.sms ?? false
       };
+    }
+
+    if (req.user.role !== 'restaurant' && Array.isArray(allergyPreferences)) {
+      updateData.allergyPreferences = [...new Set(
+        allergyPreferences
+          .map((item) => String(item || '').trim())
+          .filter((item) => SUPPORTED_ALLERGENS.includes(item))
+      )];
     }
 
     const user = await User.findByIdAndUpdate(

@@ -34,6 +34,10 @@ export interface Restaurant {
     city: string;
     state: string;
     zipCode: string;
+    coordinates?: {
+      lat?: number | null;
+      lng?: number | null;
+    };
   };
   cuisineType: string[];
   openingHour: string;
@@ -55,6 +59,7 @@ export interface Restaurant {
   tags: string[];
   createdBy: string;
   createdAt: string;
+  distanceKm?: number | null;
 }
 
 
@@ -130,7 +135,7 @@ export async function deleteRestaurant(id: string) {
  * ONBOARD RESTAURANT
  * PUT /api/restaurants/onboard
  */
-export async function onboardRestaurant(payload: any) {
+export async function onboardRestaurant(payload: Record<string, unknown>) {
   return put<ApiResponse<Restaurant>>('/restaurant/onboard', payload);
 }
 
@@ -147,14 +152,26 @@ export async function approveRestaurant(userId: string) {
  * GET /api/restaurants/onboarding-details/:userId
  */
 export async function getOnboardingDetails(userId: string) {
-  return get<ApiResponse<any>>(`/restaurant/onboarding-details/${userId}`);
+  return get<ApiResponse<unknown>>(`/restaurant/onboarding-details/${userId}`);
 }
 /**
  * GET NEARBY RESTAURANTS
  * GET /api/restaurant/nearby?city=...
  */
-export async function getNearbyRestaurants(city: string) {
-  return get<ApiResponse<Restaurant[]>>(`/restaurant/nearby?city=${encodeURIComponent(city)}`);
+export async function getNearbyRestaurants(options: {
+  city?: string;
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
+}) {
+  const params = new URLSearchParams();
+  if (options.city) params.append('city', options.city);
+  if (typeof options.lat === 'number') params.append('lat', options.lat.toString());
+  if (typeof options.lng === 'number') params.append('lng', options.lng.toString());
+  if (typeof options.radiusKm === 'number') params.append('radiusKm', options.radiusKm.toString());
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return get<ApiResponse<Restaurant[]> & { meta?: { city?: string | null; radiusKm?: number | null; locationMode?: string } }>(`/restaurant/nearby${query}`);
 }
 /**
  * GET CURRENT USER'S RESTAURANT

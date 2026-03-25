@@ -25,6 +25,16 @@ const restaurantSchema = new mongoose.Schema(
       },
       zipCode: {
         type: String,
+      },
+      coordinates: {
+        lat: {
+          type: Number,
+          default: null
+        },
+        lng: {
+          type: Number,
+          default: null
+        }
       }
     },
 

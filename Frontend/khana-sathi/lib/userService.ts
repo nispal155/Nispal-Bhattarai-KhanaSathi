@@ -27,6 +27,7 @@ export interface UserProfile {
   phone?: string;
   dateOfBirth?: string;
   profilePicture?: string;
+  allergyPreferences?: string[];
   isVerified: boolean;
   isProfileComplete: boolean;
   isApproved: boolean;
@@ -217,6 +218,12 @@ export async function updateProfile(updates: {
   phone?: string;
   dateOfBirth?: string;
   profilePicture?: string;
+  allergyPreferences?: string[];
+  notifications?: {
+    push?: boolean;
+    email?: boolean;
+    sms?: boolean;
+  };
 }) {
   return put<ProfileResponse>('/users/profile', updates);
 }

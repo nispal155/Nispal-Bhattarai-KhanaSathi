@@ -12,6 +12,17 @@ const {
 } = require('../utils/childAccountControls');
 const { loadCartForCheckout } = require('../utils/checkoutContext');
 const { notifyParentOfChildActivity } = require('../utils/childActivityNotifier');
+const { isPaymentGatewayEnabled } = require('../utils/systemSettings');
+
+const assertPaymentGatewayEnabled = async (gateway) => {
+  const enabled = await isPaymentGatewayEnabled(gateway);
+  if (!enabled) {
+    const error = new Error(`${gateway.toUpperCase()} payments are temporarily disabled by the admin.`);
+    error.statusCode = 503;
+    error.code = 'PAYMENT_GATEWAY_DISABLED';
+    throw error;
+  }
+};
 
 // Helper to strip sensitive financial data for riders
 const stripFinancialsForRider = (order) => {
@@ -113,6 +124,10 @@ exports.createOrder = async (req, res) => {
         success: false,
         message: `For ${paymentMethod} payment, please use the payment initiation endpoint. Orders are created only after successful payment.`
       });
+    }
+
+    if (paymentMethod === 'cod') {
+      await assertPaymentGatewayEnabled('cod');
     }
 
     // Resolve whether this is the payer's own cart or an approved child cart.

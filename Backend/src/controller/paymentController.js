@@ -12,6 +12,7 @@ const {
 } = require('../utils/childAccountControls');
 const { loadCartForCheckout } = require('../utils/checkoutContext');
 const { notifyParentOfChildActivity } = require('../utils/childActivityNotifier');
+const { isPaymentGatewayEnabled } = require('../utils/systemSettings');
 
 // eSewa Configuration (sandbox/test environment)
 const ESEWA_CONFIG = {
@@ -38,6 +39,16 @@ const generateEsewaSignature = (message) => {
         .createHmac('sha256', ESEWA_CONFIG.secretKey)
         .update(message)
         .digest('base64');
+};
+
+const assertPaymentGatewayEnabled = async (gateway) => {
+    const enabled = await isPaymentGatewayEnabled(gateway);
+    if (!enabled) {
+        const error = new Error(`${gateway.toUpperCase()} payments are temporarily disabled by the admin.`);
+        error.statusCode = 503;
+        error.code = 'PAYMENT_GATEWAY_DISABLED';
+        throw error;
+    }
 };
 
 const validateCartForChildUser = async (user, cart, useLoyaltyPoints = false, options = {}) => {
@@ -309,6 +320,7 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
  */
 exports.initiateEsewaFromCart = async (req, res) => {
     try {
+        await assertPaymentGatewayEnabled('esewa');
         const { deliveryAddress, specialInstructions, useLoyaltyPoints, childCartId } = req.body;
         console.log('=== ESEWA INITIATE FROM CART ===');
         console.log('User ID:', req.user._id);
@@ -426,6 +438,7 @@ exports.initiateEsewaFromCart = async (req, res) => {
  */
 exports.initiateKhaltiFromCart = async (req, res) => {
     try {
+        await assertPaymentGatewayEnabled('khalti');
         const { deliveryAddress, specialInstructions, useLoyaltyPoints, childCartId } = req.body;
         console.log('=== KHALTI INITIATE FROM CART ===');
         console.log('User ID:', req.user._id);
@@ -777,6 +790,7 @@ exports.verifyKhaltiPayment = async (req, res) => {
  */
 exports.initiateEsewaPayment = async (req, res) => {
     try {
+        await assertPaymentGatewayEnabled('esewa');
         const { orderId } = req.body;
         console.log('Initiating eSewa payment for order:', orderId);
 
@@ -822,10 +836,11 @@ exports.initiateEsewaPayment = async (req, res) => {
         });
     } catch (error) {
         console.error('eSewa payment initiation error:', error);
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to initiate eSewa payment',
-            error: error.message
+            message: error.statusCode ? error.message : 'Failed to initiate eSewa payment',
+            error: error.message,
+            code: error.code
         });
     }
 };
@@ -837,6 +852,7 @@ exports.initiateEsewaPayment = async (req, res) => {
  */
 exports.initiateKhaltiPayment = async (req, res) => {
     try {
+        await assertPaymentGatewayEnabled('khalti');
         const { orderId } = req.body;
         const order = await Order.findById(orderId)
             .populate('customer', 'username email phone')
@@ -897,10 +913,11 @@ exports.initiateKhaltiPayment = async (req, res) => {
             });
         }
     } catch (error) {
-        res.status(500).json({
+        res.status(error.statusCode || 500).json({
             success: false,
-            message: 'Failed to initiate Khalti payment',
-            error: error.message
+            message: error.statusCode ? error.message : 'Failed to initiate Khalti payment',
+            error: error.message,
+            code: error.code
         });
     }
 };

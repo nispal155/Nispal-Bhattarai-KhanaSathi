@@ -659,24 +659,85 @@ exports.getOnboardingDetails = async (req, res) => {
  */
 exports.getNearbyRestaurants = async (req, res) => {
   try {
-    const { city } = req.query;
+    const city = String(req.query.city || '').trim();
+    const lat = Number.parseFloat(req.query.lat);
+    const lng = Number.parseFloat(req.query.lng);
+    const radiusKm = Number.parseFloat(req.query.radiusKm) || 10;
+    const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng);
 
-    if (!city) {
+    if (!city && !hasCoordinates) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a city for nearby restaurants"
+        message: "Please provide a city or GPS coordinates for nearby restaurants"
       });
     }
 
-    const restaurants = await Restaurant.find({
-      "address.city": { $regex: new RegExp(city, "i") },
-      isActive: true
+    const query = { isActive: true };
+    if (city) {
+      query['address.city'] = { $regex: new RegExp(city, 'i') };
+    }
+
+    const restaurants = await Restaurant.find(query);
+
+    const toRadians = (value) => (value * Math.PI) / 180;
+    const calculateDistanceKm = (originLat, originLng, targetLat, targetLng) => {
+      const earthRadiusKm = 6371;
+      const diffLat = toRadians(targetLat - originLat);
+      const diffLng = toRadians(targetLng - originLng);
+      const a = Math.sin(diffLat / 2) ** 2
+        + Math.cos(toRadians(originLat)) * Math.cos(toRadians(targetLat))
+        * Math.sin(diffLng / 2) ** 2;
+      return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    const enrichedRestaurants = restaurants.map((restaurant) => {
+      const restaurantObject = restaurant.toObject();
+      const targetLat = Number(restaurantObject?.address?.coordinates?.lat);
+      const targetLng = Number(restaurantObject?.address?.coordinates?.lng);
+      const distanceKm = hasCoordinates && Number.isFinite(targetLat) && Number.isFinite(targetLng)
+        ? calculateDistanceKm(lat, lng, targetLat, targetLng)
+        : null;
+
+      return {
+        ...restaurantObject,
+        distanceKm: distanceKm === null ? null : Number(distanceKm.toFixed(1))
+      };
     });
+
+    let filteredRestaurants = enrichedRestaurants;
+    let locationMode = city ? 'city' : 'gps';
+
+    if (hasCoordinates) {
+      const withinRadius = enrichedRestaurants.filter(
+        (restaurant) => typeof restaurant.distanceKm === 'number' && restaurant.distanceKm <= radiusKm
+      );
+
+      if (withinRadius.length > 0) {
+        filteredRestaurants = withinRadius;
+        locationMode = 'gps';
+      } else if (city) {
+        filteredRestaurants = enrichedRestaurants;
+        locationMode = 'gps_city_fallback';
+      } else {
+        filteredRestaurants = enrichedRestaurants.filter((restaurant) => typeof restaurant.distanceKm === 'number');
+      }
+
+      filteredRestaurants = filteredRestaurants.sort((first, second) => {
+        const firstDistance = typeof first.distanceKm === 'number' ? first.distanceKm : Number.MAX_SAFE_INTEGER;
+        const secondDistance = typeof second.distanceKm === 'number' ? second.distanceKm : Number.MAX_SAFE_INTEGER;
+        return firstDistance - secondDistance;
+      });
+    }
 
     res.status(200).json({
       success: true,
-      count: restaurants.length,
-      data: restaurants
+      count: filteredRestaurants.length,
+      data: filteredRestaurants,
+      meta: {
+        city: city || null,
+        radiusKm: hasCoordinates ? radiusKm : null,
+        locationMode
+      }
     });
   } catch (error) {
     res.status(500).json({

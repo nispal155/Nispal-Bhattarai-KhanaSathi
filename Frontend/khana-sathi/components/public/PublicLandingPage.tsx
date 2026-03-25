@@ -8,15 +8,19 @@ import {
   ArrowRight,
   ChevronDown,
   Clock3,
+  MapPin,
   Menu,
   Search,
   ShoppingBag,
   Sparkles,
   Star,
+  UtensilsCrossed,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { getAllRestaurants, type Restaurant } from "@/lib/restaurantService";
+import { formatPriceRange } from "@/lib/formatters";
 
 const headingFont = Bricolage_Grotesque({
   subsets: ["latin"],
@@ -42,60 +46,6 @@ const heroImages = [
       "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=900&q=80",
     className:
       "absolute right-4 top-28 h-[230px] w-[150px] rounded-[80px] shadow-[0_28px_60px_rgba(23,25,35,0.22)] md:right-10 md:top-24 md:h-[300px] md:w-[200px]",
-  },
-];
-
-const leftOffers = [
-  {
-    name: "Pasta",
-    price: "Rs. 280",
-    oldPrice: "Rs. 360",
-    image:
-      "https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?auto=format&fit=crop&w=900&q=80",
-    tag: "-22%",
-  },
-  {
-    name: "Butter Chicken",
-    price: "Rs. 480",
-    oldPrice: "Rs. 560",
-    image:
-      "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=900&q=80",
-    tag: "-18%",
-  },
-  {
-    name: "Biryani",
-    price: "Rs. 330",
-    oldPrice: "Rs. 410",
-    image:
-      "https://images.unsplash.com/photo-1563379091339-03246963d96c?auto=format&fit=crop&w=900&q=80",
-    tag: "-12%",
-  },
-];
-
-const rightOffers = [
-  {
-    name: "Nuggets Recipe",
-    price: "Rs. 350",
-    oldPrice: "Rs. 430",
-    image:
-      "https://images.unsplash.com/photo-1562967914-608f82629710?auto=format&fit=crop&w=900&q=80",
-    tag: "-16%",
-  },
-  {
-    name: "Burgers",
-    price: "Rs. 420",
-    oldPrice: "Rs. 520",
-    image:
-      "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
-    tag: "-20%",
-  },
-  {
-    name: "Seekh Kebab",
-    price: "Rs. 530",
-    oldPrice: "Rs. 620",
-    image:
-      "https://images.unsplash.com/photo-1529042410759-befb1204b468?auto=format&fit=crop&w=900&q=80",
-    tag: "-14%",
   },
 ];
 
@@ -128,34 +78,34 @@ const renderStars = () => (
   </div>
 );
 
-function CompactOfferCard({
-  name,
-  price,
-  oldPrice,
-  image,
-  tag,
-}: {
-  name: string;
-  price: string;
-  oldPrice: string;
-  image: string;
-  tag: string;
-}) {
+function CompactRestaurantCard({ restaurant }: { restaurant: Restaurant }) {
+  const cuisines = restaurant.cuisineType?.join(", ") || "Chef specials";
+  const city = restaurant.address?.city || "KhanaSathi";
+  const deliveryWindow = restaurant.deliveryTime
+    ? `${restaurant.deliveryTime.min}-${restaurant.deliveryTime.max} min`
+    : "30-45 min";
+
   return (
     <div className="group relative overflow-hidden rounded-[24px] border border-black/6 bg-white p-3 shadow-[0_18px_36px_rgba(19,23,35,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_48px_rgba(19,23,35,0.13)]">
       <div className="flex items-center gap-3">
         <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-[18px]">
-          <Image src={image} alt={name} fill className="object-cover transition duration-500 group-hover:scale-105" />
+          <Image
+            src={restaurant.logoUrl || "/restaurant-placeholder.jpg"}
+            alt={restaurant.name}
+            fill
+            className="object-cover transition duration-500 group-hover:scale-105"
+          />
           <div className="absolute left-2 top-2 rounded-full bg-[#ffd84d] px-2 py-0.5 text-[10px] font-bold text-[#3d2800]">
-            {tag}
+            {city}
           </div>
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-2">{renderStars()}</div>
-          <p className="truncate text-sm font-semibold text-[#1d1c20]">{name}</p>
-          <div className="mt-2 flex items-center gap-2 text-sm">
-            <span className="font-bold text-[#ff3157]">{price}</span>
-            <span className="text-xs text-[#b0acb2] line-through">{oldPrice}</span>
+          <p className="truncate text-sm font-semibold text-[#1d1c20]">{restaurant.name}</p>
+          <p className="mt-1 truncate text-xs text-[#7e7788]">{cuisines}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-bold text-[#ff3157]">{formatPriceRange(restaurant.priceRange || "Rs.")}</span>
+            <span className="text-xs text-[#6f6877]">{deliveryWindow}</span>
           </div>
         </div>
       </div>
@@ -167,32 +117,56 @@ export default function PublicLandingPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [spotlight, setSpotlight] = useState("restaurants");
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
   const [searchText, setSearchText] = useState("");
+  const [isLoadingRestaurants, setIsLoadingRestaurants] = useState(true);
 
   const profileHref = getDashboardPath(user?.role);
 
+  useEffect(() => {
+    const loadRestaurants = async () => {
+      try {
+        setIsLoadingRestaurants(true);
+        const response = await getAllRestaurants({ limit: 12 });
+        const payload = response.data?.data || [];
+        const liveRestaurants = Array.isArray(payload) ? payload : [];
+        setRestaurants(liveRestaurants);
+        if (liveRestaurants[0]?._id) {
+          setSelectedRestaurantId((current) => current || liveRestaurants[0]._id);
+        }
+      } catch (error) {
+        console.error("Failed to load live restaurants:", error);
+      } finally {
+        setIsLoadingRestaurants(false);
+      }
+    };
+
+    void loadRestaurants();
+  }, []);
+
+  const selectedRestaurant = useMemo(
+    () => restaurants.find((restaurant) => restaurant._id === selectedRestaurantId) || restaurants[0] || null,
+    [restaurants, selectedRestaurantId]
+  );
+
+  const sideRestaurants = restaurants.slice(0, 6);
+  const leftRestaurants = sideRestaurants.slice(0, 3);
+  const rightRestaurants = sideRestaurants.slice(3, 6);
+
   const handleExplore = () => {
-    if (spotlight === "offers") {
-      router.push("/explore-restaurant");
+    if (selectedRestaurantId) {
+      router.push(`/view-restaurant/${selectedRestaurantId}`);
       return;
     }
 
     const params = new URLSearchParams();
     if (searchText.trim()) {
       params.set("search", searchText.trim());
-    } else if (spotlight === "fast-delivery") {
-      params.set("search", "fast delivery");
-    } else if (spotlight === "top-picks") {
-      params.set("search", "top rated");
     }
 
     const query = params.toString();
     router.push(query ? `/browse-restaurants?${query}` : "/browse-restaurants");
-  };
-
-  const handleSpotlightChange = (value: string) => {
-    setSpotlight(value);
   };
 
   return (
@@ -315,20 +289,25 @@ export default function PublicLandingPage() {
                 </h1>
 
                 <p className="mt-5 max-w-[470px] text-sm uppercase tracking-[0.26em] text-[#827c88]">
-                  Curated city favorites, quick doorstep delivery, and fresh chef-made meals all week long.
+                  Live restaurant data from your project, quick doorstep delivery, and fresh chef-made meals all week long.
                 </p>
 
                 <div className="mt-8 space-y-4">
                   <div className="relative">
                     <select
-                      value={spotlight}
-                      onChange={(event) => handleSpotlightChange(event.target.value)}
+                      value={selectedRestaurantId}
+                      onChange={(event) => setSelectedRestaurantId(event.target.value)}
                       className="h-14 w-full appearance-none rounded-2xl border border-black/10 bg-white px-5 pr-12 text-sm font-semibold text-[#272330] shadow-[0_12px_30px_rgba(17,20,29,0.08)] outline-none transition focus:border-[#ff3157]"
                     >
-                      <option value="restaurants">Our Restaurants</option>
-                      <option value="fast-delivery">Fast Delivery Picks</option>
-                      <option value="top-picks">Top Rated Meals</option>
-                      <option value="offers">Best Offers</option>
+                      {isLoadingRestaurants && <option value="">Loading restaurants...</option>}
+                      {!isLoadingRestaurants && restaurants.length === 0 && (
+                        <option value="">Our Restaurants</option>
+                      )}
+                      {restaurants.map((restaurant) => (
+                        <option key={restaurant._id} value={restaurant._id}>
+                          {restaurant.name} {restaurant.address?.city ? `• ${restaurant.address.city}` : ""}
+                        </option>
+                      ))}
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7e7788]" />
                   </div>
@@ -339,7 +318,7 @@ export default function PublicLandingPage() {
                       <input
                         value={searchText}
                         onChange={(event) => setSearchText(event.target.value)}
-                        placeholder="Search burgers, pasta, momos..."
+                        placeholder="Search restaurants or dishes..."
                         className="h-14 w-full rounded-2xl border border-black/10 bg-white pl-11 pr-4 text-sm text-[#221f2a] shadow-[0_12px_30px_rgba(17,20,29,0.08)] outline-none transition focus:border-[#ff3157]"
                       />
                     </div>
@@ -348,13 +327,28 @@ export default function PublicLandingPage() {
                       onClick={handleExplore}
                       className="inline-flex h-14 items-center justify-center rounded-2xl bg-[#ff3157] px-8 text-sm font-bold text-white shadow-[0_18px_40px_rgba(255,49,87,0.34)] transition hover:-translate-y-0.5 hover:bg-[#f1234c]"
                     >
-                      Explore menu
+                      {selectedRestaurant ? "View restaurant" : "Explore menu"}
                     </button>
                   </div>
                 </div>
 
                 <div className="mt-7 flex flex-wrap gap-3 text-sm">
-                  {["Fresh chef-made meals", "Fast doorstep delivery", "Curated daily offers"].map((item) => (
+                  {selectedRestaurant
+                    ? [
+                        selectedRestaurant.address?.city || "Restaurant listed",
+                        selectedRestaurant.cuisineType?.join(", ") || "Chef-made meals",
+                        selectedRestaurant.deliveryTime
+                          ? `${selectedRestaurant.deliveryTime.min}-${selectedRestaurant.deliveryTime.max} min delivery`
+                          : "Fast doorstep delivery",
+                      ].map((item) => (
+                    <span
+                      key={item}
+                      className="rounded-full border border-black/6 bg-white px-4 py-2 font-semibold text-[#4a4355] shadow-[0_8px_18px_rgba(17,20,29,0.06)]"
+                    >
+                      {item}
+                    </span>
+                      ))
+                    : ["Fresh chef-made meals", "Fast doorstep delivery", "Curated daily offers"].map((item) => (
                     <span
                       key={item}
                       className="rounded-full border border-black/6 bg-white px-4 py-2 font-semibold text-[#4a4355] shadow-[0_8px_18px_rgba(17,20,29,0.06)]"
@@ -363,6 +357,40 @@ export default function PublicLandingPage() {
                     </span>
                   ))}
                 </div>
+
+                {selectedRestaurant && (
+                  <div className="mt-5 rounded-[24px] border border-black/6 bg-white/90 p-4 shadow-[0_12px_30px_rgba(17,20,29,0.08)]">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-[#f6f2eb]">
+                        <Image
+                          src={selectedRestaurant.logoUrl || "/restaurant-placeholder.jpg"}
+                          alt={selectedRestaurant.name}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-lg font-bold text-[#18161d]">{selectedRestaurant.name}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-[#655f6c]">
+                          <span className="inline-flex items-center gap-1">
+                            <UtensilsCrossed className="h-4 w-4 text-[#ff3157]" />
+                            {selectedRestaurant.cuisineType?.join(", ") || "Multiple cuisines"}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="h-4 w-4 text-[#ff3157]" />
+                            {selectedRestaurant.address?.city || "Location available"}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock3 className="h-4 w-4 text-[#ff3157]" />
+                            {selectedRestaurant.deliveryTime
+                              ? `${selectedRestaurant.deliveryTime.min}-${selectedRestaurant.deliveryTime.max} min`
+                              : "30-45 min"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="relative min-h-[420px] lg:min-h-[520px]">
@@ -402,65 +430,78 @@ export default function PublicLandingPage() {
             <div className="mx-auto max-w-[1180px]">
               <div className="mb-12 text-center">
                 <h2 className={`${headingFont.className} text-3xl font-extrabold text-[#17141d] md:text-4xl`}>
-                  Best Offer For You
+                  Featured Restaurants
                 </h2>
                 <p className="mt-3 text-sm text-[#7f7886]">
-                  Designed like your reference, but adapted to KhanaSathi with a cleaner live homepage layout.
+                  These are the live restaurant entries already added in your project database.
                 </p>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-[0.95fr_1.18fr_0.95fr]">
                 <div className="space-y-5">
-                  {leftOffers.map((offer) => (
-                    <CompactOfferCard key={offer.name} {...offer} />
+                  {leftRestaurants.map((restaurant) => (
+                    <CompactRestaurantCard key={restaurant._id} restaurant={restaurant} />
                   ))}
                 </div>
 
                 <div className="relative overflow-hidden rounded-[30px] border border-black/6 bg-white p-3 shadow-[0_24px_60px_rgba(18,23,36,0.11)]">
                   <div className="relative h-[440px] overflow-hidden rounded-[24px]">
                     <Image
-                      src="https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=80"
-                      alt="BBQ Chicken & Pork"
+                      src={selectedRestaurant?.logoUrl || "/restaurant-placeholder.jpg"}
+                      alt={selectedRestaurant?.name || "Featured restaurant"}
                       fill
                       className="object-cover"
                     />
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent p-5 text-white">
-                      <div className="mb-4 flex gap-2">
-                        {[
-                          { value: "26", label: "Days" },
-                          { value: "04", label: "Hours" },
-                          { value: "56", label: "Mins" },
-                          { value: "28", label: "Secs" },
-                        ].map((item) => (
-                          <div key={item.label} className="rounded-xl bg-white/90 px-3 py-2 text-center text-[#19161c]">
-                            <p className="text-sm font-extrabold">{item.value}</p>
-                            <p className="text-[10px] uppercase tracking-wide text-[#726a79]">{item.label}</p>
-                          </div>
-                        ))}
-                      </div>
+                      {selectedRestaurant && (
+                        <div className="mb-4 flex flex-wrap gap-2">
+                          {[
+                            { value: selectedRestaurant.address?.city || "City", label: "Location" },
+                            {
+                              value: selectedRestaurant.deliveryTime
+                                ? `${selectedRestaurant.deliveryTime.min}-${selectedRestaurant.deliveryTime.max}`
+                                : "30-45",
+                              label: "Mins",
+                            },
+                            { value: formatPriceRange(selectedRestaurant.priceRange || "Rs."), label: "Budget" },
+                          ].map((item) => (
+                            <div key={item.label} className="rounded-xl bg-white/90 px-3 py-2 text-center text-[#19161c]">
+                              <p className="text-sm font-extrabold">{item.value}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-[#726a79]">{item.label}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {renderStars()}
                       <div className="mt-3 flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-xl font-bold">BBQ Chicken & Pork</p>
+                          <p className="text-xl font-bold">{selectedRestaurant?.name || "KhanaSathi Restaurant"}</p>
+                          <p className="mt-2 text-sm text-white/80">
+                            {selectedRestaurant?.cuisineType?.join(", ") || "Chef specials and curated meals"}
+                          </p>
                           <div className="mt-2 flex items-center gap-3">
-                            <span className="font-bold text-[#ffd739]">Rs. 520</span>
-                            <span className="text-sm text-white/65 line-through">Rs. 640</span>
+                            <span className="font-bold text-[#ffd739]">
+                              {formatPriceRange(selectedRestaurant?.priceRange || "Rs.")}
+                            </span>
+                            <span className="text-sm text-white/65">
+                              {selectedRestaurant?.address?.addressLine1 || "Open on KhanaSathi"}
+                            </span>
                           </div>
                         </div>
-                        <button
-                          type="button"
+                        <Link
+                          href={selectedRestaurant ? `/view-restaurant/${selectedRestaurant._id}` : "/browse-restaurants"}
                           className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-[#ff3157] shadow-[0_12px_22px_rgba(255,255,255,0.24)] transition hover:scale-105"
                         >
                           <ShoppingBag className="h-5 w-5" />
-                        </button>
+                        </Link>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-5">
-                  {rightOffers.map((offer) => (
-                    <CompactOfferCard key={offer.name} {...offer} />
+                  {rightRestaurants.map((restaurant) => (
+                    <CompactRestaurantCard key={restaurant._id} restaurant={restaurant} />
                   ))}
                 </div>
               </div>

@@ -2,13 +2,20 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Search, Clock, Star, ChevronDown, Loader2 } from "lucide-react";
+import { Search, Clock, Star, ChevronDown, Loader2, ShieldAlert } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getAllRestaurants, getNearbyRestaurants, Restaurant } from "@/lib/restaurantService";
 import { formatPriceRange } from "@/lib/formatters";
 import UserHeader from "@/components/layout/UserHeader";
-import { getProfile } from "@/lib/userService";
+import { getProfile, type UserProfile as ServiceUserProfile } from "@/lib/userService";
+
+type BrowseProfile = ServiceUserProfile & {
+  address?: {
+    city?: string;
+  };
+  city?: string;
+};
 
 interface RestaurantDisplay {
   _id: string;
@@ -33,31 +40,71 @@ export default function BrowseRestaurants() {
   const [restaurants, setRestaurants] = useState<RestaurantDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [savedAllergies, setSavedAllergies] = useState<string[]>([]);
+  const [fallbackCity, setFallbackCity] = useState("");
 
   useEffect(() => {
     const syncProfile = async () => {
       try {
         const response = await getProfile();
-        if (response.data?.success && response.data?.data) {
-          updateUser(response.data.data as any);
+        const profileData: BrowseProfile | undefined = response.data?.success ? response.data.data as BrowseProfile : undefined;
+        if (profileData) {
+          updateUser(profileData);
+          setSavedAllergies(Array.isArray(profileData.allergyPreferences) ? profileData.allergyPreferences : []);
         }
+        const savedCity = profileData?.address?.city || profileData?.city || "";
+        setFallbackCity(savedCity);
+        await detectLocationAndFetch(savedCity);
       } catch (err) {
         console.error("Error syncing profile:", err);
+        await fetchRestaurants();
       }
     };
 
     syncProfile();
-
-    // Try to fetch based on user's city if available
-    const userCity = (user as any)?.address?.city || (user as any)?.city;
-    fetchRestaurants(userCity);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id]);
 
-  const fetchRestaurants = async (city?: string) => {
+  const reverseGeocode = async (lat: number, lng: number) => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+      const data = await response.json();
+      const address = data?.address || {};
+      const city = address.city || address.town || address.village || address.county || "";
+
+      return {
+        city,
+        label: data?.display_name || city || "Current location",
+      };
+    } catch (err) {
+      console.error("Reverse geocode failed:", err);
+      return null;
+    }
+  };
+
+  const fetchRestaurants = async (options?: {
+    city?: string;
+    lat?: number;
+    lng?: number;
+    radiusKm?: number;
+  }) => {
     try {
       setLoading(true);
-      const response = city
-        ? await getNearbyRestaurants(city)
+      setError("");
+      const response = options?.city || (typeof options?.lat === "number" && typeof options?.lng === "number")
+        ? await getNearbyRestaurants({
+          city: options.city,
+          lat: options.lat,
+          lng: options.lng,
+          radiusKm: options.radiusKm || 10
+        })
         : await getAllRestaurants();
       // Handle the nested API response structure
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,6 +129,40 @@ export default function BrowseRestaurants() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const detectLocationAndFetch = async (savedCity?: string) => {
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      await fetchRestaurants(savedCity ? { city: savedCity } : undefined);
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          const reverseLookup = await reverseGeocode(latitude, longitude);
+          const city = reverseLookup?.city || savedCity;
+
+          await fetchRestaurants({
+            city,
+            lat: latitude,
+            lng: longitude,
+            radiusKm: 10,
+          });
+          resolve();
+        },
+        async () => {
+          await fetchRestaurants(savedCity ? { city: savedCity } : undefined);
+          resolve();
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000,
+        }
+      );
+    });
   };
 
   // Filter restaurants based on current filters
@@ -295,7 +376,6 @@ export default function BrowseRestaurants() {
 
           {/* Main Content */}
           <main className="flex-1">
-            {/* Search & Points */}
             <div className="flex flex-col sm:flex-row gap-4 mb-6">
               <div className="flex-1 relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -317,6 +397,20 @@ export default function BrowseRestaurants() {
                 </button>
               </div>
             </div>
+
+            {savedAllergies.length > 0 && (
+              <div className="mb-6 rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+                  <ShieldAlert className="h-4 w-4 text-amber-500" />
+                  <span className="font-medium">Saved allergy preferences:</span>
+                  {savedAllergies.map((allergy) => (
+                    <span key={allergy} className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                      {allergy}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
@@ -349,7 +443,7 @@ export default function BrowseRestaurants() {
               <div className="text-center py-12">
                 <p className="text-red-500 mb-4">{error}</p>
                 <button
-                  onClick={() => fetchRestaurants()}
+                  onClick={() => fetchRestaurants(fallbackCity ? { city: fallbackCity } : undefined)}
                   className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
                 >
                   Try Again

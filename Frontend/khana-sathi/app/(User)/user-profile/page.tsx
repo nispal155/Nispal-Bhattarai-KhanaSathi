@@ -53,6 +53,7 @@ interface UserProfile {
   phone?: string;
   dateOfBirth?: string;
   profilePicture?: string;
+  allergyPreferences?: string[];
   parentAccount?: string | null | {
     _id: string;
     username?: string;
@@ -75,6 +76,8 @@ interface RestaurantProfile {
   openingHour?: string;
   closingHour?: string;
 }
+
+const ALLERGY_OPTIONS = ['Dairy', 'Eggs', 'Fish', 'Shellfish', 'Tree Nuts', 'Peanuts', 'Wheat', 'Soy', 'Sesame'];
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -160,6 +163,7 @@ export default function ProfilePage() {
           phone: profileData.phone || '',
           dateOfBirth: profileData.dateOfBirth || '',
           profilePicture: profileData.profilePicture || '',
+          allergyPreferences: Array.isArray(profileData.allergyPreferences) ? profileData.allergyPreferences : [],
           parentAccount: profileData.parentAccount || null,
           loyaltyPoints: profileData.loyaltyPoints || 0,
           createdAt: profileData.createdAt || '',
@@ -315,6 +319,7 @@ export default function ProfilePage() {
         username: profile.name,
         phone: profile.phone,
         dateOfBirth: profile.dateOfBirth,
+        allergyPreferences: profile.allergyPreferences || [],
       });
       if (response.data && response.data.data) {
         updateAuthUser(response.data.data);
@@ -601,6 +606,65 @@ export default function ProfilePage() {
                         <p className="text-gray-900">{profile?.dateOfBirth ? formatDate(profile.dateOfBirth) : "Not set"}</p>
                       )}
                     </div>
+                    {user?.role !== 'restaurant' && (
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-500 mb-2">Allergy Preferences</label>
+                        {editMode ? (
+                          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                            <p className="mb-3 text-sm text-gray-600">
+                              Select allergies to help KhanaSathi warn you about risky menu items and safer food suggestions.
+                            </p>
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                              {ALLERGY_OPTIONS.map((allergy) => {
+                                const selected = profile?.allergyPreferences?.includes(allergy);
+                                return (
+                                  <label
+                                    key={allergy}
+                                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                                      selected
+                                        ? "border-red-300 bg-red-50 text-red-700"
+                                        : "border-gray-200 bg-white text-gray-700 hover:border-red-200"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 rounded border-gray-300 text-red-500 focus:ring-red-500"
+                                      checked={selected}
+                                      onChange={(e) =>
+                                        setProfile((current) => {
+                                          if (!current) return current;
+                                          const currentAllergies = current.allergyPreferences || [];
+                                          return {
+                                            ...current,
+                                            allergyPreferences: e.target.checked
+                                              ? [...currentAllergies, allergy]
+                                              : currentAllergies.filter((item) => item !== allergy)
+                                          };
+                                        })
+                                      }
+                                    />
+                                    <span>{allergy}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : profile?.allergyPreferences?.length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {profile.allergyPreferences.map((allergy) => (
+                              <span
+                                key={allergy}
+                                className="rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700"
+                              >
+                                {allergy}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-gray-900">No allergy preferences saved</p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {user?.role === 'child' && (

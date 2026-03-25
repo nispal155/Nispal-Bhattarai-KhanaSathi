@@ -46,6 +46,10 @@ const init = (server) => {
             socket.join(userId);
         }
 
+        if (socket.user?.role === 'admin') {
+            socket.join('admin');
+        }
+
         // Join a room – supports orderId, `orderId:thread`, or userId
         socket.on('join', (roomId) => {
             if (!roomId) return;
@@ -60,6 +64,11 @@ const init = (server) => {
             const target = orderId.toString();
             socket.join(target);
             console.log(`Socket ${socket.id} joined order room ${target}`);
+        });
+
+        socket.on('leaveOrder', (orderId) => {
+            if (!orderId) return;
+            socket.leave(orderId.toString());
         });
 
         // Leave a room

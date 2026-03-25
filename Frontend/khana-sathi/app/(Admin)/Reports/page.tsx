@@ -1,48 +1,114 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import AdminSidebar from "@/components/admin/AdminSidebar";
-import { Eye, Calendar, Download, Loader2, TrendingUp, TrendingDown } from "lucide-react";
+import { Eye, Download, Loader2, TrendingUp, TrendingDown, Navigation } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { getOverviewStats, getTopRestaurants, getForecasting, getSettlements } from "@/lib/analyticsService";
+import { getOverviewStats, getTopRestaurants, getForecasting, getSettlements, getRoutePerformance } from "@/lib/analyticsService";
 import toast from "react-hot-toast";
 import { formatCurrency } from "@/lib/formatters";
+
+interface MetricWithChange {
+  value: number;
+  change?: number;
+}
+
+interface OverviewStats {
+  totalOrders: MetricWithChange;
+  totalRevenue: MetricWithChange;
+  avgOrderValue: MetricWithChange;
+  activeStaff: MetricWithChange;
+  activeRestaurants?: MetricWithChange;
+}
+
+interface TopRestaurant {
+  _id: string;
+  name: string;
+  totalSales: number;
+  orderCount: number;
+}
+
+interface ForecastEntry {
+  date: string;
+  predictedSales: number;
+}
+
+interface SettlementInvoice {
+  _id: string;
+  count: number;
+  totalAmount: number;
+}
+
+interface SettlementData {
+  invoices: SettlementInvoice[];
+  unbilledSales: number;
+}
+
+interface RouteRider {
+  _id: string;
+  name: string;
+  deliveries: number;
+  averageDuration: number;
+  averageRating: number;
+}
+
+interface RoutePerformanceData {
+  activeDeliveries: number;
+  readyForPickup: number;
+  liveTrackedOrders: number;
+  averageDeliveryMinutes: number;
+  delayedDeliveries: number;
+  topRiders: RouteRider[];
+}
+
+interface StatCardProps {
+  title: string;
+  value: number;
+  change?: number;
+  suffix?: string;
+  isCurrency?: boolean;
+}
 
 export default function Reports() {
   const { user } = useAuth();
   const [days, setDays] = useState(7);
-  const [stats, setStats] = useState<any>(null);
-  const [topRestaurants, setTopRestaurants] = useState<any[]>([]);
-  const [forecast, setForecast] = useState<any[]>([]);
-  const [settlement, setSettlement] = useState<any>(null);
+  const [stats, setStats] = useState<OverviewStats | null>(null);
+  const [topRestaurants, setTopRestaurants] = useState<TopRestaurant[]>([]);
+  const [forecast, setForecast] = useState<ForecastEntry[]>([]);
+  const [settlement, setSettlement] = useState<SettlementData | null>(null);
+  const [routePerformance, setRoutePerformance] = useState<RoutePerformanceData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [days]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
-      const [statsRes, restaurantsRes, forecastRes, settlementsRes] = await Promise.all([
+      const [statsRes, restaurantsRes, forecastRes, settlementsRes, routePerformanceRes] = await Promise.all([
         getOverviewStats(days),
         getTopRestaurants(days),
         getForecasting(),
-        getSettlements()
+        getSettlements(),
+        getRoutePerformance()
       ]);
 
-      if (statsRes.success) setStats(statsRes.data);
-      if (restaurantsRes.success) setTopRestaurants(restaurantsRes.data);
-      if (forecastRes.success) setForecast(forecastRes.data.forecast);
-      if (settlementsRes.success) setSettlement(settlementsRes.data);
-    } catch (error) {
+      if (statsRes.success) setStats((statsRes.data as OverviewStats) || null);
+      if (restaurantsRes.success) setTopRestaurants((restaurantsRes.data as TopRestaurant[]) || []);
+      if (forecastRes.success) {
+        setForecast(((forecastRes.data as { forecast?: ForecastEntry[] } | undefined)?.forecast) || []);
+      }
+      if (settlementsRes.success) setSettlement((settlementsRes.data as SettlementData) || null);
+      if (routePerformanceRes.success) setRoutePerformance((routePerformanceRes.data as RoutePerformanceData) || null);
+    } catch {
       toast.error("Failed to load reports data");
     } finally {
       setLoading(false);
     }
-  };
+  }, [days]);
 
-  const StatCard = ({ title, value, change, suffix = "", isCurrency = false }: any) => (
+  useEffect(() => {
+    void fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  const StatCard = ({ title, value, change, suffix = "", isCurrency = false }: StatCardProps) => (
     <div className="bg-white rounded-2xl p-6 border border-gray-200">
       <p className="text-gray-600 mb-2">{title}</p>
       <p className="text-4xl font-bold text-gray-900">
@@ -203,7 +269,7 @@ export default function Reports() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                      {settlement?.invoices?.map((inv: any) => (
+                      {settlement?.invoices?.map((inv) => (
                         <div key={inv._id} className={`p-4 rounded-xl border ${inv._id === 'paid' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
                           <p className={`text-xs uppercase font-bold ${inv._id === 'paid' ? 'text-green-600' : 'text-red-600'}`}>{inv._id}</p>
                           <p className="text-xl font-bold">{formatCurrency(inv.totalAmount)}</p>
@@ -215,6 +281,61 @@ export default function Reports() {
                     <button className="w-full py-4 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition shadow-lg">
                       Manage Settlements
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <div className="mb-6 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-semibold text-gray-800">Delivery Route Performance</h3>
+                      <p className="text-sm text-gray-500">Live delivery flow and performance trends from the last 7 days.</p>
+                    </div>
+                    <Navigation className="h-5 w-5 text-red-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { label: "Active Deliveries", value: routePerformance?.activeDeliveries || 0 },
+                      { label: "Ready For Pickup", value: routePerformance?.readyForPickup || 0 },
+                      { label: "Live Tracked Orders", value: routePerformance?.liveTrackedOrders || 0 },
+                      { label: "Avg Delivery Time", value: `${routePerformance?.averageDeliveryMinutes || 0} min` },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                        <p className="text-sm text-gray-500">{item.label}</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+                    Delayed deliveries in the last 7 days: <span className="font-bold">{routePerformance?.delayedDeliveries || 0}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <div className="mb-6 flex items-center justify-between">
+                    <h3 className="text-xl font-semibold text-gray-800">Top Riders</h3>
+                    <TrendingUp className="h-5 w-5 text-green-500" />
+                  </div>
+                  <div className="space-y-4">
+                    {(routePerformance?.topRiders || []).map((rider) => (
+                      <div key={rider._id} className="rounded-xl border border-gray-100 p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-semibold text-gray-900">{rider.name}</p>
+                            <p className="text-sm text-gray-500">
+                              {rider.deliveries} deliveries • Avg. {rider.averageDuration} min
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-700">
+                            {Number(rider.averageRating || 0).toFixed(1)}★
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {(!routePerformance?.topRiders || routePerformance.topRiders.length === 0) && (
+                      <p className="py-6 text-center text-gray-400">No rider analytics available yet.</p>
+                    )}
                   </div>
                 </div>
               </div>
