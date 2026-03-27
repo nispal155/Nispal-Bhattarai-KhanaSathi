@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from '@/context/SocketContext';
 import {
     ArrowLeft,
@@ -17,6 +17,7 @@ import { getRiderOrders, updateDeliveryStatus } from '@/lib/orderService';
 import { getRiderEarnings } from '@/lib/riderService';
 import ChatWindow from '@/components/Chat/ChatWindow';
 import type { ChatThread } from '@/lib/chatService';
+import { useRiderLiveLocationPublisher } from '@/hooks/tracking/useRiderLiveLocationPublisher';
 
 interface Order {
     _id: string;
@@ -44,6 +45,12 @@ interface Order {
 
 type ChatRecipient = { orderId: string; name: string; role: 'customer' | 'restaurant'; thread: ChatThread } | null;
 
+type RiderEarningsSummary = {
+    today?: { deliveries?: number };
+    week?: { deliveries?: number };
+    total?: { deliveries?: number };
+};
+
 export default function MyDeliveriesPage() {
     const { user, isLoading: authLoading } = useAuth();
     const { onOrderUpdate, onRiderAssigned } = useSocket();
@@ -53,6 +60,37 @@ export default function MyDeliveriesPage() {
     const [updating, setUpdating] = useState<string | null>(null);
     const [chatRecipient, setChatRecipient] = useState<ChatRecipient>(null);
     const [deliveryCounts, setDeliveryCounts] = useState({ today: 0, week: 0, total: 0 });
+    const { isPublishing, locationWarning, publishedLocation } = useRiderLiveLocationPublisher(deliveries);
+
+    const fetchDeliveries = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await getRiderOrders('active');
+            const ordersData = response?.data?.data || [];
+            setDeliveries(Array.isArray(ordersData) ? ordersData : []);
+        } catch (err) {
+            console.error("Error fetching deliveries:", err);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    const fetchDeliveryCounts = useCallback(async () => {
+        if (!user?._id) return;
+        try {
+            const response = await getRiderEarnings(user._id);
+            const data = (response?.data?.data || null) as RiderEarningsSummary | null;
+            if (data) {
+                setDeliveryCounts({
+                    today: data.today?.deliveries || 0,
+                    week: data.week?.deliveries || 0,
+                    total: data.total?.deliveries || 0,
+                });
+            }
+        } catch (err) {
+            console.error('Error fetching delivery counts:', err);
+        }
+    }, [user?._id]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -65,14 +103,12 @@ export default function MyDeliveriesPage() {
         fetchDeliveryCounts();
 
         // Listen for real-time order assignments (personal room)
-        const unsubscribeRider = onRiderAssigned((data: any) => {
-            console.log("[Socket] Rider assigned event received on deliveries:", data);
+        const unsubscribeRider = onRiderAssigned(() => {
             fetchDeliveries();
         });
 
         // Listen for order updates (order rooms - though we might not be in them yet)
-        const unsubscribeOrder = onOrderUpdate((data: any) => {
-            console.log("[Socket] Order update received on my-deliveries:", data);
+        const unsubscribeOrder = onOrderUpdate(() => {
             fetchDeliveries();
         });
 
@@ -80,39 +116,7 @@ export default function MyDeliveriesPage() {
             unsubscribeRider();
             unsubscribeOrder();
         };
-    }, [user, router, authLoading, onRiderAssigned, onOrderUpdate]);
-
-    const fetchDeliveries = async () => {
-        try {
-            setLoading(true);
-            const response = await getRiderOrders('active');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const responseData = response?.data as any;
-            const ordersData = responseData?.data || responseData || [];
-            setDeliveries(Array.isArray(ordersData) ? ordersData : []);
-        } catch (err) {
-            console.error("Error fetching deliveries:", err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchDeliveryCounts = async () => {
-        if (!user?._id) return;
-        try {
-            const response = await getRiderEarnings(user._id);
-            const data = (response?.data as any)?.data;
-            if (data) {
-                setDeliveryCounts({
-                    today: data.today?.deliveries || 0,
-                    week: data.week?.deliveries || 0,
-                    total: data.total?.deliveries || 0,
-                });
-            }
-        } catch (err) {
-            console.error('Error fetching delivery counts:', err);
-        }
-    };
+    }, [user, router, authLoading, onRiderAssigned, onOrderUpdate, fetchDeliveries, fetchDeliveryCounts]);
 
     const handleMarkOnTheWay = async (orderId: string) => {
         try {
@@ -161,6 +165,29 @@ export default function MyDeliveriesPage() {
                         <h1 className="text-2xl font-bold text-gray-800">My Deliveries</h1>
                         <p className="text-gray-500">View and manage your active deliveries</p>
                     </div>
+                </div>
+
+                <div className={`mb-6 rounded-xl border p-4 ${
+                    locationWarning
+                        ? "border-amber-200 bg-amber-50"
+                        : isPublishing
+                            ? "border-green-200 bg-green-50"
+                            : "border-gray-200 bg-white"
+                }`}>
+                    <p className={`text-sm font-semibold ${
+                        locationWarning ? "text-amber-700" : isPublishing ? "text-green-700" : "text-gray-700"
+                    }`}>
+                        {locationWarning
+                            ? locationWarning
+                            : isPublishing
+                                ? "Live customer tracking is active for picked-up deliveries."
+                                : "Live tracking starts automatically when a delivery is picked up."}
+                    </p>
+                    {!locationWarning && publishedLocation && (
+                        <p className="mt-1 text-xs text-gray-600">
+                            Last published rider location: {publishedLocation.lat.toFixed(4)}, {publishedLocation.lng.toFixed(4)}
+                        </p>
+                    )}
                 </div>
 
                 {/* Active Deliveries */}

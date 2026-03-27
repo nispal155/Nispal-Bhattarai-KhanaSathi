@@ -1,19 +1,28 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { Phone, MessageSquare, MapPin, Clock, Loader2, Store, Star } from "lucide-react";
 import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { getOrderById, cancelOrder } from "@/lib/orderService";
 import { createReview } from "@/lib/reviewService";
-import { io, Socket } from "socket.io-client";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
 import UserHeader from "@/components/layout/UserHeader";
 import ChatWindow from "@/components/Chat/ChatWindow";
+import TrackingStatusPanel from "@/components/tracking/TrackingStatusPanel";
+import { useLiveOrderTracking } from "@/hooks/tracking/useLiveOrderTracking";
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5003";
+const TrackingMap = dynamic(() => import("@/components/tracking/TrackingMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[320px] items-center justify-center rounded-2xl border border-gray-200 bg-gray-50">
+      <Loader2 className="h-6 w-6 animate-spin text-red-500" />
+    </div>
+  ),
+});
 
 type ChatRecipient = 'restaurant' | 'rider' | null;
 
@@ -36,7 +45,13 @@ interface Order {
     address: {
       addressLine1: string;
       city: string;
+      state?: string;
+      coordinates?: {
+        lat?: number;
+        lng?: number;
+      };
     };
+    logoUrl?: string;
   };
   items: OrderItem[];
   status: string;
@@ -44,11 +59,18 @@ interface Order {
     addressLine1: string;
     city: string;
     state: string;
+    coordinates?: {
+      lat?: number;
+      lng?: number;
+    };
   };
   deliveryRider?: {
     _id: string;
-    name: string;
+    name?: string;
+    username?: string;
     phone?: string;
+    profilePicture?: string;
+    averageRating?: number;
   };
   pricing: {
     subtotal: number;
@@ -60,26 +82,19 @@ interface Order {
   isRated?: boolean;
   estimatedDeliveryTime?: Date;
   createdAt: string;
+  riderLocationHistory?: Array<{
+    lat: number;
+    lng: number;
+    timestamp?: string;
+  }>;
 }
 
-const statusSteps = [
-  { id: 1, status: "pending", title: "Order Placed", description: "Waiting for confirmation" },
-  { id: 2, status: "confirmed", title: "Confirmed", description: "Restaurant accepted your order" },
-  { id: 3, status: "preparing", title: "Preparing", description: "Your food is being prepared" },
-  { id: 4, status: "ready", title: "Ready", description: "Food is ready for pickup" },
-  { id: 5, status: "picked_up", title: "Picked Up", description: "Rider has your food" },
-  { id: 6, status: "on_the_way", title: "On the Way", description: "Rider is heading to you" },
-  { id: 7, status: "delivered", title: "Delivered", description: "Enjoy your meal!" },
-];
-
-const getStepNumber = (status: string): number => {
-  const step = statusSteps.find(s => s.status === status);
-  return step ? step.id : 1;
-};
+const formatAddress = (parts: Array<string | undefined>) => parts.filter(Boolean).join(", ");
+const getRiderName = (rider?: Order["deliveryRider"]) => rider?.name || rider?.username || "Delivery rider";
 
 export default function OrderTrackingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -99,6 +114,8 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
   const [overallRating, setOverallRating] = useState(0);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const isDemoMode = searchParams.get("demo") === "1";
+  const tracking = useLiveOrderTracking(order, { demoMode: isDemoMode });
 
   useEffect(() => {
     fetchOrder();
@@ -116,14 +133,16 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       }
     });
 
-    const unsubscribeRiderAssigned = onRiderAssigned((data: { orderId: string; rider: any }) => {
-      if (data.orderId === id && data.rider) {
+    const unsubscribeRiderAssigned = onRiderAssigned((data) => {
+      if (data.orderId === id && data.rider?._id) {
         setOrder(prev => prev ? {
           ...prev,
           deliveryRider: {
             _id: data.rider._id,
             name: data.rider.username || data.rider.name || 'Rider',
             phone: data.rider.phone,
+            profilePicture: data.rider.profilePicture,
+            averageRating: data.rider.averageRating,
           }
         } : null);
       }
@@ -248,19 +267,24 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  const currentStep = getStepNumber(order.status);
   const isCancellable = order.status === "pending" && (timeLeft !== null && timeLeft > 0);
-
-  // Calculate estimated time
-  const getEstimatedTime = () => {
-    if (order.estimatedDeliveryTime) {
-      const now = new Date();
-      const est = new Date(order.estimatedDeliveryTime);
-      const diff = Math.max(0, Math.round((est.getTime() - now.getTime()) / 60000));
-      return `${diff} min`;
-    }
-    return "30-45 min";
-  };
+  const destinationText = formatAddress([
+    order.deliveryAddress.addressLine1,
+    order.deliveryAddress.city,
+    order.deliveryAddress.state,
+  ]);
+  const restaurantText = formatAddress([
+    order.restaurant.address.addressLine1,
+    order.restaurant.address.city,
+    order.restaurant.address.state,
+  ]);
+  const riderName = getRiderName(order.deliveryRider);
+  const etaLabel =
+    tracking.etaMinutes === null
+      ? "ETA unavailable"
+      : tracking.etaMinutes === 0
+        ? "Delivered"
+        : `${tracking.etaMinutes} min`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -269,93 +293,78 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Order Header */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-6">
             <div>
               <h1 className="text-xl font-bold text-gray-900">Order #{order.orderNumber}</h1>
               <p className="text-gray-600 text-sm">From {order.restaurant.name}</p>
             </div>
-            {order.status !== "delivered" && order.status !== "cancelled" && (
-              <div className="flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
-                <Clock className="w-4 h-4" />
-                <span className="font-medium">{getEstimatedTime()}</span>
-              </div>
-            )}
-            {order.status === "cancelled" && (
-              <div className="bg-red-100 text-red-700 px-4 py-2 rounded-full">
-                <span className="font-medium">Cancelled</span>
-              </div>
-            )}
-            {order.status === "delivered" && (
-              <div className="bg-green-100 text-green-700 px-4 py-2 rounded-full">
-                <span className="font-medium">Delivered</span>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {order.status !== "cancelled" && (
+                <div className="flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
+                  <Clock className="w-4 h-4" />
+                  <span className="font-medium">{etaLabel}</span>
+                </div>
+              )}
+              {isDemoMode && (
+                <div className="rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-700">
+                  Demo mode
+                </div>
+              )}
+              {order.status === "cancelled" && (
+                <div className="bg-red-100 text-red-700 px-4 py-2 rounded-full">
+                  <span className="font-medium">Cancelled</span>
+                </div>
+              )}
+              {order.status === "delivered" && (
+                <div className="bg-green-100 text-green-700 px-4 py-2 rounded-full">
+                  <span className="font-medium">Delivered</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Progress Steps */}
-          {order.status !== "cancelled" && (
-            <div className="relative">
-              <div className="flex justify-between mb-2">
-                {statusSteps.slice(0, 5).map((step) => (
-                  <div key={step.id} className="flex flex-col items-center flex-1">
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.id <= currentStep
-                          ? "bg-red-500 text-white"
-                          : "bg-gray-200 text-gray-500"
-                        }`}
-                    >
-                      {step.id < currentStep ? (
-                        <span>&#10003;</span>
-                      ) : (
-                        <span>{step.id}</span>
-                      )}
-                    </div>
-                    <span
-                      className={`text-xs mt-2 text-center ${step.id <= currentStep
-                          ? "text-red-500 font-medium"
-                          : "text-gray-500"
-                        }`}
-                    >
-                      {step.title}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {/* Progress Line */}
-              <div className="absolute top-5 left-0 right-0 h-1 bg-gray-200 z-0" style={{ marginLeft: '5%', marginRight: '5%' }}>
-                <div
-                  className="h-full bg-red-500 transition-all duration-500"
-                  style={{
-                    width: `${Math.min(100, ((currentStep - 1) / 4) * 100)}%`,
-                  }}
-                />
-              </div>
+          {order.status === "cancelled" ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              This order was cancelled before live delivery tracking could continue.
             </div>
+          ) : (
+            <TrackingStatusPanel
+              tracking={tracking}
+              restaurantName={order.restaurant.name}
+              destinationText={destinationText}
+            />
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className={`grid grid-cols-1 gap-6 ${order.deliveryRider ? "lg:grid-cols-2" : ""}`}>
           {/* Rider Info */}
           {order.deliveryRider && (
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <h2 className="font-semibold text-gray-900 mb-4">Delivery Partner</h2>
 
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden">
+                <div className="w-16 h-16 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center">
                   <Image
-                    src="/rider-placeholder.jpg"
-                    alt={order.deliveryRider.name}
+                    src={order.deliveryRider.profilePicture || "/Character.svg"}
+                    alt={riderName}
                     width={64}
                     height={64}
                     className="w-full h-full object-cover"
                   />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-medium text-gray-900">{order.deliveryRider.name}</h3>
+                  <h3 className="font-medium text-gray-900">{riderName}</h3>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <span className="text-yellow-500">&#9733;</span>
-                    <span>4.8 Rating</span>
+                    <span>
+                      {typeof order.deliveryRider.averageRating === "number"
+                        ? `${order.deliveryRider.averageRating.toFixed(1)} Rating`
+                        : "Live rider assigned"}
+                    </span>
                   </div>
+                  {tracking.lastUpdatedLabel && (
+                    <p className="mt-1 text-xs text-gray-500">{tracking.lastUpdatedLabel}</p>
+                  )}
                 </div>
               </div>
 
@@ -380,25 +389,46 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {/* Delivery Address */}
+          {/* Delivery Map */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Delivery Address</h2>
-
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                <MapPin className="w-5 h-5 text-red-500" />
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-gray-900">Delivery tracking map</h2>
+                  <p className="text-gray-600 text-sm">{destinationText}</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-medium text-gray-900">Delivery Location</h3>
-                <p className="text-gray-600">
-                  {order.deliveryAddress.addressLine1}, {order.deliveryAddress.city}
-                </p>
+              <div className="flex flex-wrap gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  tracking.isDemoMode
+                    ? "bg-amber-100 text-amber-700"
+                    : tracking.canTrackLive
+                      ? "bg-blue-100 text-blue-700"
+                      : "bg-gray-100 text-gray-700"
+                }`}>
+                  {tracking.isDemoMode ? "Demo route" : tracking.canTrackLive ? "Live updates" : "Waiting for rider"}
+                </span>
               </div>
             </div>
 
-            {/* Map Placeholder */}
-            <div className="h-40 bg-gray-200 rounded-lg flex items-center justify-center">
-              <span className="text-gray-500">Live Map Tracking</span>
+            <TrackingMap
+              tracking={tracking}
+              destinationLabel={destinationText}
+              restaurantLabel={restaurantText || order.restaurant.name}
+            />
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pickup address</p>
+                <p className="mt-2 text-sm font-medium text-gray-900">{restaurantText || "Restaurant address unavailable"}</p>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Customer address</p>
+                <p className="mt-2 text-sm font-medium text-gray-900">{destinationText}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -531,7 +561,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
                 {/* Delivery Rider Rating */}
                 {order.deliveryRider && (
                   <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <h3 className="font-medium text-gray-800 mb-3">Delivery - {order.deliveryRider.name}</h3>
+                    <h3 className="font-medium text-gray-800 mb-3">Delivery - {riderName}</h3>
                     <div className="mb-3">
                       <label className="block text-sm text-gray-600 mb-1">Delivery Rating</label>
                       <div className="flex gap-1">
@@ -621,7 +651,7 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
       {authUser && chatRecipient && (
         <ChatWindow
           orderId={id}
-          recipientName={chatRecipient === 'rider' ? (order.deliveryRider?.name || 'Rider') : order.restaurant.name}
+          recipientName={chatRecipient === 'rider' ? riderName : order.restaurant.name}
           recipientRole={chatRecipient === 'rider' ? 'delivery_staff' : 'restaurant'}
           chatThread={chatRecipient === 'rider' ? 'customer-rider' : 'customer-restaurant'}
           onClose={() => setChatRecipient(null)}

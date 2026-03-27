@@ -19,6 +19,7 @@ import toast from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
 import ChatWindow from "@/components/Chat/ChatWindow";
+import { useRiderLiveLocationPublisher } from "@/hooks/tracking/useRiderLiveLocationPublisher";
 import {
   getRiderOrders,
   updateDeliveryStatus,
@@ -51,6 +52,7 @@ export default function ActiveDeliveries() {
   const [currentLocation, setCurrentLocation] = useState<LocationState>(null);
   const [deliveries, setDeliveries] = useState<Order[]>([]);
   const [chatTarget, setChatTarget] = useState<ChatTarget>(null);
+  const { isPublishing, locationWarning, publishedLocation } = useRiderLiveLocationPublisher(deliveries);
 
   useEffect(() => {
     if (authLoading) return;
@@ -301,6 +303,17 @@ export default function ActiveDeliveries() {
                 Current location is {currentLocation ? `${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}` : "not locked yet"}.
                 Route order prefers active drop-offs first, then nearest known stops.
               </p>
+              {locationWarning ? (
+                <p className="mt-2 text-sm font-medium text-amber-700">{locationWarning}</p>
+              ) : isPublishing ? (
+                <p className="mt-2 text-sm font-medium text-green-700">
+                  Live rider tracking is publishing in the background{publishedLocation ? ` from ${publishedLocation.lat.toFixed(4)}, ${publishedLocation.lng.toFixed(4)}` : ""}.
+                </p>
+              ) : (
+                <p className="mt-2 text-sm font-medium text-gray-500">
+                  Live tracking begins automatically once a delivery is picked up.
+                </p>
+              )}
             </div>
             <p className="rounded-full bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700">
               Active deliveries: {optimizedDeliveries.length}

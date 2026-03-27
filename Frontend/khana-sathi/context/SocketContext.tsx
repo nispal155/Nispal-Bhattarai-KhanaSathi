@@ -4,6 +4,39 @@ import { createContext, useContext, useEffect, useRef, useState, useCallback, Re
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
+type OrderUpdateEvent = {
+  orderId?: string;
+  status?: string;
+  location?: {
+    lat?: number;
+    lng?: number;
+  };
+  [key: string]: unknown;
+};
+
+type RiderAssignedEvent = {
+  orderId?: string;
+  status?: string;
+  rider?: {
+    _id?: string;
+    username?: string;
+    name?: string;
+    phone?: string;
+    profilePicture?: string;
+    averageRating?: number;
+  };
+  [key: string]: unknown;
+};
+
+type RiderLocationEvent = {
+  orderId?: string;
+  lat?: number;
+  lng?: number;
+};
+
+type SocketMessageEvent = Record<string, unknown>;
+type SocketNotificationEvent = Record<string, unknown>;
+
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
@@ -11,12 +44,13 @@ interface SocketContextType {
   leaveRoom: (roomId: string) => void;
   joinOrder: (orderId: string) => void;
   leaveOrder: (orderId: string) => void;
+  emitRiderLocation: (orderId: string, lat: number, lng: number) => void;
   sendMessage: (data: { orderId: string; content: string; thread?: string; attachments?: string[] }) => void;
-  onOrderUpdate: (callback: (data: any) => void) => () => void;
-  onRiderAssigned: (callback: (data: any) => void) => () => void;
-  onRiderLocation: (callback: (data: any) => void) => () => void;
-  onNewMessage: (callback: (data: any) => void) => () => void;
-  onNotification: (callback: (data: any) => void) => () => void;
+  onOrderUpdate: (callback: (data: OrderUpdateEvent) => void) => () => void;
+  onRiderAssigned: (callback: (data: RiderAssignedEvent) => void) => () => void;
+  onRiderLocation: (callback: (data: RiderLocationEvent) => void) => () => void;
+  onNewMessage: (callback: (data: SocketMessageEvent) => void) => () => void;
+  onNotification: (callback: (data: SocketNotificationEvent) => void) => () => void;
   emitTyping: (roomId: string) => void;
   emitStopTyping: (roomId: string) => void;
   markMessagesRead: (orderId: string, thread?: string) => void;
@@ -29,6 +63,7 @@ const SocketContext = createContext<SocketContextType>({
   leaveRoom: () => { },
   joinOrder: () => { },
   leaveOrder: () => { },
+  emitRiderLocation: () => { },
   sendMessage: () => { },
   onOrderUpdate: () => () => { },
   onRiderAssigned: () => () => { },
@@ -45,7 +80,7 @@ export const useSocket = () => useContext(SocketContext);
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5003';
 
 export function SocketProvider({ children }: { children: ReactNode }) {
-  const { user, token } = useAuth();
+  const { token } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const joinedRooms = useRef<Set<string>>(new Set());
@@ -60,7 +95,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       reconnectionDelay: 1000,
     });
 
-    setSocket(newSocket);
+    queueMicrotask(() => {
+      setSocket(newSocket);
+    });
 
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
@@ -81,7 +118,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
             newSocket.emit('join', storedUser._id);
             console.log(`Socket joined personal room: ${storedUser._id}`);
           }
-        } catch (e) { }
+        } catch { }
       }
     });
 
@@ -129,31 +166,36 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     socket?.emit('sendMessage', data);
   }, [socket]);
 
-  const onOrderUpdate = useCallback((callback: (data: any) => void) => {
+  const emitRiderLocation = useCallback((orderId: string, lat: number, lng: number) => {
+    if (!orderId) return;
+    socket?.emit('riderLocation', { orderId, lat, lng });
+  }, [socket]);
+
+  const onOrderUpdate = useCallback((callback: (data: OrderUpdateEvent) => void) => {
     if (!socket) return () => { };
     socket.on('orderStatusUpdate', callback);
     return () => { socket.off('orderStatusUpdate', callback); };
   }, [socket]);
 
-  const onRiderAssigned = useCallback((callback: (data: any) => void) => {
+  const onRiderAssigned = useCallback((callback: (data: RiderAssignedEvent) => void) => {
     if (!socket) return () => { };
     socket.on('riderAssigned', callback);
     return () => { socket.off('riderAssigned', callback); };
   }, [socket]);
 
-  const onRiderLocation = useCallback((callback: (data: any) => void) => {
+  const onRiderLocation = useCallback((callback: (data: RiderLocationEvent) => void) => {
     if (!socket) return () => { };
     socket.on('riderLocation', callback);
     return () => { socket.off('riderLocation', callback); };
   }, [socket]);
 
-  const onNewMessage = useCallback((callback: (data: any) => void) => {
+  const onNewMessage = useCallback((callback: (data: SocketMessageEvent) => void) => {
     if (!socket) return () => { };
     socket.on('newMessage', callback);
     return () => { socket.off('newMessage', callback); };
   }, [socket]);
 
-  const onNotification = useCallback((callback: (data: any) => void) => {
+  const onNotification = useCallback((callback: (data: SocketNotificationEvent) => void) => {
     if (!socket) return () => { };
     socket.on('notification', callback);
     return () => { socket.off('notification', callback); };
@@ -179,6 +221,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       leaveRoom,
       joinOrder,
       leaveOrder,
+      emitRiderLocation,
       sendMessage,
       onOrderUpdate,
       onRiderAssigned,

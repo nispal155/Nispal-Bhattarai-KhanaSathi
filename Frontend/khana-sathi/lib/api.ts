@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api';
+// const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api';
+const API_BASE_URL ='https://f7rq6l1j-5003.inc1.devtunnels.ms/api';
+
 
 // Create axios instance with default config
 const api = axios.create({
