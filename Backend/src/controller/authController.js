@@ -2,6 +2,8 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { generateOTP, sendOTP, sendPasswordResetOTP } = require('../services/emailService');
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
         expiresIn: '30d',
@@ -28,16 +30,44 @@ const registerUser = async (req, res) => {
     const { username, role, email, password } = req.body;
 
     try {
+        const trimmedUsername = String(username || '').trim();
+        const normalizedEmail = String(email || '').trim().toLowerCase();
+
+        if (!trimmedUsername) {
+            return res.status(400).json({ message: 'Name is required', code: 'NAME_REQUIRED' });
+        }
+
+        if (!normalizedEmail) {
+            return res.status(400).json({ message: 'Email is required', code: 'EMAIL_REQUIRED' });
+        }
+
+        if (!EMAIL_REGEX.test(normalizedEmail)) {
+            return res.status(400).json({ message: 'Please enter a valid email address', code: 'EMAIL_INVALID' });
+        }
+
+        if (!password) {
+            return res.status(400).json({ message: 'Password is required', code: 'PASSWORD_REQUIRED' });
+        }
+
+        if (String(password).length < 6) {
+            return res.status(400).json({ message: 'Password must be at least 6 characters', code: 'PASSWORD_TOO_SHORT' });
+        }
+
         if (role === 'child') {
             return res.status(403).json({
                 message: 'Child accounts must be created by a parent account.'
             });
         }
 
-        const userExists = await User.findOne({ email });
+        const userExists = await User.findOne({ email: normalizedEmail });
 
         if (userExists) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ message: 'This email is already registered', code: 'EMAIL_EXISTS' });
+        }
+
+        const usernameExists = await User.findOne({ username: trimmedUsername });
+        if (usernameExists) {
+            return res.status(400).json({ message: 'This name is already taken', code: 'USERNAME_EXISTS' });
         }
 
         // Generate OTP
@@ -45,9 +75,9 @@ const registerUser = async (req, res) => {
         const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
         const user = await User.create({
-            username,
+            username: trimmedUsername,
             role,
-            email,
+            email: normalizedEmail,
             password,
             otp,
             otpExpires,
@@ -67,6 +97,16 @@ const registerUser = async (req, res) => {
             email: user.email,
         });
     } catch (error) {
+        if (error?.code === 11000) {
+            if (error?.keyPattern?.email) {
+                return res.status(400).json({ message: 'This email is already registered', code: 'EMAIL_EXISTS' });
+            }
+
+            if (error?.keyPattern?.username) {
+                return res.status(400).json({ message: 'This name is already taken', code: 'USERNAME_EXISTS' });
+            }
+        }
+
         res.status(500).json({ message: error.message });
     }
 };
@@ -176,7 +216,13 @@ const authUser = async (req, res) => {
         const user = await User.findOne(buildLoginQuery(loginIdentifier));
 
         if (!user) {
-            return res.status(401).json({ message: 'Invalid email or password' });
+            const isEmailLogin = loginIdentifier.includes('@');
+            return res.status(401).json({
+                message: isEmailLogin
+                    ? 'This email is not registered. Please sign up first.'
+                    : 'This username is not registered. Please sign up first.',
+                code: isEmailLogin ? 'EMAIL_NOT_FOUND' : 'USERNAME_NOT_FOUND'
+            });
         }
 
         if (user.role === 'child' && user.childProfile?.isActive === false) {
@@ -200,7 +246,10 @@ const authUser = async (req, res) => {
                 token: generateToken(user._id),
             });
         } else {
-            res.status(401).json({ message: 'Invalid email or password' });
+            res.status(401).json({
+                message: 'Incorrect password',
+                code: 'INVALID_PASSWORD'
+            });
         }
     } catch (error) {
         res.status(500).json({ message: error.message });

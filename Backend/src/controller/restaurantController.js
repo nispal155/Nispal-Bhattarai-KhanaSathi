@@ -319,12 +319,17 @@ exports.getAllRestaurants = async (req, res) => {
       query.isActive = true;
     }
 
-    // Search by name, contact email, or contact phone
+    // Search by restaurant-facing fields to support discovery by name, cuisine, tags, and city
     if (search) {
+      const searchRegex = new RegExp(search, 'i');
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { contactEmail: { $regex: search, $options: 'i' } },
-        { contactPhone: { $regex: search, $options: 'i' } }
+        { name: searchRegex },
+        { contactEmail: searchRegex },
+        { contactPhone: searchRegex },
+        { description: searchRegex },
+        { cuisineType: { $in: [searchRegex] } },
+        { tags: { $in: [searchRegex] } },
+        { 'address.city': searchRegex }
       ];
     }
 

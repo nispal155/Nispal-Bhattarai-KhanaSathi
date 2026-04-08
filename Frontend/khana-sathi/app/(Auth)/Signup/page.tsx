@@ -19,6 +19,46 @@ export default function SignUpPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  const getSignupValidationMessage = () => {
+    const trimmedName = formData.name.trim();
+    const trimmedEmail = formData.email.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!trimmedName) {
+      return 'Please enter your name';
+    }
+
+    if (!trimmedEmail) {
+      return 'Please enter your email address';
+    }
+
+    if (!emailRegex.test(trimmedEmail)) {
+      return 'Please enter a valid email address';
+    }
+
+    if (!formData.password) {
+      return 'Please enter your password';
+    }
+
+    if (formData.password.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+
+    if (!formData.confirmPassword) {
+      return 'Please confirm your password';
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      return 'Passwords do not match';
+    }
+
+    if (!formData.agreeTerms) {
+      return 'Please agree to terms & conditions';
+    }
+
+    return null;
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -30,25 +70,15 @@ export default function SignUpPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
-    if (!formData.name || !formData.email || !formData.password) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
-    if (!formData.agreeTerms) {
-      toast.error('Please agree to terms & conditions');
+    const validationMessage = getSignupValidationMessage();
+    if (validationMessage) {
+      toast.error(validationMessage);
       return;
     }
 
     setIsLoading(true);
 
-    const result = await register(formData.name, formData.email, formData.password);
+    const result = await register(formData.name.trim(), formData.email.trim(), formData.password);
 
     if (result.error) {
       toast.error(result.error);

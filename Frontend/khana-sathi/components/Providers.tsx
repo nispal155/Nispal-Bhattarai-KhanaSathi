@@ -14,7 +14,7 @@ export default function Providers({ children }: { children: ReactNode }) {
           <Toaster
             position="top-right"
             toastOptions={{
-              duration: 4000,
+              duration: 20000,
               style: {
                 background: '#333',
                 color: '#fff',

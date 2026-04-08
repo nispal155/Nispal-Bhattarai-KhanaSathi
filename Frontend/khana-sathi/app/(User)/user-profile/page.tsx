@@ -17,6 +17,7 @@ import {
   getChildSummary,
   type ChildSpendingSnapshot,
 } from "@/lib/userService";
+import { calculateLoyaltyRedeemValue } from "@/lib/loyalty";
 import { getMyRestaurant, updateMyRestaurant } from "@/lib/restaurantService";
 import { getMyOrders, clearOrderHistory, reorderOrder } from "@/lib/orderService";
 import toast from "react-hot-toast";
@@ -488,7 +489,7 @@ export default function ProfilePage() {
               <div className="px-4">
                 <div className="text-2xl font-bold text-red-500">{profile?.loyaltyPoints || 0}</div>
                 <div className="text-sm text-gray-500">Points</div>
-                <div className="mt-1 text-xs text-gray-400">Redeem value: Rs. {profile?.loyaltyPoints || 0}</div>
+                <div className="mt-1 text-xs text-gray-400">Redeem value: Rs. {calculateLoyaltyRedeemValue(profile?.loyaltyPoints)}</div>
               </div>
               <div className="px-4 border-l border-gray-200">
                 <div className="text-2xl font-bold text-gray-900">{orders.length}</div>
@@ -503,7 +504,7 @@ export default function ProfilePage() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-orange-900">Loyalty Rewards</h2>
-                <p className="text-sm text-orange-700">Earn 1 point for every Rs. 100 spent. Redeem 1 point as Rs. 1 off during checkout.</p>
+                <p className="text-sm text-orange-700">Earn 1 point for every Rs. 100 spent. Redeem 1000 points as Rs. 100 off during checkout.</p>
               </div>
               <div className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-orange-900 shadow-sm">
                 Balance: {profile?.loyaltyPoints || 0} pts

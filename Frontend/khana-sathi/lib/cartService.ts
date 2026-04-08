@@ -1,5 +1,15 @@
 import { get, post, put, del } from './api';
 
+export const CART_UPDATED_EVENT = 'khana-sathi:cart-updated';
+
+function emitCartUpdated(itemCount?: number) {
+  if (typeof window === 'undefined') return;
+
+  window.dispatchEvent(new CustomEvent(CART_UPDATED_EVENT, {
+    detail: typeof itemCount === 'number' ? { itemCount } : undefined
+  }));
+}
+
 // Types
 export interface CartItem {
   menuItem: string | {
@@ -109,30 +119,40 @@ export async function getCartSummary() {
 
 // Add item to cart
 export async function addToCart(menuItemId: string, quantity: number = 1, specialInstructions?: string) {
-  return post<CartResponse>('/cart/add', {
+  const response = await post<CartResponse>('/cart/add', {
     menuItemId,
     quantity,
     specialInstructions
   });
+
+  emitCartUpdated(response.data?.data?.itemCount);
+  return response;
 }
 
 // Update cart item
 export async function updateCartItem(menuItemId: string, quantity: number, specialInstructions?: string) {
-  return put<CartResponse>('/cart/update', {
+  const response = await put<CartResponse>('/cart/update', {
     menuItemId,
     quantity,
     specialInstructions
   });
+
+  emitCartUpdated(response.data?.data?.itemCount);
+  return response;
 }
 
 // Remove item from cart
 export async function removeFromCart(menuItemId: string) {
-  return del<CartResponse>(`/cart/remove/${menuItemId}`);
+  const response = await del<CartResponse>(`/cart/remove/${menuItemId}`);
+  emitCartUpdated(response.data?.data?.itemCount);
+  return response;
 }
 
 // Clear cart
 export async function clearCart() {
-  return del<{ success: boolean; message: string }>('/cart/clear');
+  const response = await del<{ success: boolean; message: string }>('/cart/clear');
+  emitCartUpdated(0);
+  return response;
 }
 
 // Apply promo code
@@ -147,12 +167,16 @@ export async function removePromoCode() {
 
 // Create shared cart
 export async function shareCart() {
-  return post<CartResponse>('/cart/share', {});
+  const response = await post<CartResponse>('/cart/share', {});
+  emitCartUpdated(response.data?.data?.itemCount);
+  return response;
 }
 
 // Join shared cart
 export async function joinCart(shareCode: string) {
-  return post<CartResponse>('/cart/join', { shareCode });
+  const response = await post<CartResponse>('/cart/join', { shareCode });
+  emitCartUpdated(response.data?.data?.itemCount);
+  return response;
 }
 
 export async function requestParentApproval(note?: string) {

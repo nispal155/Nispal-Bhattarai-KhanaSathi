@@ -13,6 +13,12 @@ const {
 const { loadCartForCheckout } = require('../utils/checkoutContext');
 const { notifyParentOfChildActivity } = require('../utils/childActivityNotifier');
 const { isPaymentGatewayEnabled } = require('../utils/systemSettings');
+const {
+  calculateDiscountFromPoints,
+  calculatePointsEarned,
+  calculatePointsNeededForDiscount,
+  normalizeLoyaltyPoints
+} = require('../utils/loyalty');
 
 const assertPaymentGatewayEnabled = async (gateway) => {
   const enabled = await isPaymentGatewayEnabled(gateway);
@@ -170,11 +176,11 @@ exports.createOrder = async (req, res) => {
 
     const createdOrders = [];
     let totalOrderValue = 0;
-    let pointsToDeduct = 0;
+    let remainingPoints = 0;
     let actualPointsUsed = 0;
 
     if (useLoyaltyPoints && user.loyaltyPoints > 0) {
-      pointsToDeduct = user.loyaltyPoints;
+      remainingPoints = normalizeLoyaltyPoints(user.loyaltyPoints);
     }
 
     // For each restaurant group, create a separate order
@@ -186,11 +192,15 @@ exports.createOrder = async (req, res) => {
       const discount = (createdOrders.length === 0) ? (cart.promoDiscount || 0) : 0;
 
       let pointsDiscount = 0;
-      if (pointsToDeduct > 0) {
+      if (remainingPoints > 0) {
         const remainingGroupTotal = subtotal + deliveryFee + serviceFee - discount;
-        pointsDiscount = Math.min(pointsToDeduct, remainingGroupTotal);
-        pointsToDeduct -= pointsDiscount;
-        actualPointsUsed += pointsDiscount;
+        pointsDiscount = calculateDiscountFromPoints(remainingPoints, remainingGroupTotal);
+
+        if (pointsDiscount > 0) {
+          const pointsAppliedToGroup = calculatePointsNeededForDiscount(pointsDiscount);
+          remainingPoints -= pointsAppliedToGroup;
+          actualPointsUsed += pointsAppliedToGroup;
+        }
       }
 
       const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
@@ -283,8 +293,8 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // Calculate loyalty points: 1 point per Rs. 100
-    const pointsEarned = Math.floor(totalOrderValue / 100);
+    // Earn 1 point per Rs. 100 spent. Redemption uses 10 points per Rs. 1.
+    const pointsEarned = calculatePointsEarned(totalOrderValue);
     const initialLoyaltyPoints = Number(user.loyaltyPoints || 0);
     const netPointsChange = pointsEarned - actualPointsUsed;
     const updatedLoyaltyPoints = Math.max(initialLoyaltyPoints + netPointsChange, 0);

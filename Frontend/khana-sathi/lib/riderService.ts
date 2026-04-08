@@ -1,4 +1,4 @@
-import { get } from './api';
+import { get, post } from './api';
 
 // Types
 export interface RiderStats {
@@ -30,6 +30,43 @@ export interface EarningsData {
     }>;
 }
 
+export interface RiderPaymentClaim {
+    _id: string;
+    rider: string;
+    periodType: 'daily' | 'weekly';
+    periodLabel: string;
+    referenceDate: string | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+    deliveriesCount: number;
+    amount: number;
+    status: 'pending' | 'approved' | 'paid' | 'rejected';
+    claimedAt: string | null;
+    processedAt: string | null;
+    adminNote: string;
+    orderIds: string[];
+    createdAt: string | null;
+    updatedAt: string | null;
+}
+
+export interface ClaimSummaryPeriod {
+    periodType: 'daily' | 'weekly';
+    periodLabel: string;
+    referenceDate: string;
+    periodStart: string;
+    periodEnd: string;
+    deliveries: number;
+    amount: number;
+    claimedDeliveries: number;
+    claimedAmount: number;
+    existingClaim: RiderPaymentClaim | null;
+}
+
+export interface RiderClaimSummary {
+    daily: ClaimSummaryPeriod;
+    weekly: ClaimSummaryPeriod;
+}
+
 export interface HistoryItem {
     _id: string;
     orderNumber: string;
@@ -48,6 +85,30 @@ export async function getRiderStats(riderId: string) {
 // Get rider earnings breakdown
 export async function getRiderEarnings(riderId: string) {
     return get<{ success: boolean; data: EarningsData }>(`/staff/earnings/${riderId}`);
+}
+
+export async function getRiderClaimSummary(referenceDate?: string) {
+    const query = referenceDate ? `?referenceDate=${encodeURIComponent(referenceDate)}` : '';
+    return get<{ success: boolean; data: RiderClaimSummary }>(`/staff/claims/summary${query}`);
+}
+
+export async function createRiderPaymentClaim(data: {
+    periodType: 'daily' | 'weekly';
+    referenceDate?: string;
+}) {
+    return post<{ success: boolean; message?: string; data: RiderPaymentClaim }>('/staff/claims', data);
+}
+
+export async function getRiderPaymentClaims(filters?: {
+    status?: 'pending' | 'approved' | 'paid' | 'rejected' | 'active';
+    periodType?: 'daily' | 'weekly';
+}) {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.periodType) params.append('periodType', filters.periodType);
+    const query = params.toString() ? `?${params.toString()}` : '';
+
+    return get<{ success: boolean; count: number; data: RiderPaymentClaim[] }>(`/staff/claims${query}`);
 }
 
 // Get rider delivery history

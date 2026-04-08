@@ -18,7 +18,18 @@ export interface MenuItem {
   allergens: string[];
   preparationTime: number;
   calories?: number;
-  restaurant: string;
+  restaurant: string | {
+    _id: string;
+    name: string;
+    logoUrl?: string;
+    isActive?: boolean;
+    deliveryTime?: {
+      min: number;
+      max: number;
+    };
+    priceRange?: 'Rs.' | 'Rs.Rs.' | 'Rs.Rs.Rs.' | 'Rs.Rs.Rs.Rs.';
+    cuisineType?: string[];
+  };
   ratings: {
     average: number;
     count: number;

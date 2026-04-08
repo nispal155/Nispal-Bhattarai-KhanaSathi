@@ -336,7 +336,12 @@ exports.searchMenuItems = async (req, res) => {
     let query = { isAvailable: true };
 
     if (q) {
-      query.$text = { $search: q };
+      const searchRegex = new RegExp(String(q).trim(), 'i');
+      query.$or = [
+        { name: searchRegex },
+        { description: searchRegex },
+        { category: searchRegex }
+      ];
     }
 
     if (category) query.category = category;
@@ -346,11 +351,15 @@ exports.searchMenuItems = async (req, res) => {
     if (vegan === 'true') query.isVegan = true;
 
     const menuItems = await Menu.find(query)
-      .populate('restaurant', 'name logoUrl')
+      .populate('restaurant', 'name logoUrl isActive deliveryTime priceRange cuisineType')
       .limit(50);
+    const activeRestaurantItems = menuItems.filter((item) => {
+      const restaurant = item.restaurant;
+      return restaurant && typeof restaurant === 'object' && restaurant.isActive !== false;
+    });
     const visibleMenuItems = req.user?.role === 'child'
-      ? filterMenuItemsForChild(menuItems, req.user)
-      : menuItems;
+      ? filterMenuItemsForChild(activeRestaurantItems, req.user)
+      : activeRestaurantItems;
 
     res.status(200).json({
       success: true,

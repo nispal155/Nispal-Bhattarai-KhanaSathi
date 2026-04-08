@@ -13,6 +13,12 @@ const {
 const { loadCartForCheckout } = require('../utils/checkoutContext');
 const { notifyParentOfChildActivity } = require('../utils/childActivityNotifier');
 const { isPaymentGatewayEnabled } = require('../utils/systemSettings');
+const {
+    calculateDiscountFromPoints,
+    calculatePointsEarned,
+    calculatePointsNeededForDiscount,
+    normalizeLoyaltyPoints
+} = require('../utils/loyalty');
 
 // eSewa Configuration (sandbox/test environment)
 const ESEWA_CONFIG = {
@@ -141,7 +147,9 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
 
     const createdOrders = [];
     let totalOrderValue = 0;
-    let pointsToDeduct = pendingPayment.useLoyaltyPoints ? Number(user.loyaltyPoints || 0) : 0;
+    let remainingPoints = pendingPayment.useLoyaltyPoints
+        ? normalizeLoyaltyPoints(user.loyaltyPoints)
+        : 0;
     let actualPointsUsed = 0;
 
     for (const group of cart.restaurantGroups) {
@@ -151,11 +159,15 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
         const discount = (createdOrders.length === 0) ? (cart.promoDiscount || 0) : 0;
 
         let pointsDiscount = 0;
-        if (pointsToDeduct > 0) {
+        if (remainingPoints > 0) {
             const remainingGroupTotal = subtotal + deliveryFee + serviceFee - discount;
-            pointsDiscount = Math.min(pointsToDeduct, remainingGroupTotal);
-            pointsToDeduct -= pointsDiscount;
-            actualPointsUsed += pointsDiscount;
+            pointsDiscount = calculateDiscountFromPoints(remainingPoints, remainingGroupTotal);
+
+            if (pointsDiscount > 0) {
+                const pointsAppliedToGroup = calculatePointsNeededForDiscount(pointsDiscount);
+                remainingPoints -= pointsAppliedToGroup;
+                actualPointsUsed += pointsAppliedToGroup;
+            }
         }
 
         const total = subtotal + deliveryFee + serviceFee - discount - pointsDiscount;
@@ -209,8 +221,8 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
         createdOrders.push(order);
     }
 
-    // Calculate and update loyalty points
-    const pointsEarned = Math.floor(totalOrderValue / 100);
+    // Earn 1 point per Rs. 100 spent. Redemption uses 10 points per Rs. 1.
+    const pointsEarned = calculatePointsEarned(totalOrderValue);
     const initialLoyaltyPoints = Number(user.loyaltyPoints || 0);
     const netPointsChange = pointsEarned - actualPointsUsed;
     const updatedLoyaltyPoints = Math.max(initialLoyaltyPoints + netPointsChange, 0);
@@ -309,7 +321,10 @@ const createOrdersFromPendingPayment = async (pendingPayment, paymentRef, paymen
     return {
         orders: createdOrders,
         multiOrder,
-        isMultiRestaurant: createdOrders.length > 1
+        isMultiRestaurant: createdOrders.length > 1,
+        pointsEarned,
+        pointsUsed: actualPointsUsed,
+        loyaltyPointsBalance: updatedLoyaltyPoints
     };
 };
 
@@ -657,7 +672,14 @@ exports.verifyEsewaPayment = async (req, res) => {
             }
 
             // Create orders from pending payment
-            const { orders, multiOrder, isMultiRestaurant } = await createOrdersFromPendingPayment(pendingPayment, transaction_code, 'esewa');
+            const {
+                orders,
+                multiOrder,
+                isMultiRestaurant,
+                pointsEarned,
+                pointsUsed,
+                loyaltyPointsBalance
+            } = await createOrdersFromPendingPayment(pendingPayment, transaction_code, 'esewa');
 
             // Mark pending payment as completed
             pendingPayment.status = 'completed';
@@ -671,7 +693,10 @@ exports.verifyEsewaPayment = async (req, res) => {
                     orders: orders.map(o => o._id),
                     multiOrderId: multiOrder?._id,
                     isMultiRestaurant,
-                    paymentStatus: 'paid'
+                    paymentStatus: 'paid',
+                    pointsEarned,
+                    pointsUsed,
+                    loyaltyPointsBalance
                 }
             });
         } else {
@@ -744,7 +769,14 @@ exports.verifyKhaltiPayment = async (req, res) => {
 
         if (khaltiResponse.status === 'Completed') {
             // Create orders from pending payment
-            const { orders, multiOrder, isMultiRestaurant } = await createOrdersFromPendingPayment(pendingPayment, khaltiResponse.transaction_id, 'khalti');
+            const {
+                orders,
+                multiOrder,
+                isMultiRestaurant,
+                pointsEarned,
+                pointsUsed,
+                loyaltyPointsBalance
+            } = await createOrdersFromPendingPayment(pendingPayment, khaltiResponse.transaction_id, 'khalti');
 
             // Mark pending payment as completed
             pendingPayment.status = 'completed';
@@ -758,7 +790,10 @@ exports.verifyKhaltiPayment = async (req, res) => {
                     orders: orders.map(o => o._id),
                     multiOrderId: multiOrder?._id,
                     isMultiRestaurant,
-                    paymentStatus: 'paid'
+                    paymentStatus: 'paid',
+                    pointsEarned,
+                    pointsUsed,
+                    loyaltyPointsBalance
                 }
             });
         } else {

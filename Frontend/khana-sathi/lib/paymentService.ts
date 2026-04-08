@@ -77,7 +77,10 @@ export async function verifyEsewaPayment(data: string) {
             orders?: string[];
             multiOrderId?: string;
             isMultiRestaurant?: boolean;
-            paymentStatus: string
+            paymentStatus: string;
+            pointsEarned?: number;
+            pointsUsed?: number;
+            loyaltyPointsBalance?: number;
         }
     }>('/payment/esewa/verify', { data });
 }
@@ -100,7 +103,10 @@ export async function verifyKhaltiPayment(pidx: string, pendingId: string) {
             orders?: string[];
             multiOrderId?: string;
             isMultiRestaurant?: boolean;
-            paymentStatus: string
+            paymentStatus: string;
+            pointsEarned?: number;
+            pointsUsed?: number;
+            loyaltyPointsBalance?: number;
         }
     }>('/payment/khalti/verify', { pidx, pendingId });
 }

@@ -4,11 +4,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Phone, Mail, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getCart, getChildCartRequestById, Cart, ChildCartRequest } from "@/lib/cartService";
 import { getProfile, getAddresses, UserProfile, Address } from "@/lib/userService";
 import { createOrder, Order } from "@/lib/orderService";
 import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
+import { calculateRedeemableLoyaltyValue } from "@/lib/loyalty";
 import toast from "react-hot-toast";
 
 type CartData = Cart | ChildCartRequest;
@@ -54,11 +55,7 @@ export default function CheckoutPage() {
   const [useLoyaltyPoints, setUseLoyaltyPoints] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState("");
 
-  useEffect(() => {
-    fetchData();
-  }, [childCartId]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [cartRes, profileRes, addressesRes] = await Promise.all([
@@ -132,7 +129,11 @@ export default function CheckoutPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [childCartId, router]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handlePlaceOrder = async () => {
     if (!cart || !selectedAddressId) {
@@ -190,7 +191,7 @@ export default function CheckoutPage() {
         const firstOrder = orders[0];
 
         toast.success(
-          `Order placed successfully${responseData?.pointsEarned ? `. Earned ${responseData.pointsEarned} point(s)` : ""}${responseData?.pointsUsed ? ` and redeemed ${responseData.pointsUsed} point(s)` : ""}.`
+          `Order placed successfully${responseData?.pointsEarned ? `. Earned ${responseData.pointsEarned} point(s)` : ""}${responseData?.pointsUsed ? ` and redeemed ${responseData.pointsUsed} point(s) for Rs. ${calculateRedeemableLoyaltyValue(responseData.pointsUsed, Number.MAX_SAFE_INTEGER)}` : ""}.`
         );
         
         if (firstOrder?._id) {
@@ -288,7 +289,7 @@ export default function CheckoutPage() {
   const serviceFee = (cart?.restaurantGroups.length || 0) * 20;
   const promoDiscount = cart?.promoDiscount || 0;
   const redeemableLoyaltyValue = !childCartId
-    ? Math.min(profile?.loyaltyPoints || 0, Math.max(0, subtotal + deliveryFee + serviceFee - promoDiscount))
+    ? calculateRedeemableLoyaltyValue(profile?.loyaltyPoints, subtotal + deliveryFee + serviceFee - promoDiscount)
     : 0;
   const loyaltyDiscount = useLoyaltyPoints ? redeemableLoyaltyValue : 0;
   const discount = promoDiscount + loyaltyDiscount;
@@ -577,7 +578,7 @@ export default function CheckoutPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-orange-900">Loyalty Points</h2>
-                    <p className="text-orange-700 text-sm">1 point = Rs. 1 off. Earn 1 point for every Rs. 100 you spend.</p>
+                    <p className="text-orange-700 text-sm">Earn 1 point for every Rs. 100 you spend. Redeem 1000 points as Rs. 100 off during checkout.</p>
                     <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                       <div className="rounded-xl bg-white/80 px-4 py-3">
                         <p className="text-orange-600">Available now</p>
@@ -595,9 +596,10 @@ export default function CheckoutPage() {
                   </div>
                   <button
                     onClick={() => setUseLoyaltyPoints(!useLoyaltyPoints)}
-                    className={`px-6 py-2 rounded-full font-semibold transition ${useLoyaltyPoints ? 'bg-orange-600 text-white' : 'bg-white text-orange-600 border border-orange-600 hover:bg-orange-100'}`}
+                    disabled={redeemableLoyaltyValue <= 0}
+                    className={`px-6 py-2 rounded-full font-semibold transition ${useLoyaltyPoints ? 'bg-orange-600 text-white' : 'bg-white text-orange-600 border border-orange-600 hover:bg-orange-100'} disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400`}
                   >
-                    {useLoyaltyPoints ? 'Points Applied' : 'Redeem Points'}
+                    {redeemableLoyaltyValue <= 0 ? 'Need 10+ points' : useLoyaltyPoints ? 'Points Applied' : 'Redeem Points'}
                   </button>
                 </div>
               </section>

@@ -1,6 +1,18 @@
 const User = require('../models/User');
+const Order = require('../models/Order');
+const Review = require('../models/Review');
+const RiderPaymentClaim = require('../models/RiderPaymentClaim');
 const bcrypt = require('bcryptjs');
 const { sendWelcomeEmail } = require('../services/emailService');
+const {
+    ACTIVE_CLAIM_STATUSES,
+    DELIVERY_FEE_PER_ORDER,
+    buildClaimSummary,
+    buildRiderEarningsReport,
+    getClaimablePeriodData,
+    getRiderDeliveredOrders,
+    serializeRiderPaymentClaim
+} = require('../utils/riderPayments');
 
 // @desc    Add a new staff member (delivery staff)
 // @route   POST /api/staff/add
@@ -278,38 +290,13 @@ const toggleStatus = async (req, res) => {
 // @access  Private (Delivery Staff)
 const getRiderStats = async (req, res) => {
     try {
-        const Order = require('../models/Order');
-        const Review = require('../models/Review');
         const riderId = req.params.id;
 
         const user = await User.findById(riderId);
         if (!user || user.role !== 'delivery_staff') {
             return res.status(404).json({ message: 'Rider not found' });
         }
-
-        // Get today's date range
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
-
-        // Get today's completed deliveries
-        const todayDeliveries = await Order.countDocuments({
-            deliveryRider: riderId,
-            status: 'delivered',
-            updatedAt: { $gte: todayStart, $lte: todayEnd }
-        });
-
-        // Get total completed deliveries
-        const totalDeliveries = await Order.countDocuments({
-            deliveryRider: riderId,
-            status: 'delivered'
-        });
-
-        // Calculate today's earnings (assume delivery fee of Rs 50 per order)
-        const DELIVERY_FEE_PER_ORDER = 50;
-        const todayEarnings = todayDeliveries * DELIVERY_FEE_PER_ORDER;
-        const totalEarnings = totalDeliveries * DELIVERY_FEE_PER_ORDER;
+        const earningsReport = await buildRiderEarningsReport(riderId);
 
         // Get average rating from reviews
         const reviews = await Review.find({ rider: riderId });
@@ -326,10 +313,10 @@ const getRiderStats = async (req, res) => {
         res.json({
             success: true,
             data: {
-                todayDeliveries,
-                totalDeliveries,
-                todayEarnings,
-                totalEarnings,
+                todayDeliveries: earningsReport.today.deliveries,
+                totalDeliveries: earningsReport.total.deliveries,
+                todayEarnings: earningsReport.today.earnings,
+                totalEarnings: earningsReport.total.earnings,
                 avgRating: parseFloat(avgRating),
                 reviewCount: reviews.length,
                 currentOrder,
@@ -347,85 +334,178 @@ const getRiderStats = async (req, res) => {
 // @access  Private (Delivery Staff)
 const getRiderEarnings = async (req, res) => {
     try {
-        const Order = require('../models/Order');
         const riderId = req.params.id;
-        const DELIVERY_FEE_PER_ORDER = 50;
-
-        // Date ranges
-        const now = new Date();
-        const todayStart = new Date(now);
-        todayStart.setHours(0, 0, 0, 0);
-
-        const weekStart = new Date(now);
-        weekStart.setDate(weekStart.getDate() - 7);
-
-        const monthStart = new Date(now);
-        monthStart.setDate(1);
-        monthStart.setHours(0, 0, 0, 0);
-
-        // Today's deliveries
-        const todayOrders = await Order.countDocuments({
-            deliveryRider: riderId,
-            status: 'delivered',
-            updatedAt: { $gte: todayStart }
-        });
-
-        // This week's deliveries
-        const weekOrders = await Order.countDocuments({
-            deliveryRider: riderId,
-            status: 'delivered',
-            updatedAt: { $gte: weekStart }
-        });
-
-        // This month's deliveries
-        const monthOrders = await Order.countDocuments({
-            deliveryRider: riderId,
-            status: 'delivered',
-            updatedAt: { $gte: monthStart }
-        });
-
-        // Total all-time deliveries
-        const totalOrders = await Order.countDocuments({
-            deliveryRider: riderId,
-            status: 'delivered'
-        });
-
-        // Daily breakdown for last 7 days
-        const dailyBreakdown = [];
-        for (let i = 6; i >= 0; i--) {
-            const dayStart = new Date(now);
-            dayStart.setDate(dayStart.getDate() - i);
-            dayStart.setHours(0, 0, 0, 0);
-
-            const dayEnd = new Date(dayStart);
-            dayEnd.setHours(23, 59, 59, 999);
-
-            const count = await Order.countDocuments({
-                deliveryRider: riderId,
-                status: 'delivered',
-                updatedAt: { $gte: dayStart, $lte: dayEnd }
-            });
-
-            dailyBreakdown.push({
-                date: dayStart.toISOString().split('T')[0],
-                deliveries: count,
-                earnings: count * DELIVERY_FEE_PER_ORDER
-            });
+        const user = await User.findById(riderId).select('role');
+        if (!user || user.role !== 'delivery_staff') {
+            return res.status(404).json({ success: false, message: 'Rider not found' });
         }
+
+        const earningsReport = await buildRiderEarningsReport(riderId);
 
         res.json({
             success: true,
-            data: {
-                today: { deliveries: todayOrders, earnings: todayOrders * DELIVERY_FEE_PER_ORDER },
-                week: { deliveries: weekOrders, earnings: weekOrders * DELIVERY_FEE_PER_ORDER },
-                month: { deliveries: monthOrders, earnings: monthOrders * DELIVERY_FEE_PER_ORDER },
-                total: { deliveries: totalOrders, earnings: totalOrders * DELIVERY_FEE_PER_ORDER },
-                dailyBreakdown
-            }
+            data: earningsReport
         });
     } catch (error) {
         console.error('getRiderEarnings Error:', error);
         res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get rider claimable payment summary (daily/weekly)
+// @route   GET /api/staff/claims/summary
+// @access  Private (Delivery Staff)
+const getRiderClaimSummary = async (req, res) => {
+    try {
+        const { referenceDate } = req.query;
+
+        const [daily, weekly] = await Promise.all([
+            buildClaimSummary(req.user._id, 'daily', referenceDate),
+            buildClaimSummary(req.user._id, 'weekly', referenceDate)
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                daily,
+                weekly
+            }
+        });
+    } catch (error) {
+        console.error('getRiderClaimSummary Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// @desc    Create rider payment claim
+// @route   POST /api/staff/claims
+// @access  Private (Delivery Staff)
+const createRiderPaymentClaim = async (req, res) => {
+    try {
+        const { periodType = 'daily', referenceDate } = req.body;
+
+        if (!['daily', 'weekly'].includes(periodType)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Claim period must be either daily or weekly'
+            });
+        }
+
+        const claimData = await getClaimablePeriodData(req.user._id, periodType, referenceDate);
+
+        if (claimData.claimableOrders.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: `No claimable ${periodType} earnings found for ${claimData.period.periodLabel}`
+            });
+        }
+
+        const claim = await RiderPaymentClaim.create({
+            rider: req.user._id,
+            periodType: claimData.period.periodType,
+            periodLabel: claimData.period.periodLabel,
+            referenceDate: claimData.period.referenceDate,
+            periodStart: claimData.period.periodStart,
+            periodEnd: claimData.period.periodEnd,
+            orderIds: claimData.claimableOrders.map((order) => order._id),
+            deliveriesCount: claimData.claimableOrders.length,
+            amount: claimData.claimableOrders.length * DELIVERY_FEE_PER_ORDER
+        });
+
+        res.status(201).json({
+            success: true,
+            message: `${periodType === 'weekly' ? 'Weekly' : 'Daily'} payment claim submitted successfully`,
+            data: serializeRiderPaymentClaim(claim)
+        });
+    } catch (error) {
+        console.error('createRiderPaymentClaim Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// @desc    Get rider payment claim history
+// @route   GET /api/staff/claims
+// @access  Private (Delivery Staff)
+const getRiderPaymentClaims = async (req, res) => {
+    try {
+        const { status, periodType } = req.query;
+        const query = { rider: req.user._id };
+
+        if (status === 'active') {
+            query.status = { $in: ACTIVE_CLAIM_STATUSES };
+        } else if (status && ['pending', 'approved', 'paid', 'rejected'].includes(status)) {
+            query.status = status;
+        }
+
+        if (periodType && ['daily', 'weekly'].includes(periodType)) {
+            query.periodType = periodType;
+        }
+
+        const claims = await RiderPaymentClaim.find(query)
+            .sort({ claimedAt: -1 })
+            .lean();
+
+        res.json({
+            success: true,
+            count: claims.length,
+            data: claims.map(serializeRiderPaymentClaim)
+        });
+    } catch (error) {
+        console.error('getRiderPaymentClaims Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// @desc    Update rider payment claim status
+// @route   PUT /api/staff/claims/:claimId/status
+// @access  Private (Admin)
+const updateRiderPaymentClaimStatus = async (req, res) => {
+    try {
+        const { status, adminNote } = req.body;
+
+        if (!['approved', 'paid', 'rejected'].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid claim status update'
+            });
+        }
+
+        const claim = await RiderPaymentClaim.findById(req.params.claimId);
+        if (!claim) {
+            return res.status(404).json({
+                success: false,
+                message: 'Payment claim not found'
+            });
+        }
+
+        claim.status = status;
+        claim.processedAt = new Date();
+        if (typeof adminNote === 'string') {
+            claim.adminNote = adminNote.trim();
+        }
+
+        await claim.save();
+
+        res.json({
+            success: true,
+            message: 'Payment claim updated successfully',
+            data: serializeRiderPaymentClaim(claim)
+        });
+    } catch (error) {
+        console.error('updateRiderPaymentClaimStatus Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -434,7 +514,6 @@ const getRiderEarnings = async (req, res) => {
 // @access  Private (Delivery Staff)
 const getRiderHistory = async (req, res) => {
     try {
-        const Order = require('../models/Order');
         const riderId = req.params.id;
         const { status, period } = req.query;
 
@@ -474,7 +553,6 @@ const getRiderHistory = async (req, res) => {
             .sort({ updatedAt: -1 })
             .limit(50);
 
-        const DELIVERY_FEE_PER_ORDER = 50;
         const history = orders.map(order => ({
             _id: order._id,
             orderNumber: order.orderNumber,
@@ -587,6 +665,10 @@ module.exports = {
     toggleStatus,
     getRiderStats,
     getRiderEarnings,
+    getRiderClaimSummary,
+    createRiderPaymentClaim,
+    getRiderPaymentClaims,
+    updateRiderPaymentClaimStatus,
     getRiderHistory,
     getAvailableRiders,
     updateRiderProfile

@@ -18,7 +18,7 @@ import {
   ChildCartRequest,
 } from "@/lib/cartService";
 import { getMyGroupCarts, GroupCart } from "@/lib/groupCartService";
-import { ChildSpendingSnapshot, getChildSummary } from "@/lib/userService";
+import { ChildSpendingSnapshot, getChildSummary, getMyChildAccounts } from "@/lib/userService";
 import { useAuth } from "@/context/AuthContext";
 import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
@@ -83,6 +83,7 @@ export default function CartPage() {
   const [promoError, setPromoError] = useState("");
   const [activeGroupCarts, setActiveGroupCarts] = useState<GroupCart[]>([]);
   const [childCartRequests, setChildCartRequests] = useState<ChildCartRequest[]>([]);
+  const [hasChildAccounts, setHasChildAccounts] = useState(false);
   const [loadingChildRequests, setLoadingChildRequests] = useState(false);
   const [submittingApproval, setSubmittingApproval] = useState(false);
   const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
@@ -124,6 +125,21 @@ export default function CartPage() {
       setChildCartRequests([]);
     } finally {
       setLoadingChildRequests(false);
+    }
+  }, [authUser?.role]);
+
+  const fetchChildAccounts = useCallback(async () => {
+    if (authUser?.role !== 'customer') {
+      setHasChildAccounts(false);
+      return;
+    }
+
+    try {
+      const response = await getMyChildAccounts();
+      const accounts = response.data?.data || [];
+      setHasChildAccounts(Array.isArray(accounts) && accounts.length > 0);
+    } catch {
+      setHasChildAccounts(false);
     }
   }, [authUser?.role]);
 
@@ -188,9 +204,10 @@ export default function CartPage() {
   useEffect(() => {
     fetchCart();
     fetchActiveGroupCarts();
+    fetchChildAccounts();
     fetchChildCartRequests();
     fetchChildSummary();
-  }, [fetchActiveGroupCarts, fetchCart, fetchChildCartRequests, fetchChildSummary]);
+  }, [fetchActiveGroupCarts, fetchCart, fetchChildAccounts, fetchChildCartRequests, fetchChildSummary]);
 
   const handleSendToParentApproval = async () => {
     if (hasExhaustedChildLimit) {
@@ -364,7 +381,7 @@ export default function CartPage() {
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Your Cart</h1>
 
         {/* Parent Cart Approval */}
-        {authUser?.role === 'customer' && (
+        {authUser?.role === 'customer' && hasChildAccounts && (
           <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50 p-4">
             <div className="flex items-center justify-between">
               <div>

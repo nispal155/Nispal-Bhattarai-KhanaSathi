@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api';
-const API_BASE_URL ='https://f7rq6l1j-5003.inc1.devtunnels.ms/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5003/api';
+// const API_BASE_URL ='https://f7rq6l1j-5003.inc1.devtunnels.ms/api';
 
 
 // Create axios instance with default config
@@ -22,6 +22,22 @@ api.interceptors.request.use((config) => {
     }
     return config;
 });
+
+const isPublicAuthRequest = (url?: string, authorizationHeader?: string) => {
+    if (!url) {
+        return false;
+    }
+
+    const normalizedUrl = url.toLowerCase();
+    const isAuthEndpoint = normalizedUrl.includes('/auth/login')
+        || normalizedUrl.includes('/auth/register')
+        || normalizedUrl.includes('/auth/verify-otp')
+        || normalizedUrl.includes('/auth/resend-otp')
+        || normalizedUrl.includes('/auth/forgot-password')
+        || normalizedUrl.includes('/auth/reset-password');
+
+    return isAuthEndpoint && !authorizationHeader;
+};
 
 // Add response interceptor to handle auth errors
 api.interceptors.response.use(
@@ -64,6 +80,13 @@ api.interceptors.response.use(
         }
 
         if (error.response?.status === 401) {
+            const requestUrl = error.config?.url as string | undefined;
+            const authorizationHeader = error.config?.headers?.Authorization as string | undefined;
+
+            if (isPublicAuthRequest(requestUrl, authorizationHeader)) {
+                return Promise.reject(error);
+            }
+
             if (typeof window !== 'undefined') {
                 localStorage.removeItem('token');
                 localStorage.removeItem('user');

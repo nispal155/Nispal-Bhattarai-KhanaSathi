@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Search, Clock, Star, ChevronDown, Loader2, ShieldAlert } from "lucide-react";
+import { Search, Clock, Star, ChevronDown, Loader2, ShieldAlert, Store, UtensilsCrossed } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getAllRestaurants, getNearbyRestaurants, Restaurant } from "@/lib/restaurantService";
+import { searchMenuItems, type MenuItem } from "@/lib/menuService";
 import { formatPriceRange } from "@/lib/formatters";
 import UserHeader from "@/components/layout/UserHeader";
 import { getProfile, type UserProfile as ServiceUserProfile } from "@/lib/userService";
@@ -29,6 +30,85 @@ interface RestaurantDisplay {
   tags: string[];
 }
 
+interface FoodSearchDisplay {
+  _id: string;
+  name: string;
+  description: string;
+  price: number;
+  image: string;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantCuisine: string;
+  restaurantPriceRange: string;
+  restaurantDeliveryTime: string;
+}
+
+const mapRestaurantToDisplay = (restaurant: Restaurant): RestaurantDisplay => ({
+  _id: restaurant._id,
+  slug: restaurant._id,
+  image: restaurant.logoUrl || "/restaurant-placeholder.jpg",
+  name: restaurant.name,
+  rating: restaurant.averageRating || 0,
+  cuisine: restaurant.cuisineType?.join(", ") || "Various",
+  priceRange: formatPriceRange(restaurant.priceRange || "Rs.Rs."),
+  deliveryTime: restaurant.deliveryTime ? `${restaurant.deliveryTime.min}-${restaurant.deliveryTime.max} min` : "30-45 min",
+  tags: restaurant.tags || [],
+});
+
+const applyRestaurantFilters = (
+  restaurantList: RestaurantDisplay[],
+  cuisineFilters: string[],
+  ratingFilter: string,
+  deliveryFilter: string,
+  allergyFilters: string[]
+) => restaurantList.filter((restaurant) => {
+  if (cuisineFilters.length > 0 && !cuisineFilters.some((cuisine) => restaurant.cuisine.includes(cuisine))) {
+    return false;
+  }
+
+  if (ratingFilter === "4+" && restaurant.rating < 4) return false;
+  if (ratingFilter === "3+" && restaurant.rating < 3) return false;
+
+  if (deliveryFilter === "30") {
+    const minTime = parseInt(restaurant.deliveryTime.split("-")[0], 10);
+    if (minTime >= 30) return false;
+  }
+
+  if (deliveryFilter === "60") {
+    const minTime = parseInt(restaurant.deliveryTime.split("-")[0], 10);
+    if (minTime < 30 || minTime > 60) return false;
+  }
+
+  if (allergyFilters.length > 0 && !allergyFilters.some((allergy) => restaurant.tags.includes(allergy))) {
+    return false;
+  }
+
+  return true;
+});
+
+const parseDeliveryTime = (deliveryTime: string) => {
+  const match = deliveryTime.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 999;
+};
+
+const parsePriceLevel = (priceRange: string) => {
+  const matches = priceRange.match(/Rs\./g);
+  return matches ? matches.length : 0;
+};
+
+const sortRestaurants = (restaurantList: RestaurantDisplay[], sortBy: string) => [...restaurantList].sort((a, b) => {
+  switch (sortBy) {
+    case "rating":
+      return b.rating - a.rating;
+    case "deliveryTime":
+      return parseDeliveryTime(a.deliveryTime) - parseDeliveryTime(b.deliveryTime);
+    case "priceAsc":
+      return parsePriceLevel(a.priceRange) - parsePriceLevel(b.priceRange);
+    default:
+      return 0;
+  }
+});
+
 export default function BrowseRestaurants() {
   const { user, updateUser } = useAuth();
   const [cuisineFilters, setCuisineFilters] = useState<string[]>([]);
@@ -38,10 +118,16 @@ export default function BrowseRestaurants() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("recommended");
   const [restaurants, setRestaurants] = useState<RestaurantDisplay[]>([]);
+  const [searchedRestaurants, setSearchedRestaurants] = useState<RestaurantDisplay[]>([]);
+  const [foodResults, setFoodResults] = useState<FoodSearchDisplay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState("");
+  const [searchError, setSearchError] = useState("");
   const [savedAllergies, setSavedAllergies] = useState<string[]>([]);
   const [fallbackCity, setFallbackCity] = useState("");
+  const trimmedSearchQuery = searchQuery.trim();
+  const hasSearchQuery = trimmedSearchQuery.length > 0;
 
   useEffect(() => {
     const syncProfile = async () => {
@@ -111,17 +197,7 @@ export default function BrowseRestaurants() {
       const responseData = response?.data as any;
       const restaurantsData: Restaurant[] = responseData?.data || responseData || [];
 
-      const formattedRestaurants: RestaurantDisplay[] = (Array.isArray(restaurantsData) ? restaurantsData : []).map((r: Restaurant) => ({
-        _id: r._id,
-        slug: r._id,
-        image: r.logoUrl || "/restaurant-placeholder.jpg",
-        name: r.name,
-        rating: r.averageRating || 0,
-        cuisine: r.cuisineType?.join(", ") || "Various",
-        priceRange: formatPriceRange(r.priceRange || "Rs.Rs."),
-        deliveryTime: r.deliveryTime ? `${r.deliveryTime.min}-${r.deliveryTime.max} min` : "30-45 min",
-        tags: r.tags || [],
-      }));
+      const formattedRestaurants: RestaurantDisplay[] = (Array.isArray(restaurantsData) ? restaurantsData : []).map(mapRestaurantToDisplay);
       setRestaurants(formattedRestaurants);
     } catch (err) {
       console.error("Error fetching restaurants:", err);
@@ -165,69 +241,105 @@ export default function BrowseRestaurants() {
     });
   };
 
-  // Filter restaurants based on current filters
-  const filteredRestaurants = restaurants.filter((restaurant) => {
-    // Search filter
-    if (searchQuery && !restaurant.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-      !restaurant.cuisine.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
+  useEffect(() => {
+    let isActive = true;
+
+    if (!hasSearchQuery) {
+      setSearchLoading(false);
+      setSearchError("");
+      setSearchedRestaurants([]);
+      setFoodResults([]);
+      return () => {
+        isActive = false;
+      };
     }
 
-    // Cuisine filter
-    if (cuisineFilters.length > 0 && !cuisineFilters.some(c => restaurant.cuisine.includes(c))) {
-      return false;
-    }
+    const timer = window.setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        setSearchError("");
 
-    // Rating filter
-    if (ratingFilter === "4+" && restaurant.rating < 4) return false;
-    if (ratingFilter === "3+" && restaurant.rating < 3) return false;
+        const [restaurantResponse, foodResponse] = await Promise.all([
+          getAllRestaurants({ search: trimmedSearchQuery, status: "active", limit: 12 }),
+          searchMenuItems(trimmedSearchQuery)
+        ]);
 
-    // Delivery time filter
-    if (deliveryFilter === "30") {
-      const minTime = parseInt(restaurant.deliveryTime.split("-")[0]);
-      if (minTime >= 30) return false;
-    }
-    if (deliveryFilter === "60") {
-      const minTime = parseInt(restaurant.deliveryTime.split("-")[0]);
-      if (minTime < 30 || minTime > 60) return false;
-    }
+        if (!isActive) {
+          return;
+        }
 
-    // Allergy filter
-    if (allergyFilters.length > 0 && !allergyFilters.some(a => restaurant.tags.includes(a))) {
-      return false;
-    }
+        if (restaurantResponse.error || foodResponse.error) {
+          throw new Error(restaurantResponse.error || foodResponse.error || "Search failed");
+        }
 
-    return true;
-  });
+        const restaurantData = restaurantResponse.data?.data || [];
+        setSearchedRestaurants((Array.isArray(restaurantData) ? restaurantData : []).map(mapRestaurantToDisplay));
 
-  // Helper: extract first number from delivery time string like "30-45 min"
-  const parseDeliveryTime = (dt: string) => {
-    const match = dt.match(/(\d+)/);
-    return match ? parseInt(match[1], 10) : 999;
-  };
+        const menuItems: MenuItem[] = Array.isArray(foodResponse.data?.data) ? foodResponse.data.data : [];
+        const mappedFoodResults = menuItems
+          .map((item) => {
+            if (!item.restaurant || typeof item.restaurant === "string") {
+              return null;
+            }
 
-  // Helper: count "Rs." occurrences to gauge price level (Rs. = 1, Rs.Rs. = 2, etc.)
-  const parsePriceLevel = (pr: string) => {
-    const matches = pr.match(/Rs\./g);
-    return matches ? matches.length : 0;
-  };
+            return {
+              _id: item._id,
+              name: item.name,
+              description: item.description || "",
+              price: item.price,
+              image: item.image || "/food-placeholder.jpg",
+              restaurantId: item.restaurant._id,
+              restaurantName: item.restaurant.name,
+              restaurantCuisine: item.restaurant.cuisineType?.join(", ") || "Various",
+              restaurantPriceRange: formatPriceRange(item.restaurant.priceRange || "Rs.Rs."),
+              restaurantDeliveryTime: item.restaurant.deliveryTime
+                ? `${item.restaurant.deliveryTime.min}-${item.restaurant.deliveryTime.max} min`
+                : "30-45 min",
+            };
+          })
+          .filter((item): item is FoodSearchDisplay => Boolean(item));
 
-  // Sort restaurants
-  const sortedRestaurants = [...filteredRestaurants].sort((a, b) => {
-    switch (sortBy) {
-      case "rating":
-        return b.rating - a.rating;
-      case "deliveryTime":
-        return parseDeliveryTime(a.deliveryTime) - parseDeliveryTime(b.deliveryTime);
-      case "priceAsc":
-        return parsePriceLevel(a.priceRange) - parsePriceLevel(b.priceRange);
-      default:
-        return 0;
-    }
-  });
+        setFoodResults(mappedFoodResults);
+      } catch (err) {
+        console.error("Error searching restaurants and food:", err);
+        if (isActive) {
+          setSearchedRestaurants([]);
+          setFoodResults([]);
+          setSearchError("Failed to search restaurants and food");
+        }
+      } finally {
+        if (isActive) {
+          setSearchLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timer);
+    };
+  }, [hasSearchQuery, trimmedSearchQuery]);
+
+  const filteredRestaurants = applyRestaurantFilters(
+    restaurants,
+    cuisineFilters,
+    ratingFilter,
+    deliveryFilter,
+    allergyFilters
+  );
+  const sortedRestaurants = sortRestaurants(filteredRestaurants, sortBy);
+  const filteredSearchedRestaurants = applyRestaurantFilters(
+    searchedRestaurants,
+    cuisineFilters,
+    ratingFilter,
+    deliveryFilter,
+    allergyFilters
+  );
+  const sortedSearchedRestaurants = sortRestaurants(filteredSearchedRestaurants, sortBy);
 
   const cuisines = ["Indian", "Italian", "Japanese", "American", "Nepali", "Chinese"];
   const allergyOptions = ["Gluten-Free", "Vegetarian", "Dairy-Free", "Nut-Free"];
+  const restaurantSectionTitle = hasSearchQuery ? `Search Results for "${trimmedSearchQuery}"` : "Restaurants Near You";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -414,7 +526,12 @@ export default function BrowseRestaurants() {
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
-              <h1 className="text-2xl font-bold text-gray-900">Restaurants Near You</h1>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">{restaurantSectionTitle}</h1>
+                {hasSearchQuery && (
+                  <p className="mt-1 text-sm text-gray-500">Showing matching restaurants and food items for your search.</p>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-gray-600">Sort by:</span>
                 <select
@@ -430,16 +547,24 @@ export default function BrowseRestaurants() {
               </div>
             </div>
 
-            {/* Loading State */}
-            {loading && (
+            {/* Base Loading State */}
+            {!hasSearchQuery && loading && (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-red-500" />
                 <span className="ml-2 text-gray-600">Loading restaurants...</span>
               </div>
             )}
 
-            {/* Error State */}
-            {error && (
+            {/* Search Loading State */}
+            {hasSearchQuery && searchLoading && (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+                <span className="ml-2 text-gray-600">Searching restaurants and food...</span>
+              </div>
+            )}
+
+            {/* Base Error State */}
+            {!hasSearchQuery && error && (
               <div className="text-center py-12">
                 <p className="text-red-500 mb-4">{error}</p>
                 <button
@@ -451,15 +576,127 @@ export default function BrowseRestaurants() {
               </div>
             )}
 
-            {/* No Results */}
-            {!loading && !error && sortedRestaurants.length === 0 && (
+            {/* Search Error State */}
+            {hasSearchQuery && !searchLoading && searchError && (
+              <div className="text-center py-12">
+                <p className="text-red-500 mb-4">{searchError}</p>
+              </div>
+            )}
+
+            {/* Search Results */}
+            {hasSearchQuery && !searchLoading && !searchError && (
+              <div className="space-y-10">
+                {sortedSearchedRestaurants.length > 0 && (
+                  <section>
+                    <div className="mb-4 flex items-center gap-2">
+                      <Store className="h-5 w-5 text-red-500" />
+                      <h2 className="text-xl font-bold text-gray-900">Restaurants</h2>
+                      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600">
+                        {sortedSearchedRestaurants.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {sortedSearchedRestaurants.map((restaurant) => (
+                        <Link
+                          key={`search-restaurant-${restaurant._id}`}
+                          href={`/view-restaurant/${restaurant._id}`}
+                          className="bg-white rounded-xl overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow"
+                        >
+                          <div className="relative h-40 bg-gray-200">
+                            <Image
+                              src={restaurant.image}
+                              alt={restaurant.name}
+                              fill
+                              sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                              className="object-cover"
+                            />
+                          </div>
+                          <div className="p-4">
+                            <div className="flex items-start justify-between mb-2">
+                              <h3 className="font-semibold text-gray-900">{restaurant.name}</h3>
+                              <div className="flex items-center gap-1">
+                                <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                                <span className="text-sm font-medium">{restaurant.rating}</span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-2">
+                              {restaurant.cuisine} • {restaurant.priceRange}
+                            </p>
+                            <div className="flex items-center gap-2 text-sm text-gray-500">
+                              <Clock className="w-4 h-4" />
+                              <span>{restaurant.deliveryTime}</span>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {foodResults.length > 0 && (
+                  <section>
+                    <div className="mb-4 flex items-center gap-2">
+                      <UtensilsCrossed className="h-5 w-5 text-orange-500" />
+                      <h2 className="text-xl font-bold text-gray-900">Food Items</h2>
+                      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600">
+                        {foodResults.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {foodResults.map((food) => (
+                        <Link
+                          key={`search-food-${food._id}`}
+                          href={`/view-restaurant/${food.restaurantId}`}
+                          className="flex gap-4 rounded-2xl border border-gray-200 bg-white p-4 transition hover:shadow-md"
+                        >
+                          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-gray-100">
+                            <Image
+                              src={food.image}
+                              alt={food.name}
+                              fill
+                              sizes="96px"
+                              className="object-cover"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h3 className="font-semibold text-gray-900">{food.name}</h3>
+                                <p className="text-sm font-medium text-red-500">{food.restaurantName}</p>
+                              </div>
+                              <span className="whitespace-nowrap rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700">
+                                Rs. {food.price}
+                              </span>
+                            </div>
+                            {food.description && (
+                              <p className="mt-2 line-clamp-2 text-sm text-gray-600">{food.description}</p>
+                            )}
+                            <p className="mt-3 text-xs text-gray-500">
+                              {food.restaurantCuisine} • {food.restaurantPriceRange} • {food.restaurantDeliveryTime}
+                            </p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {sortedSearchedRestaurants.length === 0 && foodResults.length === 0 && (
+                  <div className="text-center py-12">
+                    <p className="text-gray-600">No restaurants or food items found for &quot;{trimmedSearchQuery}&quot;.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Default Restaurant Grid */}
+            {!hasSearchQuery && !loading && !error && sortedRestaurants.length === 0 && (
               <div className="text-center py-12">
                 <p className="text-gray-600">No restaurants found matching your criteria.</p>
               </div>
             )}
 
-            {/* Restaurant Grid */}
-            {!loading && !error && (
+            {!hasSearchQuery && !loading && !error && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {sortedRestaurants.map((restaurant) => (
                   <Link

@@ -1,4 +1,5 @@
 const Order = require('../models/Order');
+const { calculateDiscountFromPoints } = require('./loyalty');
 
 const ALLERGEN_OPTIONS = [
   'Dairy',
@@ -227,7 +228,7 @@ const calculateCartTotals = (cart, useLoyaltyPoints = false, userLoyaltyPoints =
   let loyaltyDiscount = 0;
   if (useLoyaltyPoints && userLoyaltyPoints > 0) {
     const remainingTotal = subtotal + deliveryFee + serviceFee - promoDiscount;
-    loyaltyDiscount = Math.min(userLoyaltyPoints, remainingTotal);
+    loyaltyDiscount = calculateDiscountFromPoints(userLoyaltyPoints, remainingTotal);
   }
 
   const total = Math.max(0, subtotal + deliveryFee + serviceFee - promoDiscount - loyaltyDiscount);

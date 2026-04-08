@@ -19,6 +19,19 @@ export default function LoginPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  const getLoginErrorMessage = (errorCode?: string, fallbackMessage?: string) => {
+    switch (errorCode) {
+      case 'EMAIL_NOT_FOUND':
+        return 'This email is not registered. Please sign up first.';
+      case 'USERNAME_NOT_FOUND':
+        return 'This username is not registered. Please sign up first.';
+      case 'INVALID_PASSWORD':
+        return 'Incorrect password';
+      default:
+        return fallbackMessage || 'Login failed';
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -44,10 +57,11 @@ export default function LoginPage() {
       if (result.error.toLowerCase().includes('verify') && formData.identifier.includes('@')) {
         toast.error('Please verify your email first');
         localStorage.setItem('pendingVerificationEmail', formData.identifier);
+        setIsLoading(false);
         router.push('/verify-otp');
         return;
       }
-      toast.error(result.error);
+      toast.error(getLoginErrorMessage(result.errorCode, result.error));
       setIsLoading(false);
       return;
     }

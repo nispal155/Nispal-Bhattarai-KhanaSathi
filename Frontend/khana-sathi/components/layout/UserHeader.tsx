@@ -3,24 +3,66 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import { ShoppingCart, User as UserIcon, HelpCircle, Home, Users, Copy, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { getMyGroupCarts, GroupCart } from '@/lib/groupCartService';
+import { CART_UPDATED_EVENT, Cart, ChildCartRequest, getCart } from '@/lib/cartService';
 import NotificationCenter from '../NotificationCenter';
 import toast from 'react-hot-toast';
 
+type CartLikeData = Cart | ChildCartRequest | null;
+
+const getCartItemCount = (cart: CartLikeData) => {
+    if (!cart) return 0;
+
+    if (typeof cart.itemCount === 'number') {
+        return cart.itemCount;
+    }
+
+    return (cart.restaurantGroups || []).reduce((total, group) => (
+        total + group.items.reduce((sum, item) => sum + item.quantity, 0)
+    ), 0);
+};
+
 const UserHeader: React.FC = () => {
     const { user } = useAuth();
+    const pathname = usePathname();
     const [activeGCs, setActiveGCs] = useState<GroupCart[]>([]);
+    const [cartItemCount, setCartItemCount] = useState(0);
     const [showGCDropdown, setShowGCDropdown] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
 
+        const fetchCartCount = async () => {
+            if (!user) {
+                if (!cancelled) {
+                    setCartItemCount(0);
+                }
+                return;
+            }
+
+            try {
+                const res = await getCart();
+                const payload = res.data;
+                const cartData = (payload?.data || payload) as CartLikeData;
+
+                if (!cancelled) {
+                    setCartItemCount(getCartItemCount(cartData));
+                }
+            } catch {
+                if (!cancelled) {
+                    setCartItemCount(0);
+                }
+            }
+        };
+
         const fetchNavState = async () => {
             if (!user) {
                 if (!cancelled) {
                     setActiveGCs([]);
+                    setCartItemCount(0);
                 }
                 return;
             }
@@ -29,41 +71,59 @@ const UserHeader: React.FC = () => {
                 if (!cancelled) {
                     setActiveGCs([]);
                 }
-                return;
+            } else {
+                try {
+                    const res = await getMyGroupCarts();
+                    const payload = res.data;
+                    const carts = Array.isArray(payload?.data)
+                        ? payload.data
+                        : Array.isArray(payload as unknown)
+                            ? (payload as unknown as GroupCart[])
+                            : [];
+                    const active = (Array.isArray(carts) ? carts : []).filter(
+                        (gc: GroupCart) => gc.status === 'open' || gc.status === 'locked' || gc.status === 'payment_pending'
+                    );
+                    if (!cancelled) {
+                        setActiveGCs(active);
+                    }
+                } catch {
+                    if (!cancelled) {
+                        setActiveGCs([]);
+                    }
+                }
             }
 
-            try {
-                const res = await getMyGroupCarts();
-                const payload = res.data;
-                const carts = Array.isArray(payload?.data)
-                    ? payload.data
-                    : Array.isArray(payload as unknown)
-                        ? (payload as unknown as GroupCart[])
-                        : [];
-                const active = (Array.isArray(carts) ? carts : []).filter(
-                    (gc: GroupCart) => gc.status === 'open' || gc.status === 'locked' || gc.status === 'payment_pending'
-                );
-                if (!cancelled) {
-                    setActiveGCs(active);
-                }
-            } catch {
-                if (!cancelled) {
-                    setActiveGCs([]);
-                }
-            }
+            await fetchCartCount();
         };
 
         fetchNavState();
 
+        const handleCartUpdated = (event: Event) => {
+            const customEvent = event as CustomEvent<{ itemCount?: number }>;
+            const nextCount = customEvent.detail?.itemCount;
+
+            if (typeof nextCount === 'number') {
+                setCartItemCount(nextCount);
+                return;
+            }
+
+            void fetchCartCount();
+        };
+
+        window.addEventListener(CART_UPDATED_EVENT, handleCartUpdated as EventListener);
+
         return () => {
             cancelled = true;
+            window.removeEventListener(CART_UPDATED_EVENT, handleCartUpdated as EventListener);
         };
-    }, [user]);
+    }, [pathname, user]);
 
     const copyCode = (code: string) => {
         navigator.clipboard.writeText(code);
         toast.success('Invite code copied!');
     };
+
+    const cartBadgeCount = cartItemCount > 99 ? '99+' : cartItemCount;
 
     return (
         <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -85,7 +145,15 @@ const UserHeader: React.FC = () => {
                             <Home className="w-4 h-4" /> <span>Home</span>
                         </Link>
                         <Link href="/cart" className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors">
-                            <ShoppingCart className="w-4 h-4" /> <span>Cart</span>
+                            <span className="relative inline-flex">
+                                <ShoppingCart className="w-4 h-4" />
+                                {cartItemCount > 0 && (
+                                    <span className="absolute -top-2 -right-3 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+                                        {cartBadgeCount}
+                                    </span>
+                                )}
+                            </span>
+                            <span>Cart</span>
                         </Link>
 
                         {/* Group Order with active cart dropdown */}
@@ -174,6 +242,19 @@ const UserHeader: React.FC = () => {
                     {/* Right Side Tools */}
                     <div className="flex items-center gap-2 md:gap-4">
                         {user && <span className="hidden sm:inline text-sm text-gray-700 font-medium">Hi, {user.username}</span>}
+
+                        <Link
+                            href="/cart"
+                            className="md:hidden relative inline-flex items-center justify-center w-9 h-9 rounded-full border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300 transition-colors"
+                            aria-label="Cart"
+                        >
+                            <ShoppingCart className="w-4 h-4" />
+                            {cartItemCount > 0 && (
+                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+                                    {cartBadgeCount}
+                                </span>
+                            )}
+                        </Link>
 
                         <NotificationCenter />
 
