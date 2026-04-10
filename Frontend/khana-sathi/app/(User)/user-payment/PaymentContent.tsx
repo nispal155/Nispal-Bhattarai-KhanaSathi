@@ -1,0 +1,512 @@
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { ArrowLeft, Wallet, Check, Loader2, MapPin } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getCart, getChildCartRequestById, Cart, ChildCartRequest } from "@/lib/cartService";
+import { createOrder, Order } from "@/lib/orderService";
+import { initiateEsewaFromCart, initiateKhaltiFromCart, redirectToEsewa, redirectToKhalti } from "@/lib/paymentService";
+import { useAuth } from "@/context/AuthContext";
+import UserHeader from "@/components/layout/UserHeader";
+import toast from "react-hot-toast";
+
+type PaymentOrderResponse = {
+  success: boolean;
+  data: Order | Order[];
+  message?: string;
+  multiOrder?: { _id: string; orderNumber?: string } | null;
+  isMultiRestaurant?: boolean;
+};
+
+const getCartItemKey = (menuItem: unknown) => {
+  if (typeof menuItem === "string") return menuItem;
+  if (
+    menuItem &&
+    typeof menuItem === "object" &&
+    "_id" in menuItem &&
+    typeof menuItem._id === "string"
+  ) {
+    return menuItem._id;
+  }
+  return "menu-item";
+};
+
+export default function PaymentPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const childCartId = searchParams.get("childCartId") || "";
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [cart, setCart] = useState<(Cart | ChildCartRequest) | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedPayment, setSelectedPayment] = useState("cod");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Address State
+  const [address, setAddress] = useState({
+    addressLine1: "",
+    city: "Kathmandu",
+    state: "Bagmati",
+    zipCode: "44600",
+  });
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      toast.error("Please login to checkout");
+      router.push('/login');
+      return;
+    }
+
+    if (isAuthenticated) {
+      fetchCartData();
+    }
+  }, [authLoading, childCartId, isAuthenticated, router, user?.role]);
+
+  const fetchCartData = async () => {
+    try {
+      setLoading(true);
+      if (user?.role === "child") {
+        toast.error("Child accounts cannot complete payment. Your parent must pay from their account.");
+        router.push('/cart');
+        return;
+      }
+
+      if (childCartId && user?.role !== "customer") {
+        toast.error("Only parent accounts can pay for a child cart.");
+        router.push('/cart');
+        return;
+      }
+
+      const response = childCartId
+        ? await getChildCartRequestById(childCartId)
+        : await getCart();
+
+      if (response.error) {
+        toast.error(response.error);
+        router.push('/cart');
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseData = response?.data as any;
+      const cartData = responseData?.data || responseData;
+
+      if (childCartId && cartData?.parentApproval?.status !== "approved") {
+        const approvalStatus = cartData?.parentApproval?.status;
+        const approvalNote = cartData?.parentApproval?.note?.trim();
+        const message = approvalStatus === "pending_parent_approval"
+          ? "This child cart is still waiting for approval."
+          : approvalStatus === "rejected"
+            ? `This child cart was rejected.${approvalNote ? ` Note: ${approvalNote}` : ""}`
+            : "This child cart is not ready for payment yet.";
+
+        toast.error(message);
+        router.push('/cart');
+        return;
+      }
+
+      setCart(cartData);
+    } catch (err) {
+      console.error("Error fetching cart:", err);
+      toast.error("Failed to load cart");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const paymentMethods = [
+    {
+      id: "esewa",
+      name: "eSewa",
+      icon: "esewa",
+      description: "Pay with your eSewa wallet",
+    },
+    {
+      id: "khalti",
+      name: "Khalti",
+      icon: "khalti",
+      description: "Pay with your Khalti wallet",
+    },
+    {
+      id: "cod",
+      name: "Cash on Delivery",
+      icon: "cod",
+      description: "Pay when your order arrives",
+    },
+  ];
+
+  const handlePayment = async () => {
+    if (!cart) return;
+
+    if (user?.role === "child") {
+      toast.error("Child accounts cannot complete payment. Your parent must pay from their account.");
+      router.push('/cart');
+      return;
+    }
+
+    if (!address.addressLine1) {
+      toast.error("Please enter a street address");
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+
+      // Different flow based on payment method
+      if (selectedPayment === "cod") {
+        // COD: Create order directly
+        const orderData = {
+          deliveryAddress: address,
+          paymentMethod: selectedPayment,
+          specialInstructions: "",
+          childCartId: childCartId || undefined,
+        };
+
+        console.log("Creating COD order:", orderData);
+        const response = await createOrder(orderData);
+        console.log("Order API response:", response);
+
+        if (response.error) {
+          console.error("API returned error:", response.error);
+          toast.error(response.error);
+          return;
+        }
+
+        const responseData = response.data as PaymentOrderResponse | undefined;
+        const orders = Array.isArray(responseData?.data)
+          ? responseData.data
+          : responseData?.data
+            ? [responseData.data]
+            : [];
+        const multiOrder = responseData?.multiOrder;
+        const isMultiRestaurant = responseData?.isMultiRestaurant;
+
+        console.log("Order response:", { orders, multiOrder, isMultiRestaurant });
+
+        if (isMultiRestaurant && multiOrder?._id) {
+          // Multi-restaurant order: redirect to unified tracking page
+          toast.success(`${orders.length} orders placed! Tracking all restaurants together.`);
+          router.push(`/multi-order-tracking/${multiOrder._id}`);
+        } else {
+          // Single restaurant order: redirect to individual tracking
+          const order = orders[0];
+          if (order?._id) {
+            toast.success("Order placed successfully!");
+            router.push(`/order-tracking/${order._id}`);
+          } else {
+            toast.error("Order creation failed - no order returned");
+          }
+        }
+      } else if (selectedPayment === "esewa") {
+        // eSewa: Redirect to payment first, order created after successful payment
+        console.log("Initiating eSewa payment...");
+        const esewaRes = await initiateEsewaFromCart({
+          deliveryAddress: address,
+          specialInstructions: "",
+          useLoyaltyPoints: false,
+          childCartId: childCartId || undefined,
+        });
+        console.log("eSewa response:", esewaRes);
+
+        if (esewaRes.error) {
+          toast.error(esewaRes.error);
+          return;
+        }
+
+        if (esewaRes.data?.success && esewaRes.data.data) {
+          toast.success("Redirecting to eSewa...");
+          redirectToEsewa(esewaRes.data.data);
+          return; // Don't set isProcessing to false - we're leaving the page
+        } else {
+          toast.error("Failed to initiate eSewa payment");
+        }
+      } else if (selectedPayment === "khalti") {
+        // Khalti: Redirect to payment first, order created after successful payment
+        console.log("Initiating Khalti payment...");
+        const khaltiRes = await initiateKhaltiFromCart({
+          deliveryAddress: address,
+          specialInstructions: "",
+          useLoyaltyPoints: false,
+          childCartId: childCartId || undefined,
+        });
+        console.log("Khalti response:", JSON.stringify(khaltiRes, null, 2));
+
+        if (khaltiRes.error) {
+          toast.error(khaltiRes.error);
+          return;
+        }
+
+        const paymentUrl = khaltiRes.data?.data?.paymentUrl;
+        console.log("Payment URL:", paymentUrl);
+
+        if (khaltiRes.data?.success && paymentUrl) {
+          toast.success("Redirecting to Khalti...");
+          redirectToKhalti(paymentUrl);
+          return; // Don't set isProcessing to false - we're leaving the page
+        } else {
+          console.error("Missing paymentUrl in response:", khaltiRes.data);
+          toast.error("Failed to initiate Khalti payment");
+        }
+      }
+    } catch (err: unknown) {
+      console.error("Payment error:", err);
+      const errorMessage = err instanceof Error ? err.message : "Payment failed";
+      toast.error(errorMessage);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Calculations - flatten restaurantGroups to calculate subtotal
+  const subtotal = cart?.restaurantGroups?.reduce((acc, group) => {
+    return acc + group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  }, 0) || 0;
+  const deliveryFee = (cart?.restaurantGroups?.length || 0) * 50;
+  const serviceFee = 20;
+  const discount = cart?.promoDiscount || 0;
+  const total = subtotal + deliveryFee + serviceFee - discount;
+  const childCheckoutName = cart && "child" in cart
+    ? cart.child.displayName || cart.child.username
+    : "";
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+      </div>
+    );
+  }
+
+  if (!cart || !cart.restaurantGroups?.length) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <h2 className="text-xl font-bold mb-4">Your cart is empty</h2>
+        <Link href="/browse-restaurants" className="text-red-500 underline">Browse Restaurants</Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <UserHeader />
+
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Back Button */}
+        <Link
+          href="/cart"
+          className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          <span>Back to Cart</span>
+        </Link>
+
+        <h1 className="text-2xl font-bold text-gray-900 mb-8">Checkout & Payment</h1>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+          <div className="lg:col-span-2 space-y-6">
+            {childCartId && childCheckoutName && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-sm font-medium text-blue-800">
+                  Paying for {childCheckoutName}&apos;s approved cart from the parent account.
+                </p>
+              </div>
+            )}
+
+            {/* Delivery Address Form */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <MapPin className="text-red-500" />
+                <h2 className="font-semibold text-gray-900">Delivery Address</h2>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded p-2 focus:ring-red-500 focus:border-red-500"
+                    placeholder="e.g. 123 Main St"
+                    value={address.addressLine1}
+                    onChange={(e) => setAddress({ ...address, addressLine1: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                    <input
+                      type="text"
+                      className="w-full border border-gray-300 rounded p-2"
+                      value={address.city}
+                      onChange={(e) => setAddress({ ...address, city: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Zip Code</label>
+                    <input
+                      type="text"
+                      className="w-full border border-gray-300 rounded p-2"
+                      value={address.zipCode}
+                      onChange={(e) => setAddress({ ...address, zipCode: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Methods */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h2 className="font-semibold text-gray-900 mb-4">Select Payment Method</h2>
+
+              <div className="space-y-3">
+                {paymentMethods.map((method) => (
+                  <label
+                    key={method.id}
+                    className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${selectedPayment === method.id
+                      ? "border-red-500 bg-red-50"
+                      : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment"
+                      value={method.id}
+                      checked={selectedPayment === method.id}
+                      onChange={() => setSelectedPayment(method.id)}
+                      className="w-5 h-5 text-red-500 focus:ring-red-500"
+                    />
+                    <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+                      {method.icon === "esewa" ? (
+                        <Image src="/Esewa.svg" alt="eSewa" width={40} height={40} className="object-contain" />
+                      ) : method.icon === "khalti" ? (
+                        <Image src="/Khalti.svg" alt="Khalti" width={40} height={40} className="object-contain" />
+                      ) : (
+                        <span className="text-2xl">💵</span>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-medium text-gray-900">{method.name}</h3>
+                      <p className="text-sm text-gray-500">{method.description}</p>
+                    </div>
+                    {selectedPayment === method.id && (
+                      <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center">
+                        <Check className="w-4 h-4 text-white" />
+                      </div>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Wallet Login (shown for eSewa) */}
+            {selectedPayment === "esewa" && (
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="font-semibold text-gray-900 mb-4">
+                  eSewa Payment
+                </h2>
+                <p className="text-gray-600 mb-4">
+                  You will be redirected to eSewa to complete your payment.
+                </p>
+                <div className="flex items-center gap-2 p-4 bg-green-50 rounded-lg">
+                  <Wallet className="w-5 h-5 text-green-600" />
+                  <span className="text-green-700">Secure payment processing</span>
+                </div>
+              </div>
+            )}
+
+            {/* Wallet Login (shown for Khalti) */}
+            {selectedPayment === "khalti" && (
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="font-semibold text-gray-900 mb-4">
+                  Khalti Payment
+                </h2>
+                <p className="text-gray-600 mb-4">
+                  You will be redirected to Khalti to complete your payment.
+                </p>
+                <div className="flex items-center gap-2 p-4 bg-purple-50 rounded-lg">
+                  <Wallet className="w-5 h-5 text-purple-600" />
+                  <span className="text-purple-700">Secure payment processing</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Order Summary */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-xl border border-gray-200 p-6 sticky top-24">
+              <h2 className="font-semibold text-gray-900 mb-4">Order Summary</h2>
+
+              <div className="space-y-6 text-sm mb-4 max-h-60 overflow-y-auto">
+                {cart.restaurantGroups.map((group) => (
+                  <div key={group.restaurant._id} className="space-y-3">
+                    <h3 className="font-medium text-gray-900 border-b pb-2">{group.restaurant.name}</h3>
+                    {group.items.map((item, itemIndex) => (
+                      <div key={`${group.restaurant._id}-${getCartItemKey(item.menuItem)}-${itemIndex}`} className="flex justify-between">
+                        <span className="text-gray-600">
+                          {item.name} <span className="text-xs">x{item.quantity}</span>
+                        </span>
+                        <span className="text-gray-900">Rs. {item.price * item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-gray-200 pt-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="text-gray-900">Rs. {subtotal}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Delivery Fee</span>
+                  <span className="text-gray-900">Rs. {deliveryFee}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Service Fee</span>
+                  <span className="text-gray-900">Rs. {serviceFee}</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Discount</span>
+                    <span>-Rs. {discount}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-gray-200 pt-3 mt-3">
+                <div className="flex justify-between font-semibold text-lg">
+                  <span>Total</span>
+                  <span>Rs. {total}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={handlePayment}
+                disabled={isProcessing}
+                className="w-full mt-6 bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  `Place Order - Rs. ${total}`
+                )}
+              </button>
+
+              <div className="flex items-center justify-center gap-2 mt-4 text-xs text-gray-500">
+                <span>🔒</span>
+                <span>Secured by SSL encryption</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+
+    </div>
+  );
+}
