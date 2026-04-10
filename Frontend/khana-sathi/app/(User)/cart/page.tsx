@@ -16,6 +16,7 @@ import {
   rejectChildCartRequest,
   updateChildCartRequestItem,
   ChildCartRequest,
+  Cart as CartData,
 } from "@/lib/cartService";
 import { getMyGroupCarts, GroupCart } from "@/lib/groupCartService";
 import { ChildSpendingSnapshot, getChildSummary, getMyChildAccounts } from "@/lib/userService";
@@ -24,13 +25,13 @@ import UserHeader from "@/components/layout/UserHeader";
 import toast from "react-hot-toast";
 
 interface CartItem {
-  _id: string;
-  menuItem: {
+  _id?: string;
+  menuItem: string | {
     _id: string;
-    name: string;
-    description: string;
-    price: number;
-    image: string;
+    name?: string;
+    price?: number;
+    image?: string;
+    isAvailable?: boolean;
   };
   name: string;
   price: number;
@@ -46,24 +47,6 @@ interface RestaurantGroup {
     logoUrl?: string;
   };
   items: CartItem[];
-}
-
-interface CartData {
-  _id: string;
-  restaurantGroups: RestaurantGroup[];
-  promoCode?: string;
-  promoDiscount?: number;
-  parentApproval?: {
-    status: 'not_required' | 'pending_parent_approval' | 'approved' | 'rejected';
-    requestedAt?: string;
-    reviewedAt?: string;
-    reviewedBy?: string;
-    note?: string;
-  };
-  user: {
-    _id: string;
-    username: string;
-  };
 }
 
 const PERIOD_LABELS = {
@@ -258,6 +241,13 @@ export default function CartPage() {
       return menuItem;
     }
 
+    return menuItem?._id || "";
+  };
+
+  const getMenuItemId = (menuItem: CartItem["menuItem"]): string => {
+    if (typeof menuItem === "string") {
+      return menuItem;
+    }
     return menuItem?._id || "";
   };
 
@@ -647,7 +637,7 @@ export default function CartPage() {
                                 )}
                               </div>
                               <button
-                                onClick={() => removeItem(item.menuItem._id)}
+                                onClick={() => removeItem(getMenuItemId(item.menuItem))}
                                 className="text-gray-400 hover:text-red-500 transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -657,18 +647,18 @@ export default function CartPage() {
                             <div className="flex items-center justify-between mt-2">
                               <div className="flex items-center gap-3">
                                 <button
-                                  onClick={() => updateQuantity(item.menuItem._id, item.quantity - 1)}
-                                  disabled={updating === item.menuItem._id || item.quantity <= 1}
+                                  onClick={() => updateQuantity(getMenuItemId(item.menuItem), item.quantity - 1)}
+                                  disabled={updating === getMenuItemId(item.menuItem) || item.quantity <= 1}
                                   className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50"
                                 >
                                   <Minus className="w-3 h-3" />
                                 </button>
                                 <span className="text-sm font-medium w-4 text-center">
-                                  {updating === item.menuItem._id ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : item.quantity}
+                                  {updating === getMenuItemId(item.menuItem) ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : item.quantity}
                                 </span>
                                 <button
-                                  onClick={() => updateQuantity(item.menuItem._id, item.quantity + 1)}
-                                  disabled={updating === item.menuItem._id}
+                                  onClick={() => updateQuantity(getMenuItemId(item.menuItem), item.quantity + 1)}
+                                  disabled={updating === getMenuItemId(item.menuItem)}
                                   className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 disabled:opacity-50"
                                 >
                                   <Plus className="w-3 h-3" />

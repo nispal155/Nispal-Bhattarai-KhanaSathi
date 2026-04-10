@@ -181,8 +181,20 @@ export default function ProfilePage() {
 
       // Handle restaurant data
       if (user?.role === 'restaurant') {
-        const restaurantData = (restaurantRes as { data?: { data?: RestaurantProfile } | RestaurantProfile | null })?.data;
-        const rData = restaurantData?.data || restaurantData;
+        let rData: RestaurantProfile | null = null;
+        
+        if (typeof restaurantRes === 'object' && restaurantRes !== null) {
+          const castRes = restaurantRes as { data?: { data?: RestaurantProfile } | RestaurantProfile | null } | RestaurantProfile;
+          if ('data' in castRes && castRes.data) {
+            const dataValue = castRes.data;
+            if (typeof dataValue === 'object' && 'data' in dataValue) {
+              rData = (dataValue as { data?: RestaurantProfile }).data || null;
+            } else {
+              rData = dataValue as RestaurantProfile;
+            }
+          }
+        }
+        
         if (rData) {
           setRestaurant(rData);
           setRestaurantEdit({
@@ -199,8 +211,20 @@ export default function ProfilePage() {
       }
 
       if (user?.role === 'child') {
-        const childSummaryData = (childSummaryRes as { data?: { data?: { spending?: ChildSpendingSnapshot } } | { spending?: ChildSpendingSnapshot } | null })?.data;
-        const childSummary = childSummaryData?.data || childSummaryData;
+        let childSummary: { spending?: ChildSpendingSnapshot } | null = null;
+        
+        if (typeof childSummaryRes === 'object' && childSummaryRes !== null) {
+          const castRes = childSummaryRes as { data?: { data?: { spending?: ChildSpendingSnapshot } } | { spending?: ChildSpendingSnapshot } | null } | { spending?: ChildSpendingSnapshot };
+          if ('data' in castRes && castRes.data) {
+            const dataValue = castRes.data;
+            if (typeof dataValue === 'object' && 'data' in dataValue) {
+              childSummary = (dataValue as { data?: { spending?: ChildSpendingSnapshot } }).data || null;
+            } else {
+              childSummary = dataValue as { spending?: ChildSpendingSnapshot };
+            }
+          }
+        }
+        
         setChildSpending(childSummary?.spending || null);
       } else {
         setChildSpending(null);

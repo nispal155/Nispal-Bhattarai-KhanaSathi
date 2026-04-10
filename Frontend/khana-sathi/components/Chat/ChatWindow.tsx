@@ -115,7 +115,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
         console.log('[Chat] Using global socket for room:', chatRoom);
         joinRoom(chatRoom);
 
-        const unsubscribe = onNewMessage((message: Message) => {
+        const unsubscribe = onNewMessage((message) => {
             // Comparison helper for IDs (handles ObjectId vs string vs Object with _id)
             const getStrId = (id: any) => {
                 if (!id) return '';
@@ -125,9 +125,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             };
 
             const currentThread = chatThread;
-            const msgThread = message.chatThread;
+            const msgThread = (message as any).chatThread;
             const currentOrderId = getStrId(orderId);
-            const msgOrderId = getStrId(message.order);
+            const msgOrderId = getStrId((message as any).order);
 
             // Filter: only accept messages for this thread (if specified)
             if (currentThread && msgThread && msgThread !== currentThread) {
@@ -140,23 +140,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ orderId, recipientName, recipie
             }
 
             console.log('[Chat] Accepted socket message, updating state');
+            const msg = message as any as Message;
             setMessages(prev => {
-                const messageId = getStrId(message._id);
+                const messageId = getStrId(msg._id);
                 // Remove matching optimistic (temp-*) message by content
                 const withoutTemp = prev.filter(
-                    m => !(String(m._id).startsWith('temp-') && m.content.trim() === message.content.trim())
+                    m => !(String(m._id).startsWith('temp-') && m.content.trim() === msg.content.trim())
                 );
                 // Deduplicate by real _id
                 if (withoutTemp.some(m => getStrId(m._id) === messageId)) {
                     return withoutTemp;
                 }
-                return [...withoutTemp, message].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                return [...withoutTemp, msg].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
             });
 
             // Toast when chat is minimized and message is from the other party
             const currentUser = userRef.current;
-            if (currentUser && message.sender._id !== currentUser._id && isMinimizedRef.current) {
-                toast.success(`New message from ${message.sender.name || message.sender.username || recipientName}`);
+            if (currentUser && msg.sender._id !== currentUser._id && isMinimizedRef.current) {
+                toast.success(`New message from ${msg.sender.name || msg.sender.username || recipientName}`);
             }
         });
 

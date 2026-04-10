@@ -12,6 +12,7 @@ function emitCartUpdated(itemCount?: number) {
 
 // Types
 export interface CartItem {
+  _id?: string;
   menuItem: string | {
     _id: string;
     name?: string;

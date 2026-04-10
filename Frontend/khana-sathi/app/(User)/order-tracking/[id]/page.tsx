@@ -125,24 +125,25 @@ export default function OrderTrackingPage({ params }: { params: Promise<{ id: st
     console.log("Joining order room via global socket:", id);
     joinOrder(id);
 
-    const unsubscribeOrderUpdate = onOrderUpdate((data: { orderId: string; status: string }) => {
+    const unsubscribeOrderUpdate = onOrderUpdate((data) => {
       if (data.orderId === id) {
-        setOrder(prev => prev ? { ...prev, status: data.status } : null);
+        setOrder(prev => prev ? { ...prev, status: (data.status as string) } : null);
         // Re-fetch full order to get updated rider info etc.
         fetchOrder();
       }
     });
 
     const unsubscribeRiderAssigned = onRiderAssigned((data) => {
-      if (data.orderId === id && data.rider?._id) {
+      if (data.orderId === id && data.rider && data.rider._id) {
+        const rider = data.rider;
         setOrder(prev => prev ? {
           ...prev,
           deliveryRider: {
-            _id: data.rider._id,
-            name: data.rider.username || data.rider.name || 'Rider',
-            phone: data.rider.phone,
-            profilePicture: data.rider.profilePicture,
-            averageRating: data.rider.averageRating,
+            _id: rider._id as string,
+            name: rider.username || rider.name || 'Rider',
+            phone: rider.phone,
+            profilePicture: rider.profilePicture,
+            averageRating: rider.averageRating,
           }
         } : null);
       }

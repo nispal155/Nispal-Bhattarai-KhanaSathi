@@ -51,7 +51,7 @@ import {
   payGroupShareEsewa,
   payGroupShareKhalti,
 } from "@/lib/groupCartService";
-import { redirectToEsewa } from "@/lib/paymentService";
+import { redirectToEsewa, type EsewaPaymentData } from "@/lib/paymentService";
 import type { GroupCart, GroupCartSummary, InitiateGroupOrderResponse } from "@/lib/groupCartService";
 
 function extractPayload<T>(response: { data?: unknown } | undefined): T | undefined {
@@ -339,7 +339,10 @@ export default function GroupCartDetailPage() {
       if (data?.requiresPayment) {
         if (data.paymentGateway === 'esewa' && data.formData) {
           toast.success("Redirecting to eSewa...");
-          redirectToEsewa({ paymentUrl: data.paymentUrl || '', formData: data.formData });
+          redirectToEsewa({ 
+            paymentUrl: data.paymentUrl || '', 
+            formData: data.formData as EsewaPaymentData['formData']
+          });
           return;
         }
         if (data.paymentGateway === 'khalti' && data.paymentUrl) {
@@ -380,7 +383,10 @@ export default function GroupCartDetailPage() {
         const data = extractPayload<{ paymentUrl: string; formData: Record<string, string> }>(res as { data?: unknown } | undefined);
         if (data?.formData) {
           toast.success("Redirecting to eSewa...");
-          redirectToEsewa({ paymentUrl: data.paymentUrl || '', formData: data.formData });
+          redirectToEsewa({ 
+            paymentUrl: data.paymentUrl || '', 
+            formData: data.formData as EsewaPaymentData['formData']
+          });
         }
         return;
       }

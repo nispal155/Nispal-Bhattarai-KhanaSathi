@@ -158,7 +158,8 @@ export default function PromoManagementPage() {
         try {
             const res = await getPromoAuditLog(id);
             if (res.data?.success) {
-                setAuditModal(res.data.data);
+                const { code, auditLog } = res.data.data;
+                setAuditModal({ code, logs: auditLog });
             }
         } catch {
             toast.error('Failed to fetch audit log');

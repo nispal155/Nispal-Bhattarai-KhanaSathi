@@ -77,7 +77,7 @@ function PaymentCallbackContent() {
                                 setStatus('success');
                                 if (resData?.orderPlaced) {
                                     setMessage('Payment verified. Group order has been placed.');
-                                    setOrderId(resData.orders?.[0]?.orderId);
+                                    setOrderId(resData.orders?.[0]?.orderId ?? null);
                                 } else {
                                     setMessage('Your payment is complete. Waiting for other members to pay.');
                                 }
@@ -101,7 +101,7 @@ function PaymentCallbackContent() {
                                 setStatus('success');
                                 if (resData?.orderPlaced) {
                                     setMessage('Payment verified. Group order has been placed.');
-                                    setOrderId(resData.orders?.[0]?.orderId);
+                                    setOrderId(resData.orders?.[0]?.orderId ?? null);
                                 } else {
                                     setMessage('Your payment is complete. Waiting for other members to pay.');
                                 }

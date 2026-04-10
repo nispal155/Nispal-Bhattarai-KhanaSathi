@@ -688,7 +688,7 @@ export default function ViewRestaurantPage({ params }: { params: Promise<{ id: s
                 </div>
 
                 <button
-                  onClick={handleAddToCart}
+                  onClick={() => handleAddToCart()}
                   disabled={addingToCart}
                   className="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >

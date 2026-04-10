@@ -80,11 +80,11 @@ export default function OrdersBoard() {
 
     joinRoom(authUser._id);
 
-    const unsubscribeNotification = onNotification((data: { type: string; message?: string }) => {
+    const unsubscribeNotification = onNotification((data) => {
       if (data.type === "order_status" || data.type === "chat_message") {
         fetchOrders();
         if (data.type === "order_status") {
-          toast.success(data.message || "New order update!", { icon: "🔔" });
+          toast.success((data.message as string) || "New order update!", { icon: "🔔" });
         }
       }
     });

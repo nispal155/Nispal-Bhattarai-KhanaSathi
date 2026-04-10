@@ -2,6 +2,22 @@ import { get } from './api';
 
 type AnalyticsResponse<T = unknown> = { success: boolean; data?: T; error?: string };
 
+type TransactionLogsData = {
+    gateways: Record<string, { enabled: boolean; paidCount: number; pendingCount: number; failedCount: number }>;
+    logs: Array<{
+        id: string;
+        source: string;
+        orderNumber: string;
+        customerName: string;
+        restaurantName: string;
+        paymentMethod: string;
+        paymentStatus: string;
+        amount: number;
+        reference: string;
+        createdAt: string;
+    }>;
+};
+
 const getErrorMessage = (error: unknown) => {
     if (error instanceof Error) {
         return error.message;
@@ -61,9 +77,9 @@ export const getSettlements = async (): Promise<AnalyticsResponse> => {
     }
 };
 
-export const getTransactionLogs = async (): Promise<AnalyticsResponse> => {
+export const getTransactionLogs = async (): Promise<AnalyticsResponse<TransactionLogsData>> => {
     try {
-        const response = await get<AnalyticsResponse>('/analytics/transactions');
+        const response = await get<AnalyticsResponse<TransactionLogsData>>('/analytics/transactions');
         if (response.data) {
             return response.data;
         }

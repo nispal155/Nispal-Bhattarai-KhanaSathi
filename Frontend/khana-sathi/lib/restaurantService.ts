@@ -71,6 +71,27 @@ interface ApiResponse<T> {
   data: T;
 }
 
+export interface OnboardingDetails {
+  user?: {
+    username: string;
+    email?: string;
+  };
+  restaurant?: {
+    name: string;
+    address?: {
+      addressLine1: string;
+      addressLine2?: string;
+      city: string;
+      state: string;
+      zipCode: string;
+    };
+    contactPhone: string;
+    contactEmail?: string;
+    openingHour: string;
+    closingHour: string;
+  };
+}
+
 
 /**
  * CREATE RESTAURANT
@@ -152,7 +173,7 @@ export async function approveRestaurant(userId: string) {
  * GET /api/restaurants/onboarding-details/:userId
  */
 export async function getOnboardingDetails(userId: string) {
-  return get<ApiResponse<unknown>>(`/restaurant/onboarding-details/${userId}`);
+  return get<ApiResponse<OnboardingDetails>>(`/restaurant/onboarding-details/${userId}`);
 }
 /**
  * GET NEARBY RESTAURANTS

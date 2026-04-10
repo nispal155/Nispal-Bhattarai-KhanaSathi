@@ -44,12 +44,17 @@ const normalizeHistory = (history?: TrackableOrderLike["riderLocationHistory"]) 
         return null;
       }
 
-      return {
+      const normalized: RiderLocationPoint = {
         lat: point.lat,
         lng: point.lng,
-        timestamp: point.timestamp ? new Date(point.timestamp).toISOString() : undefined,
         source: "history" as const,
       };
+      
+      if (point.timestamp) {
+        normalized.timestamp = new Date(point.timestamp).toISOString();
+      }
+      
+      return normalized;
     })
     .filter((point): point is RiderLocationPoint => Boolean(point));
 
