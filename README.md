@@ -32,15 +32,12 @@ Before running this project, ensure you have the following installed:
 
 - **Node.js** (v14 or higher) - [Download](https://nodejs.org/)
 - **npm** (comes with Node.js)
-- **Docker & Docker Compose** (for backend database setup) - [Download](https://www.docker.com/products/docker-desktop)
 - **Git** (optional, for cloning the repository)
 
 To verify installations:
 ```bash
 node --version
 npm --version
-docker --version
-docker-compose --version
 ```
 
 ## Project Structure
@@ -57,7 +54,6 @@ FInal Year Project/
 │   │   ├── services/          # Business logic services
 │   │   └── utils/             # Utility functions
 │   ├── tests/                 # Test files and setup
-│   ├── docker-compose.yml     # Docker services configuration
 │   ├── index.js               # Server entry point
 │   ├── jest.config.js         # Testing configuration
 │   └── package.json           # Dependencies
@@ -96,11 +92,9 @@ Create a `.env` file in the `Backend` directory with the following variables:
 PORT=5000
 NODE_ENV=development
 
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=27017
+# Database Configuration (Use your online MongoDB service)
+DB_URI=your_mongodb_connection_string
 DB_NAME=khana_sathi
-DB_URI=mongodb://localhost:27017/khana_sathi
 
 # JWT Authentication
 JWT_SECRET=your_jwt_secret_key_here
@@ -118,19 +112,7 @@ PAYMENT_API_KEY=your_payment_key
 FRONTEND_URL=http://localhost:3000
 ```
 
-### Step 4: Start Database with Docker
-```bash
-docker-compose up -d
-```
-
-This will start MongoDB and any other services defined in `docker-compose.yml`.
-
-Verify the database is running:
-```bash
-docker-compose ps
-```
-
-### Step 5: Run the Backend Server
+### Step 4: Run the Backend Server
 ```bash
 npm run dev
 ```
@@ -202,7 +184,6 @@ npm run e2e         # Run Playwright e2e tests
 ```bash
 cd Backend
 npm install
-docker-compose up -d
 npm run dev
 ```
 
@@ -221,7 +202,6 @@ Then open your browser and navigate to:
 ```bash
 cd Backend
 npm install
-docker-compose up -d
 npm run dev
 ```
 
@@ -310,18 +290,12 @@ Press `Ctrl + C` in the backend terminal
 ### Stop Frontend Server
 Press `Ctrl + C` in the frontend terminal
 
-### Stop Docker Services
-```bash
-cd Backend
-docker-compose down
-```
-
 ## Troubleshooting
 
 ### Backend Won't Start
-1. Check if MongoDB is running: `docker-compose ps`
-2. Verify all environment variables are set correctly in `.env`
-3. Check if port 5000 is already in use
+1. Verify all environment variables are set correctly in `.env`
+2. Check if port 5000 is already in use
+3. Ensure your online MongoDB service is accessible and connection string is correct
 4. Review error logs in terminal
 
 ### Frontend Won't Start
@@ -331,9 +305,9 @@ docker-compose down
 4. Clear Next.js cache: `rm -rf .next`
 
 ### Database Connection Issues
-1. Verify Docker containers are running: `docker-compose ps`
-2. Check database URI in `.env` file
-3. Restart Docker: `docker-compose restart`
+1. Check `DB_URI` in `.env` file is correctly configured
+2. Ensure your online MongoDB service is running and accessible
+3. Verify network connectivity to your database service
 
 ### API Connection Issues from Frontend
 1. Ensure backend is running on correct port
