@@ -31,7 +31,7 @@ export default function RestaurantDetail() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-start md:items-center gap-6 mb-10">
             <div>
-              <h1 className="text-5xl md:text-6xl font-extrabold text-gray-900">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-gray-900">
                 {restaurant.name}
               </h1>
               <div className="flex items-center gap-2 mt-3">
@@ -83,10 +83,10 @@ export default function RestaurantDetail() {
             </div>
 
             {/* Items Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-8">
               {restaurant.items.map((item, index) => (
                 <div key={index} className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition group">
-                  <div className="relative h-64">
+                  <div className="relative h-48 sm:h-56 md:h-64">
                     <Image
                       src={item.image || "/placeholder-food.jpg"}
                       alt={item.name}
@@ -139,7 +139,7 @@ export default function RestaurantDetail() {
 
           {/* Delivery Challenge Banner */}
           <div className="relative bg-linear-to-r from-red-600 to-red-800 rounded-3xl overflow-hidden shadow-2xl mb-16">
-            <div className="relative h-96 md:h-[500px]">
+            <div className="relative h-64 sm:h-80 md:h-96 lg:h-[500px]">
               <Image
                 src="/scooter-delivery-challenge.jpg"
                 alt="30 Minutes Delivery Challenge"
@@ -148,14 +148,14 @@ export default function RestaurantDetail() {
               />
               <div className="absolute inset-0 bg-black/30" />
 
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-6">
-                <h2 className="text-5xl md:text-6xl font-black mb-6">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-4 sm:px-6">
+                <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-black mb-4 sm:mb-6">
                   Crispy, Every Bite Taste
                   <br />
                   <span className="text-yellow-300">30 Minutes Fast Delivery Challenge</span>
                 </h2>
 
-                <button className="bg-yellow-400 hover:bg-yellow-300 text-red-900 font-black text-2xl px-16 py-6 rounded-full shadow-2xl transform hover:scale-105 transition mt-8">
+                <button className="bg-yellow-400 hover:bg-yellow-300 text-red-900 font-black text-sm sm:text-lg md:text-xl lg:text-2xl px-6 sm:px-12 md:px-16 py-3 sm:py-4 md:py-6 rounded-full shadow-2xl transform hover:scale-105 transition mt-4 sm:mt-6 md:mt-8">
                   Order Now
                 </button>
               </div>
@@ -163,7 +163,7 @@ export default function RestaurantDetail() {
           </div>
 
           {/* Food Gallery */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-16">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-16">
             {[
               "/food-penne.jpg",
               "/food-burger.jpg",
@@ -171,7 +171,7 @@ export default function RestaurantDetail() {
               "/food-meatballs.jpg",
               "/food-cheeseburger.jpg",
             ].map((src, i) => (
-              <div key={i} className="relative h-64 rounded-2xl overflow-hidden shadow-lg">
+              <div key={i} className="relative h-48 sm:h-56 md:h-64 rounded-2xl overflow-hidden shadow-lg">
                 <Image src={src} alt="Food" fill className="object-cover hover:scale-105 transition-transform duration-300" />
               </div>
             ))}

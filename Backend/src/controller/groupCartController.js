@@ -12,7 +12,7 @@ const {
   getRestrictionReasonsForMenuItem
 } = require('../utils/childAccountControls');
 
-// eSewa + Khalti configs (reuse from paymentController)
+
 const ESEWA_CONFIG = {
   merchantCode: process.env.ESEWA_MERCHANT_CODE || 'EPAYTEST',
   secretKey: process.env.ESEWA_SECRET_KEY || '8gBm/:&EnhH.1/q',
@@ -34,7 +34,7 @@ function emitGroupCartUpdate(groupCart) {
   try {
     const io = getIO();
     io.to(`group-cart:${groupCart._id}`).emit('groupCartUpdated', groupCart);
-  } catch (_) { /* socket not critical */ }
+  } catch (_) {  }
 }
 
 async function populateGroupCart(id) {

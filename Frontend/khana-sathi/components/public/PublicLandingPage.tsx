@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bricolage_Grotesque, Manrope } from "next/font/google";
 import { ArrowRight, ChevronDown, MapPin, Menu, Star, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getAllRestaurants, type Restaurant } from "@/lib/restaurantService";
 import { formatPriceRange } from "@/lib/formatters";
@@ -20,9 +21,9 @@ const bodyFont = Manrope({
 });
 
 const navLinks = [
-  { label: "Restaurants", href: "/browse-restaurants" },
-  { label: "Best Offers", href: "/browse-restaurants" },
-  { label: "Fast Delivery", href: "/browse-restaurants" },
+  { label: "Restaurants", href: "/nearest-restaurants" },
+  { label: "Best Offers", href: "/browse-offers" },
+  { label: "Fast Delivery", href: "/fast-delivery" },
 ];
 
 const orderSteps = [
@@ -130,7 +131,8 @@ function RestaurantOfferCard({ restaurant }: { restaurant: Restaurant }) {
 }
 
 export default function PublicLandingPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
+  const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
@@ -304,12 +306,18 @@ export default function PublicLandingPage() {
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-6 top-1/2 h-7 w-7 -translate-y-1/2 text-[#7d766e]" />
                   </div>
-                  <Link
-                    href={exploreHref}
+                  <button
+                    onClick={() => {
+                      if (!isAuthenticated) {
+                        router.push("/login");
+                      } else {
+                        router.push(exploreHref);
+                      }
+                    }}
                     className="inline-flex items-center justify-center rounded-full bg-[#d62828] px-12 py-6 text-lg font-bold text-white shadow-[0_22px_45px_rgba(214,40,40,0.35)] transition hover:scale-[1.02] hover:bg-[#bb1f1f]"
                   >
                     Explore menu
-                  </Link>
+                  </button>
                 </div>
 
                 {selectedRestaurant && (
@@ -346,39 +354,65 @@ export default function PublicLandingPage() {
                 )}
               </div>
 
-              <div className="relative hidden h-[560px] lg:block">
-                {heroShowcaseImages.map((item) => (
-                  <div key={item.title} className={item.className}>
-                    <Image src={item.image} alt={item.title} width={520} height={520} className="h-auto w-full object-cover" />
-                  </div>
-                ))}
-
-                <div className="absolute bottom-6 left-1/2 w-[22rem] -translate-x-1/2 overflow-hidden rounded-[36px] bg-white shadow-[0_35px_80px_rgba(0,0,0,0.18)]">
-                  <div className="relative h-72 bg-[#fff2ef]">
-                    <Image
-                      src={selectedRestaurant?.logoUrl || "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=900&q=80"}
-                      alt={selectedRestaurant?.name || "Featured restaurant"}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                  <div className="space-y-3 p-6">
-                    {renderStars()}
-                    <div>
-                      <p className="text-2xl font-bold text-[#121212]">
-                        {selectedRestaurant?.name || "KhanaSathi Favorites"}
+              <div className="relative h-64 sm:h-80 md:h-96 lg:h-[560px]">
+                {/* Mobile View - Featured Restaurant Card */}
+                <div className="lg:hidden absolute inset-0 flex items-center justify-center">
+                  <div className="w-48 sm:w-56 md:w-64 overflow-hidden rounded-[36px] bg-white shadow-[0_35px_80px_rgba(0,0,0,0.18)]">
+                    <div className="relative h-48 sm:h-56 bg-[#fff2ef]">
+                      <Image
+                        src={selectedRestaurant?.logoUrl || "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=900&q=80"}
+                        alt={selectedRestaurant?.name || "Featured restaurant"}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    <div className="space-y-3 p-4">
+                      <h4 className="font-bold text-[#111827]">{selectedRestaurant?.name}</h4>
+                      <p className="line-clamp-1 text-sm text-[#6b7280]">
+                        {selectedRestaurant?.cuisineType?.join(", ") || "Chef specials"}
                       </p>
-                      <p className="mt-2 text-sm text-[#6c675f]">
-                        {selectedRestaurant?.address?.addressLine1 || "Curated restaurant picks from your live project data."}
+                      <p className="text-xs text-[#d62828] font-semibold">
+                        {selectedRestaurant?.deliveryTime ? `${selectedRestaurant.deliveryTime.min}-${selectedRestaurant.deliveryTime.max} min` : "30-45 min"}
                       </p>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-bold text-[#d62828]">
-                        {formatPriceRange(selectedRestaurant?.priceRange || "Rs.")}
-                      </span>
-                      <span className="rounded-full bg-[#fff4c2] px-3 py-1 font-semibold text-[#7a5d00]">
-                        {selectedDelivery}
-                      </span>
+                  </div>
+                </div>
+
+                {/* Desktop View - Hero Showcase Images */}
+                <div className="hidden lg:block relative h-[560px]">
+                  {heroShowcaseImages.map((item) => (
+                    <div key={item.title} className={item.className}>
+                      <Image src={item.image} alt={item.title} width={520} height={520} className="h-auto w-full object-cover" />
+                    </div>
+                  ))}
+
+                  <div className="absolute bottom-6 left-1/2 w-[22rem] -translate-x-1/2 overflow-hidden rounded-[36px] bg-white shadow-[0_35px_80px_rgba(0,0,0,0.18)]">
+                    <div className="relative h-72 bg-[#fff2ef]">
+                      <Image
+                        src={selectedRestaurant?.logoUrl || "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=900&q=80"}
+                        alt={selectedRestaurant?.name || "Featured restaurant"}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    <div className="space-y-3 p-6">
+                      {renderStars()}
+                      <div>
+                        <p className="text-2xl font-bold text-[#121212]">
+                          {selectedRestaurant?.name || "KhanaSathi Favorites"}
+                        </p>
+                        <p className="mt-2 text-sm text-[#6c675f]">
+                          {selectedRestaurant?.address?.addressLine1 || "Curated restaurant picks from your live project data."}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-bold text-[#d62828]">
+                          {formatPriceRange(selectedRestaurant?.priceRange || "Rs.")}
+                        </span>
+                        <span className="rounded-full bg-[#fff4c2] px-3 py-1 font-semibold text-[#7a5d00]">
+                          {selectedDelivery}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
